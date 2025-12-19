@@ -1,0 +1,8 @@
+{
+  "name": "GOL ShiftFlow System - PROJETO ESTRUTURADO 19/12",
+  "description": "Sistema avançado de coleta de dados operacionais, dashboards e gerenciamento de bases para controle de passagem de serviço.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}

@@ -1,6 +1,6 @@
 {
-  "name": "GOL ShiftFlow System - PROJETO ESTRUTURADO 19/12",
-  "description": "Sistema avançado de coleta de dados operacionais, dashboards e gerenciamento de bases para controle de passagem de serviço.",
+  "name": "GOL ShiftFlow System - GESTÃO V2",
+  "description": "Sistema avançado de coleta de dados operacionais, dashboards e gerenciamento de bases para controle de passagem de serviço com alertas visuais configuráveis.",
   "requestFramePermissions": [
     "camera",
     "microphone"

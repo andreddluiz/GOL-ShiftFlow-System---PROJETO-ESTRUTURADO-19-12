@@ -16,8 +16,8 @@ import {
   MapPin,
   FileText
 } from 'lucide-react';
-import { BASES } from './constants';
 import { Base, PermissionLevel } from './types';
+import { useStore } from './hooks/useStore';
 
 // Pages
 import DiagnosticPage from './pages/DiagnosticPage';
@@ -29,25 +29,36 @@ import ReportsPage from './pages/ReportsPage';
 import AnnouncementsPage from './pages/AnnouncementsPage';
 
 const App: React.FC = () => {
+  const { bases, loading, initialized, refreshData } = useStore();
   const [selectedBase, setSelectedBase] = useState<Base | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isBaseModalOpen, setIsBaseModalOpen] = useState(false);
 
-  // Authentication Mock
-  const user = {
-    nome: 'Admin GOL',
-    email: 'admin@voegol.com.br',
-    permissao: PermissionLevel.ADMIN,
-    bases: ['poa', 'fln', 'gru', 'gig', 'cwb', 'sdu']
-  };
-
+  // Carga inicial disparada apenas UMA VEZ na montagem do App
   useEffect(() => {
-    if (!selectedBase && user.bases.length > 0) {
+    if (!initialized) {
+      refreshData(true); // showFullLoading = true
+    }
+  }, [initialized, refreshData]);
+
+  // Abre modal de seleção se não houver base selecionada após inicializar
+  useEffect(() => {
+    if (initialized && !selectedBase && bases.length > 0) {
       setIsBaseModalOpen(true);
     }
-  }, [selectedBase]);
+  }, [initialized, selectedBase, bases]);
 
   const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
+
+  // Só bloqueia a tela se estiver no loading INICIAL
+  if (loading && !initialized) {
+    return (
+      <div className="h-screen w-screen flex flex-col items-center justify-center bg-gray-50">
+        <Plane className="w-12 h-12 text-orange-500 animate-bounce mb-4" />
+        <p className="text-gray-500 font-bold animate-pulse">Sincronizando dados operacionais...</p>
+      </div>
+    );
+  }
 
   return (
     <Router>
@@ -99,12 +110,12 @@ const App: React.FC = () => {
             )}
             <div className={`flex items-center ${isSidebarOpen ? 'space-x-3' : 'justify-center'}`}>
               <div className="w-10 h-10 rounded-full bg-white text-orange-600 flex items-center justify-center font-bold">
-                {user.nome.charAt(0)}
+                U
               </div>
               {isSidebarOpen && (
                 <div className="flex-1 overflow-hidden">
-                  <p className="text-sm font-semibold truncate">{user.nome}</p>
-                  <p className="text-xs text-orange-100 truncate">{user.permissao}</p>
+                  <p className="text-sm font-semibold truncate">Usuário GOL</p>
+                  <p className="text-xs text-orange-100 truncate">Administrador</p>
                 </div>
               )}
             </div>
@@ -150,8 +161,7 @@ const App: React.FC = () => {
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
             <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden transform transition-all">
               <div className="gol-orange p-6 text-white flex justify-between items-center">
-                <h2 className="text-2xl font-bold">Bem-vindo, {user.nome.split(' ')[0]}!</h2>
-                {!selectedBase && <Plane className="w-6 h-6 animate-pulse" />}
+                <h2 className="text-2xl font-bold">Bem-vindo!</h2>
                 {selectedBase && (
                   <button onClick={() => setIsBaseModalOpen(false)} className="hover:bg-orange-600 p-1 rounded">
                     <X className="w-6 h-6" />
@@ -159,9 +169,9 @@ const App: React.FC = () => {
                 )}
               </div>
               <div className="p-8 text-center">
-                <p className="text-gray-600 mb-6 text-lg">Selecione a base operacional que deseja visualizar hoje:</p>
+                <p className="text-gray-600 mb-6 text-lg">Selecione a base operacional:</p>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                  {BASES.map(base => (
+                  {bases.map(base => (
                     <button
                       key={base.id}
                       onClick={() => {

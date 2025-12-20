@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   Save, 
   CheckCircle, 
@@ -70,6 +70,11 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
   const [controlesValores, setControlesValores] = useState<Record<string, number>>({});
   const [obs, setObs] = useState('');
 
+  // Estados para Visibilidade Inteligente do Painel
+  const [showStickyHeader, setShowStickyHeader] = useState(false);
+  const [isPanelVisible, setIsPanelVisible] = useState(true);
+  const hideTimeoutRef = useRef<number | null>(null);
+
   // Cálculo de Disponibilidade
   const horasDisponiveis = useMemo(() => {
     return colaboradoresIds.reduce((acc, userId) => {
@@ -82,12 +87,9 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
   // Cálculo de Produção
   const horasProduzidas = useMemo(() => {
     let totalMinutos = 0;
-
-    // Tarefas Operacionais
     Object.entries(tarefasValores).forEach(([taskId, val]) => {
       const task = opTasks.find(t => t.id === taskId);
       if (!task) return;
-
       if (task.tipoMedida === MeasureType.QTD) {
         const qtd = parseInt(val) || 0;
         totalMinutos += qtd * task.fatorMultiplicador;
@@ -95,12 +97,7 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
         totalMinutos += timeToMinutes(val);
       }
     });
-
-    // Outras Atividades
-    outrasAtividades.forEach(atv => {
-      totalMinutos += atv.tempo;
-    });
-
+    outrasAtividades.forEach(atv => { totalMinutos += atv.tempo; });
     return totalMinutos / 60;
   }, [tarefasValores, opTasks, outrasAtividades]);
 
@@ -111,15 +108,46 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
   }, [horasDisponiveis, horasProduzidas]);
 
   const getCorPerformance = (p: number) => {
-    // Busca metas da base ou usa default
     const verde = currentBase?.metaVerde || 70;
     const amarelo = currentBase?.metaAmarelo || 40;
-
-    if (p < amarelo) return '#F44336'; // Vermelho
-    if (p < verde) return '#FFC107'; // Amarelo
-    if (p <= 100) return '#4CAF50'; // Verde
-    return '#2196F3'; // Azul (Excedeu 100%)
+    if (p < amarelo) return '#F44336'; 
+    if (p < verde) return '#FFC107'; 
+    if (p <= 100) return '#4CAF50'; 
+    return '#2196F3'; 
   };
+
+  /**
+   * Lógica de Auto-Ocultar Painel
+   */
+  const triggerPanelVisibility = () => {
+    setIsPanelVisible(true);
+    if (hideTimeoutRef.current) window.clearTimeout(hideTimeoutRef.current);
+    
+    // Oculta o painel após 2.5 segundos de inatividade
+    hideTimeoutRef.current = window.setTimeout(() => {
+      setIsPanelVisible(false);
+    }, 2500);
+  };
+
+  useEffect(() => {
+    const handleScroll = () => {
+      const scrollPosition = window.scrollY;
+      // Ativa o modo sticky após rolar 150px
+      setShowStickyHeader(scrollPosition > 150);
+      triggerPanelVisibility();
+    };
+
+    window.addEventListener('scroll', handleScroll);
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+      if (hideTimeoutRef.current) window.clearTimeout(hideTimeoutRef.current);
+    };
+  }, []);
+
+  // Mostrar sempre que houver alteração nos dados
+  useEffect(() => {
+    triggerPanelVisibility();
+  }, [tarefasValores, colaboradoresIds, outrasAtividades]);
 
   // Handlers
   const handleColaboradorChange = (index: number, userId: string) => {
@@ -151,14 +179,11 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
       alert('Por favor, selecione pelo menos um colaborador para calcular a disponibilidade.');
       return;
     }
-    
-    // Validar obrigatórios
     const missingTask = opTasks.find(t => t.obrigatoriedade && !tarefasValores[t.id]);
     if (missingTask) {
       alert(`A tarefa "${missingTask.nome}" é obrigatória.`);
       return;
     }
-
     if (confirm('Deseja finalizar a passagem de serviço? Os dados não poderão ser editados.')) {
       setStatus('Finalizado');
       alert('Passagem de serviço finalizada com sucesso! Dados consolidados.');
@@ -178,59 +203,78 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
   }
 
   return (
-    <div className="max-w-6xl mx-auto space-y-8 pb-32 animate-in fade-in duration-500">
+    <div className="max-w-6xl mx-auto space-y-8 pb-32 animate-in fade-in duration-500 relative">
       
-      {/* 1. HEADER DE PRODUTIVIDADE */}
-      <div className="bg-white p-8 rounded-[2.5rem] shadow-xl shadow-orange-100/50 border border-orange-50 relative overflow-hidden">
-        <div className="absolute top-0 right-0 p-12 opacity-5">
-           <TrendingUp className="w-40 h-40 text-orange-600" />
-        </div>
-        
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-8 relative z-10">
-          <KPICard 
-            label="Disponível (Horas)" 
-            value={`${horasDisponiveis.toFixed(1)}h`} 
-            icon={<Clock className="text-blue-500" />}
-            subtext="Capacidade Total Escalada"
-          />
-          <KPICard 
-            label="Produzido (Horas)" 
-            value={minutesToHHMMSS(horasProduzidas * 60)} 
-            icon={<Timer className="text-orange-500" />}
-            subtext="Esforço em Atividades"
-          />
-          <KPICard 
-            label="Performance do Turno" 
-            value={`${performance.toFixed(1)}%`} 
-            icon={<TrendingUp style={{ color: getCorPerformance(performance) }} />}
-            color={getCorPerformance(performance)}
-            subtext="Eficiência Operacional"
-          />
-        </div>
+      {/* 1. PAINEL DE PERFORMANCE INTELIGENTE */}
+      {/* Ocupa espaço estático no topo, mas fica fixo e some quando rola e para */}
+      <div 
+        className={`${
+          showStickyHeader 
+            ? 'fixed top-0 left-0 right-0 z-[100] transition-all duration-700 ease-in-out' 
+            : 'relative z-30 transition-none'
+        } ${
+          showStickyHeader && !isPanelVisible ? '-translate-y-full opacity-0' : 'translate-y-0 opacity-100'
+        }`}
+      >
+        <div className={`${showStickyHeader ? 'max-w-6xl mx-auto px-4 pt-4' : 'px-0 pt-0'}`}>
+          <div 
+            className={`bg-white p-6 rounded-[2.5rem] shadow-2xl border border-orange-50 relative overflow-hidden transition-all duration-500 ${
+              showStickyHeader ? 'shadow-orange-200/40 backdrop-blur-xl bg-white/90' : 'shadow-orange-200/20'
+            }`}
+          >
+            <div className="absolute top-0 right-0 p-8 opacity-5 pointer-events-none">
+              <TrendingUp className="w-32 h-32 text-orange-600" />
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6 relative z-10">
+              <KPICard 
+                label="Disponível (Horas)" 
+                value={`${horasDisponiveis.toFixed(1)}h`} 
+                icon={<Clock className="text-blue-500 w-5 h-5" />}
+                subtext="Capacidade Total Escalada"
+              />
+              <KPICard 
+                label="Produzido (Horas)" 
+                value={minutesToHHMMSS(horasProduzidas * 60)} 
+                icon={<Timer className="text-orange-500 w-5 h-5" />}
+                subtext="Esforço em Atividades"
+              />
+              <KPICard 
+                label="Performance do Turno" 
+                value={`${performance.toFixed(1)}%`} 
+                icon={<TrendingUp className="w-5 h-5" style={{ color: getCorPerformance(performance) }} />}
+                color={getCorPerformance(performance)}
+                subtext="Eficiência Operacional"
+              />
+            </div>
 
-        {/* Barra de Performance */}
-        <div className="space-y-2">
-          <div className="flex justify-between text-[10px] font-black text-gray-400 uppercase tracking-widest">
-            <span>Produtividade Crítica</span>
-            <span>Meta Ativa (Base: {currentBase?.sigla})</span>
-          </div>
-          <div className="h-6 w-full bg-gray-100 rounded-full p-1 shadow-inner flex items-center">
-            <div 
-              className="h-full rounded-full transition-all duration-1000 ease-out shadow-lg"
-              style={{ 
-                width: `${Math.min(performance, 100)}%`, 
-                backgroundColor: getCorPerformance(performance)
-              }}
-            />
-          </div>
-          <div className="flex justify-between text-[10px] font-bold text-gray-400 px-1">
-            <span className="text-red-500">Crítico ({currentBase?.metaAmarelo || 40}%)</span>
-            <span className="text-yellow-600">Atenção</span>
-            <span className="text-green-600">Meta ({currentBase?.metaVerde || 70}%)</span>
-            <span className="text-blue-600 font-black">Superação</span>
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-[9px] font-black text-gray-400 uppercase tracking-widest px-1">
+                <span>Produtividade Crítica</span>
+                <span>Meta Ativa (Base: {currentBase?.sigla})</span>
+              </div>
+              <div className="h-5 w-full bg-gray-100 rounded-full p-1 shadow-inner flex items-center">
+                <div 
+                  className="h-full rounded-full transition-all duration-1000 ease-out shadow-md"
+                  style={{ 
+                    width: `${Math.min(performance, 100)}%`, 
+                    backgroundColor: getCorPerformance(performance)
+                  }}
+                />
+              </div>
+              <div className="flex justify-between text-[9px] font-bold text-gray-400 px-1">
+                <span className="text-red-500">Crítico ({currentBase?.metaAmarelo || 40}%)</span>
+                <span className="text-yellow-600">Atenção</span>
+                <span className="text-green-600">Meta ({currentBase?.metaVerde || 70}%)</span>
+                <span className="text-blue-600 font-black">Superação</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
+
+      {/* Espaçador para quando o painel fica sticky */}
+      {showStickyHeader && <div className="h-[200px] pointer-events-none"></div>}
 
       {/* 2. DADOS DO TURNO */}
       <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -246,6 +290,7 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
             disabled={isViewOnly}
             value={selectedTurno}
             onChange={(e) => setSelectedTurno(e.target.value)}
+            onFocus={triggerPanelVisibility}
             className="w-full bg-gray-50 border-none rounded-xl p-3 text-sm font-bold text-gray-700 outline-none focus:ring-2 focus:ring-orange-200"
           >
             <option value="">Selecione o Turno...</option>
@@ -274,6 +319,7 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                   <select 
                     disabled={isViewOnly}
                     value={id || ""} 
+                    onFocus={triggerPanelVisibility}
                     onChange={(e) => handleColaboradorChange(index, e.target.value)}
                     className="w-full bg-transparent border-none p-0 text-sm font-bold text-gray-800 outline-none"
                   >
@@ -330,6 +376,7 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                        <input 
                         disabled={isViewOnly}
                         type="number" 
+                        onFocus={triggerPanelVisibility}
                         value={valor || ''}
                         onChange={(e) => setControlesValores({...controlesValores, [control.id]: parseInt(e.target.value) || 0})}
                         className="w-full bg-gray-50 border border-gray-100 rounded-lg p-2 font-black text-center focus:ring-1 focus:ring-orange-200 outline-none"
@@ -386,6 +433,7 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                       <input 
                         disabled={isViewOnly}
                         type="text"
+                        onFocus={triggerPanelVisibility}
                         placeholder={task.tipoMedida === MeasureType.QTD ? "0" : "00:00:00"}
                         value={tarefasValores[task.id] || ''}
                         onChange={(e) => {
@@ -430,6 +478,7 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
             <div key={atv.id} className="bg-white p-4 rounded-2xl border border-gray-100 flex items-center space-x-4 animate-in slide-in-from-left-2">
                <input 
                 disabled={isViewOnly}
+                onFocus={triggerPanelVisibility}
                 placeholder="Descrição da atividade..."
                 value={atv.descricao}
                 onChange={(e) => updateOutraAtividade(atv.id, 'descricao', e.target.value)}
@@ -440,6 +489,7 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                   <input 
                     disabled={isViewOnly}
                     type="number"
+                    onFocus={triggerPanelVisibility}
                     value={atv.tempo || ''}
                     onChange={(e) => updateOutraAtividade(atv.id, 'tempo', parseInt(e.target.value) || 0)}
                     className="w-full bg-gray-50 border-none rounded-lg p-2 font-black text-orange-600 text-center text-sm"
@@ -469,6 +519,7 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
         <textarea 
           disabled={isViewOnly}
           rows={6}
+          onFocus={triggerPanelVisibility}
           value={obs}
           onChange={(e) => setObs(e.target.value)}
           placeholder="Descreva problemas com equipamentos, falta de insumos, atrasos críticos ou qualquer observação relevante para o próximo turno..."
@@ -505,12 +556,12 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
 };
 
 const KPICard: React.FC<{label: string, value: string, icon: React.ReactNode, subtext: string, color?: string}> = ({label, value, icon, subtext, color}) => (
-  <div className="p-4 bg-gray-50/50 rounded-2xl flex items-center space-x-4 border border-white">
-    <div className="p-3 bg-white rounded-xl shadow-sm">{icon}</div>
-    <div>
-      <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{label}</p>
-      <h3 className="text-2xl font-black text-gray-800" style={{ color }}>{value}</h3>
-      <p className="text-[9px] font-bold text-gray-400 uppercase">{subtext}</p>
+  <div className="p-3 bg-gray-50/50 rounded-xl flex items-center space-x-3 border border-white transition-all">
+    <div className="p-2 bg-white rounded-lg shadow-sm shrink-0">{icon}</div>
+    <div className="min-w-0">
+      <p className="text-[8px] font-black text-gray-400 uppercase tracking-widest truncate">{label}</p>
+      <h3 className="text-lg font-black text-gray-800 truncate" style={{ color }}>{value}</h3>
+      <p className="text-[7px] font-bold text-gray-400 uppercase truncate">{subtext}</p>
     </div>
   </div>
 );

@@ -1,7 +1,13 @@
 
 import { create } from 'zustand';
-import { Base, User, Category, Task, Control } from '../types';
-import { baseService, userService, taskService, categoryService, controlService } from '../services';
+import { 
+  Base, User, Category, Task, Control, ControlType,
+  DefaultLocationItem, DefaultTransitItem, DefaultCriticalItem 
+} from '../types';
+import { 
+  baseService, userService, taskService, categoryService, 
+  controlService, defaultItemsService 
+} from '../services';
 
 interface AppState {
   bases: Base[];
@@ -9,24 +15,22 @@ interface AppState {
   categories: Category[];
   tasks: Task[];
   controls: Control[];
+  defaultLocations: DefaultLocationItem[];
+  defaultTransits: DefaultTransitItem[];
+  defaultCriticals: DefaultCriticalItem[];
   loading: boolean;
   initialized: boolean;
   
-  // Actions
-  setBases: (bases: Base[]) => void;
-  setUsers: (users: User[]) => void;
-  setCategories: (categories: Category[]) => void;
-  setTasks: (tasks: Task[]) => void;
-  setControls: (controls: Control[]) => void;
-  setLoading: (loading: boolean) => void;
-  
-  // Ação centralizada de sincronização
   refreshData: (showFullLoading?: boolean) => Promise<void>;
   
-  // Getters/Selectors Úteis Combinados
   getOpCategoriesCombinadas: (baseId?: string | null) => Category[];
   getOpTasksCombinadas: (baseId?: string | null) => Task[];
-  getMonthlyCategoriesCombinadas: (baseId?: string | null) => Category[];
+  getControlesCombinados: (baseId: string) => Control[];
+  
+  // Seletores de Itens Padrão
+  getDefaultLocations: (baseId: string) => DefaultLocationItem[];
+  getDefaultTransits: (baseId: string) => DefaultTransitItem[];
+  getDefaultCriticals: (baseId: string) => DefaultCriticalItem[];
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -35,65 +39,89 @@ export const useStore = create<AppState>((set, get) => ({
   categories: [],
   tasks: [],
   controls: [],
+  defaultLocations: [],
+  defaultTransits: [],
+  defaultCriticals: [],
   loading: false,
   initialized: false,
 
-  setBases: (bases) => set({ bases }),
-  setUsers: (users) => set({ users }),
-  setCategories: (categories) => set({ categories }),
-  setTasks: (tasks) => set({ tasks }),
-  setControls: (controls) => set({ controls }),
-  setLoading: (loading) => set({ loading }),
-
-  // Retorna categorias Globais + Categorias da Base Específica
-  getOpCategoriesCombinadas: (baseId) => {
-    return get().categories.filter(c => 
-      c.tipo === 'operacional' && 
-      c.status === 'Ativa' && 
-      (!c.baseId || c.baseId === baseId)
-    ).sort((a,b) => a.ordem - b.ordem);
-  },
-
-  // Retorna tarefas Globais + Tarefas da Base Específica
-  getOpTasksCombinadas: (baseId) => {
-    return get().tasks.filter(t => 
-      t.status === 'Ativa' && 
-      (!t.baseId || t.baseId === baseId)
-    );
-  },
-
-  getMonthlyCategoriesCombinadas: (baseId) => {
-    return get().categories.filter(c => 
-      c.tipo === 'mensal' && 
-      c.status === 'Ativa' && 
-      (!c.baseId || c.baseId === baseId)
-    ).sort((a,b) => a.ordem - b.ordem);
-  },
-
   refreshData: async (showFullLoading = false) => {
     if (showFullLoading) set({ loading: true });
-    
     try {
-      const [bases, users, tasks, cats, controls] = await Promise.all([
+      const [bases, users, tasks, cats, controls, defLocs, defTrans, defCrit] = await Promise.all([
         baseService.getAll(),
         userService.getAll(),
         taskService.getAll(),
         categoryService.getAll(),
-        controlService.getAll()
+        controlService.getAll(),
+        defaultItemsService.getLocations(),
+        defaultItemsService.getTransits(),
+        defaultItemsService.getCriticals()
       ]);
-      
       set({ 
-        bases, 
-        users, 
-        tasks, 
-        categories: cats, 
-        controls,
+        bases, users, tasks, categories: cats, controls, 
+        defaultLocations: defLocs, defaultTransits: defTrans, defaultCriticals: defCrit,
         initialized: true 
       });
-    } catch (error) {
-      console.error("❌ Erro crítico na sincronização:", error);
     } finally {
       if (showFullLoading) set({ loading: false });
     }
+  },
+
+  getOpCategoriesCombinadas: (baseId) => {
+    return get().categories.filter(c => 
+      c.tipo === 'operacional' && c.status === 'Ativa' && (!c.baseId || c.baseId === baseId)
+    ).sort((a,b) => a.ordem - b.ordem);
+  },
+
+  getOpTasksCombinadas: (baseId) => {
+    return get().tasks.filter(t => 
+      t.status === 'Ativa' && (!t.baseId || t.baseId === baseId)
+    );
+  },
+
+  getControlesCombinados: (baseId) => {
+    const all = get().controls.filter(c => c.status === 'Ativo');
+    const globais = all.filter(c => c.baseId === null);
+    const locais = all.filter(c => c.baseId === baseId);
+
+    const tipos: ControlType[] = ['locations', 'transito', 'shelf_life', 'itens_criticos'];
+
+    return tipos.map(tipo => {
+      const local = locais.find(l => l.tipo === tipo);
+      const global = globais.find(g => g.tipo === tipo);
+      return local || global || {
+        id: `fallback-${tipo}`,
+        baseId: null,
+        nome: tipo.toUpperCase(),
+        tipo: tipo,
+        descricao: 'Configuração padrão do sistema',
+        unidade: 'unidade',
+        status: 'Ativo',
+        alertaConfig: {
+          verde: 2, amarelo: 5, vermelho: 6,
+          permitirPopupVerde: false, permitirPopupAmarelo: true, permitirPopupVermelho: true,
+          mensagemVerde: '', mensagemAmarelo: 'Atenção ao prazo!', mensagemVermelho: 'LIMITE CRÍTICO ATINGIDO!'
+        }
+      } as Control;
+    });
+  },
+
+  getDefaultLocations: (baseId) => {
+    return get().defaultLocations.filter(i => 
+      i.status === 'ativo' && (!i.baseId || i.baseId === baseId)
+    );
+  },
+
+  getDefaultTransits: (baseId) => {
+    return get().defaultTransits.filter(i => 
+      i.status === 'ativo' && (!i.baseId || i.baseId === baseId)
+    );
+  },
+
+  getDefaultCriticals: (baseId) => {
+    return get().defaultCriticals.filter(i => 
+      i.status === 'ativo' && (!i.baseId || i.baseId === baseId)
+    );
   }
 }));

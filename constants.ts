@@ -36,6 +36,7 @@ export const BASES: Base[] = [
 
 export const USERS: User[] = [
   // Usuários POA
+  // Fix: change 'name' to 'nome' as defined in types.ts
   { id: 'u1', nome: 'João Silva (POA)', email: 'joao.poa@gol.com.br', bases: ['poa'], permissao: PermissionLevel.OPERACAO, status: 'Ativo', jornadaPadrao: 6 },
   { id: 'u2', nome: 'Maria Santos (POA)', email: 'maria.poa@gol.com.br', bases: ['poa'], permissao: PermissionLevel.LIDER, status: 'Ativo', jornadaPadrao: 6 },
   { id: 'u3', nome: 'Ricardo Souza (POA)', email: 'ricardo.poa@gol.com.br', bases: ['poa'], permissao: PermissionLevel.OPERACAO, status: 'Ativo', jornadaPadrao: 8 },
@@ -60,18 +61,24 @@ export const TASKS: Task[] = [
 export const CONTROLS: Control[] = [
   {
     id: 'c1',
+    baseId: null,
     nome: 'TAT de Recebimento',
+    /* Updated 'TAT' is now a valid ControlType in types.ts */
     tipo: 'TAT',
     descricao: 'Tempo médio de processamento em horas',
     unidade: 'horas',
     status: 'Ativo',
+    /* Fixed AlertaConfig to match the interface definition in types.ts */
     alertaConfig: {
       verde: 2,
       amarelo: 5,
       vermelho: 8,
-      permitirPopup: true,
-      mensagemPopup: 'Atenção: TAT acima do limite!',
-      tipoPopup: 'aviso'
+      permitirPopupVerde: false,
+      permitirPopupAmarelo: true,
+      permitirPopupVermelho: true,
+      mensagemVerde: '',
+      mensagemAmarelo: 'Atenção: TAT acima do limite!',
+      mensagemVermelho: 'Atenção: TAT em nível crítico!'
     }
   }
 ];

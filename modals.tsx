@@ -1,7 +1,17 @@
 
-import React, { useState, useEffect } from 'react';
-import { X, Plus, Trash2, Clock, MapPin, Shield, Info, AlertCircle, TrendingUp } from 'lucide-react';
-import { Base, User, Category, Task, Control, Shift, PermissionLevel, MeasureType } from './types';
+import React, { useState, useEffect, useRef } from 'react';
+import { X, Plus, Trash2, Clock, MapPin, Shield, Info, AlertCircle, TrendingUp, Box, Truck, AlertOctagon, Calendar } from 'lucide-react';
+import { 
+  Base, User, Category, Task, Control, Shift, PermissionLevel, MeasureType,
+  DefaultLocationItem, DefaultTransitItem, DefaultCriticalItem 
+} from './types';
+
+// MUI Imports
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
+import { DatePicker } from '@mui/x-date-pickers/DatePicker';
+import dayjs from 'dayjs';
+import 'dayjs/locale/pt-br';
 
 interface ModalProps {
   isOpen: boolean;
@@ -11,531 +21,311 @@ interface ModalProps {
   initialData?: any;
 }
 
-// Utilitários de conversão para o modal
-const decimalToHHMMSS = (decimalHours: number): string => {
-  const totalSeconds = Math.round(decimalHours * 3600);
-  const h = Math.floor(totalSeconds / 3600);
-  const m = Math.floor((totalSeconds % 3600) / 60);
-  const s = totalSeconds % 60;
-  return [h, m, s].map(v => String(v).padStart(2, '0')).join(':');
+/**
+ * Utilitários de Conversão de Tempo
+ */
+export const hhmmssToMinutes = (hms: string): number => {
+  if (!hms || hms === '00:00:00' || hms === '__:__:__') return 0;
+  const cleanHms = hms.replace(/_/g, '0');
+  const parts = cleanHms.split(':').map(v => parseInt(v) || 0);
+  const h = parts[0] || 0;
+  const m = parts[1] || 0;
+  const s = parts[2] || 0;
+  return (h * 60) + m + (s / 60);
 };
 
-const hhmmssToDecimal = (hhmmss: string): number => {
-  const parts = hhmmss.split(':').map(Number);
-  if (parts.length !== 3) return 0;
-  const [h, m, s] = parts;
-  return h + (m / 60) + (s / 3600);
+export const minutesToHhmmss = (totalMinutes: number): string => {
+  if (isNaN(totalMinutes) || totalMinutes <= 0) return '00:00:00';
+  const h = Math.floor(totalMinutes / 60);
+  const m = Math.floor(totalMinutes % 60);
+  const s = Math.round((totalMinutes * 60) % 60);
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  return `${pad(h)}:${pad(m)}:${pad(s)}`;
 };
 
-export const CategoryModal: React.FC<ModalProps & { tipo: 'operacional' | 'mensal' }> = ({ isOpen, onClose, onSave, title, initialData, tipo }) => {
-  const [formData, setFormData] = useState<Partial<Category>>({
-    nome: '',
-    tipo: tipo,
-    ordem: 1,
-    status: 'Ativa'
-  });
+/**
+ * Componente TimeInput com máscara HH:MM:SS e suporte a campo em branco
+ */
+export const TimeInput: React.FC<{
+  value: string;
+  onChange: (val: string) => void;
+  disabled?: boolean;
+  className?: string;
+  placeholder?: string;
+}> = ({ value, onChange, disabled, className, placeholder = "__:__:__" }) => {
+  const [displayValue, setDisplayValue] = useState(value || "");
 
   useEffect(() => {
-    if (initialData) setFormData(initialData);
-  }, [initialData]);
+    setDisplayValue(value || "");
+  }, [value]);
 
-  if (!isOpen) return null;
+  const handleInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let val = e.target.value.replace(/\D/g, '');
+    if (val.length > 6) val = val.slice(0, 6);
+    
+    let formatted = val;
+    if (val.length >= 5) {
+      formatted = `${val.slice(0, val.length - 4)}:${val.slice(val.length - 4, val.length - 2)}:${val.slice(val.length - 2)}`;
+    } else if (val.length >= 3) {
+      formatted = `${val.slice(0, val.length - 2)}:${val.slice(val.length - 2)}`;
+    }
+
+    // Se estiver vazio, permite ficar vazio
+    if (val === "") {
+      setDisplayValue("");
+      onChange("");
+      return;
+    }
+
+    // Preenche com zeros à esquerda apenas se necessário para manter o formato mas visualmente amigável
+    const finalVal = formatted.padStart(val.length <= 2 ? val.length : (val.length <= 4 ? val.length + 1 : val.length + 2), '0');
+    setDisplayValue(finalVal);
+    
+    // Só dispara o onChange com o valor final completo se tiver 6 dígitos, ou envia o parcial
+    if (val.length === 6) {
+       onChange(finalVal);
+    } else {
+       onChange(finalVal); // Deixa o componente pai lidar com a conversão parcial
+    }
+  };
+
+  const handleBlur = () => {
+    if (displayValue && displayValue.length < 8 && displayValue !== "") {
+      const parts = displayValue.split(':');
+      const h = (parts[0] || '0').padStart(2, '0');
+      const m = (parts[1] || '0').padStart(2, '0');
+      const s = (parts[2] || '0').padStart(2, '0');
+      const full = `${h}:${m}:${s}`;
+      setDisplayValue(full);
+      onChange(full);
+    }
+  };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl animate-in fade-in zoom-in-95">
-        <div className="p-6 border-b flex justify-between items-center bg-gray-100 rounded-t-3xl">
-          <h3 className="text-xl font-bold text-gray-800">{title}</h3>
-          <button onClick={onClose} className="p-2 hover:bg-white rounded-full transition-colors"><X className="w-5 h-5" /></button>
-        </div>
-        <div className="p-8 space-y-6">
-          <div className="space-y-2">
-            <label className="text-xs font-black text-gray-400 uppercase">Nome da Categoria *</label>
-            <input 
-              value={formData.nome} 
-              onChange={e => setFormData({...formData, nome: e.target.value})}
-              className="w-full p-4 bg-gray-50 border rounded-2xl outline-none focus:border-orange-500" 
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className="text-xs font-black text-gray-400 uppercase">Ordem</label>
-              <input 
-                type="number"
-                value={formData.ordem} 
-                onChange={e => setFormData({...formData, ordem: parseInt(e.target.value) || 1})}
-                className="w-full p-4 bg-gray-50 border rounded-2xl outline-none" 
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-xs font-black text-gray-400 uppercase">Status</label>
-              <select 
-                value={formData.status}
-                onChange={e => setFormData({...formData, status: e.target.value as any})}
-                className="w-full p-4 bg-gray-50 border rounded-2xl outline-none"
-              >
-                <option value="Ativa">Ativa</option>
-                <option value="Inativa">Inativa</option>
-              </select>
-            </div>
-          </div>
-        </div>
-        <div className="p-8 border-t flex space-x-3">
-          <button onClick={onClose} className="flex-1 py-4 font-bold text-gray-400">Cancelar</button>
-          <button onClick={() => onSave(formData)} className="flex-1 py-4 font-bold gol-orange text-white rounded-2xl">Salvar Categoria</button>
-        </div>
+    <input
+      type="text"
+      disabled={disabled}
+      value={displayValue}
+      onBlur={handleBlur}
+      onChange={handleInput}
+      placeholder={placeholder}
+      className={`font-black text-center outline-none ${className}`}
+    />
+  );
+};
+
+export const DatePickerField: React.FC<{
+  label?: string;
+  value: string;
+  onChange: (val: string) => void;
+  onBlur?: () => void;
+  placeholder?: string;
+  disabled?: boolean;
+}> = ({ label, value, onChange, onBlur, placeholder = "DD/MM/AAAA", disabled = false }) => {
+  const dateValue = value && dayjs(value, 'DD/MM/YYYY').isValid() 
+    ? dayjs(value, 'DD/MM/YYYY') 
+    : null;
+
+  return (
+    <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="pt-br">
+      <div className="space-y-1 relative w-full">
+        {label && <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">{label}</label>}
+        <DatePicker
+          value={dateValue}
+          disabled={disabled}
+          format="DD/MM/YYYY"
+          onChange={(newValue) => {
+            if (newValue && dayjs(newValue).isValid()) {
+              const formattedDate = dayjs(newValue).format('DD/MM/YYYY');
+              onChange(formattedDate);
+            }
+          }}
+          slotProps={{
+            textField: {
+              fullWidth: true,
+              variant: 'outlined',
+              placeholder: placeholder,
+              onBlur: onBlur,
+              size: 'small',
+              sx: {
+                '& .MuiOutlinedInput-root': {
+                  borderRadius: '0.75rem',
+                  backgroundColor: '#f9fafb',
+                  fontSize: '0.8rem',
+                  fontWeight: '700',
+                  '& fieldset': { borderColor: '#f3f4f6' },
+                  '&:hover fieldset': { borderColor: '#fdba74' },
+                  '&.Mui-focused fieldset': { borderColor: '#FF5A00' },
+                }
+              }
+            }
+          }}
+        />
       </div>
-    </div>
+    </LocalizationProvider>
   );
 };
 
 export const BaseModal: React.FC<ModalProps> = ({ isOpen, onClose, onSave, title, initialData }) => {
-  const [formData, setFormData] = useState<Partial<Base>>({
-    nome: '',
-    sigla: '',
-    jornada: '8h',
-    numeroTurnos: 3,
-    status: 'Ativa',
-    turnos: [],
-    metaVerde: 70,
-    metaAmarelo: 40
-  });
-
-  useEffect(() => {
-    if (initialData) setFormData(initialData);
-  }, [initialData]);
-
+  const [formData, setFormData] = useState<Partial<Base>>({ nome: '', sigla: '', status: 'Ativa' });
+  useEffect(() => { if (initialData) setFormData(initialData); }, [initialData]);
   if (!isOpen) return null;
-
-  const handleAddShift = () => {
-    const nextNum = (formData.turnos?.length || 0) + 1;
-    setFormData({
-      ...formData,
-      turnos: [...(formData.turnos || []), { id: Date.now().toString(), numero: nextNum, horaInicio: '08:00', horaFim: '16:00' }]
-    });
-  };
-
-  const removeShift = (id: string) => {
-    setFormData({
-      ...formData,
-      turnos: formData.turnos?.filter(s => s.id !== id)
-    });
-  };
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto">
-      <div className="bg-white rounded-3xl w-full max-w-2xl shadow-2xl animate-in fade-in zoom-in-95">
-        <div className="p-6 border-b flex justify-between items-center bg-orange-50 rounded-t-3xl">
-          <h3 className="text-xl font-bold text-gray-800">{title}</h3>
-          <button onClick={onClose} className="p-2 hover:bg-white rounded-full transition-colors"><X className="w-5 h-5" /></button>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl p-8 animate-in zoom-in-95">
+        <h3 className="text-xl font-bold mb-4">{title}</h3>
+        <div className="space-y-4">
+          <input className="w-full p-3 border rounded-xl font-bold" placeholder="Nome" value={formData.nome} onChange={e => setFormData({...formData, nome: e.target.value})} />
+          <input className="w-full p-3 border rounded-xl font-black uppercase" placeholder="Sigla" value={formData.sigla} onChange={e => setFormData({...formData, sigla: e.target.value})} />
         </div>
-        <div className="p-8 space-y-8">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-2">
-              <label className="text-xs font-black text-gray-400 uppercase">Nome da Base *</label>
-              <input 
-                value={formData.nome} 
-                onChange={e => setFormData({...formData, nome: e.target.value})}
-                className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:border-orange-500 outline-none" 
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-xs font-black text-gray-400 uppercase">Sigla *</label>
-              <input 
-                value={formData.sigla} 
-                onChange={e => setFormData({...formData, sigla: e.target.value})}
-                className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:border-orange-500 outline-none" 
-              />
-            </div>
-          </div>
-
-          <div className="p-6 bg-gray-50 rounded-3xl border border-gray-100 space-y-6">
-            <h4 className="font-black text-xs uppercase text-gray-400 tracking-widest flex items-center space-x-2">
-              <TrendingUp className="w-4 h-4" /> <span>Metas de Produtividade (%)</span>
-            </h4>
-            <div className="grid grid-cols-2 gap-6">
-              <div className="space-y-2">
-                 <div className="flex items-center space-x-2">
-                    <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-                    <label className="text-xs font-bold text-gray-500">Mínimo para Verde</label>
-                 </div>
-                 <input 
-                  type="number" 
-                  value={formData.metaVerde} 
-                  onChange={e => setFormData({...formData, metaVerde: parseInt(e.target.value) || 0})}
-                  className="w-full p-3 bg-white border rounded-xl font-bold text-center" 
-                  placeholder="Ex: 70"
-                />
-              </div>
-              <div className="space-y-2">
-                 <div className="flex items-center space-x-2">
-                    <div className="w-3 h-3 bg-yellow-500 rounded-full"></div>
-                    <label className="text-xs font-bold text-gray-500">Mínimo para Amarelo</label>
-                 </div>
-                 <input 
-                  type="number" 
-                  value={formData.metaAmarelo} 
-                  onChange={e => setFormData({...formData, metaAmarelo: parseInt(e.target.value) || 0})}
-                  className="w-full p-3 bg-white border rounded-xl font-bold text-center" 
-                  placeholder="Ex: 40"
-                />
-              </div>
-            </div>
-            <p className="text-[10px] text-gray-400 italic">Valores abaixo do Amarelo serão considerados Performance Crítica (Vermelho).</p>
-          </div>
-
-          <div className="space-y-4">
-            <div className="flex justify-between items-center border-t pt-6">
-              <h4 className="font-bold text-gray-800">Cadastro de Turnos</h4>
-              <button onClick={handleAddShift} className="text-sm font-bold text-orange-600 hover:text-orange-700 flex items-center space-x-1">
-                <Plus className="w-4 h-4" /> <span>Adicionar Turno</span>
-              </button>
-            </div>
-            <div className="space-y-3">
-              {formData.turnos?.map((shift, idx) => (
-                <div key={shift.id} className="flex items-center space-x-4 bg-gray-50 p-4 rounded-2xl border border-gray-100">
-                  <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center font-bold text-orange-600 shadow-sm">{idx + 1}</div>
-                  <div className="flex-1 grid grid-cols-2 gap-3">
-                    <input type="time" value={shift.horaInicio} onChange={e => {
-                      const updated = [...(formData.turnos || [])];
-                      updated[idx].horaInicio = e.target.value;
-                      setFormData({...formData, turnos: updated});
-                    }} className="bg-transparent border-none font-bold" />
-                    <input type="time" value={shift.horaFim} onChange={e => {
-                      const updated = [...(formData.turnos || [])];
-                      updated[idx].horaFim = e.target.value;
-                      setFormData({...formData, turnos: updated});
-                    }} className="bg-transparent border-none font-bold" />
-                  </div>
-                  <button onClick={() => removeShift(shift.id)} className="text-gray-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-        <div className="p-8 border-t flex space-x-3">
-          <button onClick={onClose} className="flex-1 py-3 font-bold text-gray-500 border rounded-2xl">Cancelar</button>
-          <button onClick={() => onSave(formData)} className="flex-1 py-3 font-bold gol-orange text-white rounded-2xl shadow-lg shadow-orange-100">Salvar Base</button>
+        <div className="flex space-x-2 mt-6">
+          <button onClick={onClose} className="flex-1 py-3 bg-gray-100 rounded-xl font-bold text-gray-500">Cancelar</button>
+          <button onClick={() => onSave({...formData, id: formData.id || Math.random().toString(36).substr(2, 9)})} className="flex-1 py-3 bg-orange-600 text-white rounded-xl font-bold shadow-lg">Salvar</button>
         </div>
       </div>
     </div>
   );
 };
 
-export const UserModal: React.FC<ModalProps & { allBases: Base[] }> = ({ isOpen, onClose, onSave, title, initialData, allBases }) => {
-  const [formData, setFormData] = useState<Partial<User>>({
-    nome: '',
-    email: '',
-    loginRE: '',
-    permissao: PermissionLevel.OPERACAO,
-    status: 'Ativo',
-    bases: [],
-    jornadaPadrao: 6
-  });
-
-  const [jornadaOption, setJornadaOption] = useState<string>('6');
-  const [customHHMMSS, setCustomHHMMSS] = useState<string>('00:00:00');
-  const standardJornadas = [4, 6, 8, 10, 12];
-
-  useEffect(() => {
-    if (initialData) {
-      setFormData(initialData);
-      const isStd = standardJornadas.includes(initialData.jornadaPadrao);
-      if (isStd) {
-        setJornadaOption(String(initialData.jornadaPadrao));
-      } else {
-        setJornadaOption('outra');
-        setCustomHHMMSS(decimalToHHMMSS(initialData.jornadaPadrao));
-      }
-    } else {
-      setJornadaOption('6');
-      setFormData(prev => ({ ...prev, jornadaPadrao: 6 }));
-    }
-  }, [initialData]);
-
+export const UserModal: React.FC<ModalProps> = ({ isOpen, onClose, onSave, title, initialData }) => {
+  const [formData, setFormData] = useState<Partial<User>>({ nome: '', email: '', status: 'Ativo' });
+  useEffect(() => { if (initialData) setFormData(initialData); }, [initialData]);
   if (!isOpen) return null;
-
-  const toggleBase = (id: string) => {
-    const current = formData.bases || [];
-    setFormData({
-      ...formData,
-      bases: current.includes(id) ? current.filter(b => b !== id) : [...current, id]
-    });
-  };
-
-  const handleJornadaOptionChange = (val: string) => {
-    setJornadaOption(val);
-    if (val !== 'outra') {
-      setFormData({ ...formData, jornadaPadrao: parseInt(val) });
-    } else {
-      // Ao mudar para outra, inicializa com o que estiver no customHHMMSS
-      setFormData({ ...formData, jornadaPadrao: hhmmssToDecimal(customHHMMSS) });
-    }
-  };
-
-  const handleHHMMSSChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    let val = e.target.value.replace(/\D/g, '');
-    if (val.length > 6) val = val.slice(0, 6);
-    
-    // Aplica máscara HH:MM:SS
-    let formatted = val;
-    if (val.length > 4) {
-      formatted = val.replace(/(\d{2})(\d{2})(\d{2})/, '$1:$2:$3');
-    } else if (val.length > 2) {
-      formatted = val.replace(/(\d{2})(\d{2})/, '$1:$2');
-    }
-    
-    setCustomHHMMSS(formatted);
-    
-    // Se estiver completo ou pelo menos com horas/minutos, atualiza o decimal
-    if (formatted.split(':').length === 3) {
-      setFormData({ ...formData, jornadaPadrao: hhmmssToDecimal(formatted) });
-    }
-  };
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto">
-      <div className="bg-white rounded-3xl w-full max-w-xl shadow-2xl animate-in slide-in-from-bottom-4">
-        <div className="p-6 border-b flex justify-between items-center bg-blue-50 rounded-t-3xl text-blue-800">
-          <h3 className="text-xl font-bold">{title}</h3>
-          <button onClick={onClose} className="p-2 hover:bg-white rounded-full transition-colors"><X className="w-5 h-5" /></button>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl p-8 animate-in zoom-in-95">
+        <h3 className="text-xl font-bold mb-4">{title}</h3>
+        <div className="space-y-4">
+          <input className="w-full p-3 border rounded-xl font-bold" placeholder="Nome" value={formData.nome} onChange={e => setFormData({...formData, nome: e.target.value})} />
+          <input className="w-full p-3 border rounded-xl" placeholder="Email" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} />
+          <input className="w-full p-3 border rounded-xl" type="number" placeholder="Jornada Padrão (h)" value={formData.jornadaPadrao} onChange={e => setFormData({...formData, jornadaPadrao: parseInt(e.target.value) || 0})} />
         </div>
-        <div className="p-8 space-y-6">
-          <div className="space-y-2">
-            <label className="text-xs font-black text-gray-400 uppercase">Nome Completo</label>
-            <input 
-              value={formData.nome} 
-              onChange={e => setFormData({...formData, nome: e.target.value})}
-              className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none" 
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className="text-xs font-black text-gray-400 uppercase">Email Corporativo</label>
-              <input 
-                value={formData.email} 
-                onChange={e => setFormData({...formData, email: e.target.value})}
-                className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none" 
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-xs font-black text-gray-400 uppercase">RE / Matrícula</label>
-              <input 
-                value={formData.loginRE} 
-                onChange={e => setFormData({...formData, loginRE: e.target.value})}
-                className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none" 
-              />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className="text-xs font-black text-gray-400 uppercase">Jornada de Trabalho</label>
-              <select 
-                value={jornadaOption}
-                onChange={e => handleJornadaOptionChange(e.target.value)}
-                className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none font-bold"
-              >
-                <option value="4">4 Horas</option>
-                <option value="6">6 Horas</option>
-                <option value="8">8 Horas</option>
-                <option value="10">10 Horas</option>
-                <option value="12">12 Horas</option>
-                <option value="outra">Outra...</option>
-              </select>
-              
-              {jornadaOption === 'outra' && (
-                <div className="mt-2 animate-in fade-in slide-in-from-top-2">
-                   <label className="text-[10px] text-orange-600 font-black uppercase mb-1 block">Carga Horária Nominal (HH:MM:SS)</label>
-                   <input 
-                    type="text"
-                    placeholder="00:00:00"
-                    value={customHHMMSS}
-                    onChange={handleHHMMSSChange}
-                    className="w-full p-3 bg-white border border-orange-200 rounded-xl outline-none font-black text-orange-600 focus:ring-2 focus:ring-orange-100 text-center tracking-widest"
-                   />
-                </div>
-              )}
-            </div>
-            <div className="space-y-2">
-              <label className="text-xs font-black text-gray-400 uppercase">Status</label>
-              <select 
-                value={formData.status}
-                onChange={e => setFormData({...formData, status: e.target.value as any})}
-                className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none"
-              >
-                <option value="Ativo">Ativo</option>
-                <option value="Inativo">Inativo</option>
-              </select>
-            </div>
-          </div>
-          <div className="space-y-2">
-            <label className="text-xs font-black text-gray-400 uppercase">Nível de Permissão</label>
-            <select 
-              value={formData.permissao}
-              onChange={e => setFormData({...formData, permissao: e.target.value as any})}
-              className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none"
-            >
-              {Object.values(PermissionLevel).map(p => <option key={p} value={p}>{p}</option>)}
-            </select>
-          </div>
-          <div className="space-y-2">
-            <label className="text-xs font-black text-gray-400 uppercase">Bases com Acesso</label>
-            <div className="flex flex-wrap gap-2">
-              {allBases.map(base => (
-                <button 
-                  key={base.id}
-                  onClick={() => toggleBase(base.id)}
-                  className={`px-4 py-2 rounded-full text-xs font-bold transition-all ${
-                    formData.bases?.includes(base.id) 
-                    ? 'bg-orange-500 text-white shadow-md' 
-                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                  }`}
-                >
-                  {base.sigla}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-        <div className="p-8 border-t flex space-x-3">
-          <button onClick={onClose} className="flex-1 py-3 font-bold text-gray-500 border rounded-2xl">Cancelar</button>
-          <button onClick={() => onSave(formData)} className="flex-1 py-3 font-bold bg-blue-600 text-white rounded-2xl shadow-lg">Salvar Usuário</button>
+        <div className="flex space-x-2 mt-6">
+          <button onClick={onClose} className="flex-1 py-3 bg-gray-100 rounded-xl font-bold text-gray-500">Cancelar</button>
+          <button onClick={() => onSave({...formData, id: formData.id || Math.random().toString(36).substr(2, 9)})} className="flex-1 py-3 bg-orange-600 text-white rounded-xl font-bold shadow-lg">Salvar</button>
         </div>
       </div>
     </div>
   );
 };
 
-export const TaskModal: React.FC<ModalProps & { categories: Category[] }> = ({ isOpen, onClose, onSave, title, initialData, categories }) => {
-  const [formData, setFormData] = useState<Partial<Task>>({
-    nome: '',
-    categoriaId: '',
-    tipoMedida: MeasureType.QTD,
-    fatorMultiplicador: 5,
-    obrigatoriedade: true,
-    status: 'Ativa'
+export const TaskModal: React.FC<ModalProps & { categories?: Category[] }> = ({ isOpen, onClose, onSave, title, initialData, categories }) => {
+  const [formData, setFormData] = useState<Partial<Task>>({ 
+    nome: '', 
+    status: 'Ativa', 
+    tipoMedida: MeasureType.QTD, 
+    fatorMultiplicador: 0, 
+    categoriaId: '' 
   });
-
-  const [errors, setErrors] = useState<Record<string, boolean>>({});
-
-  useEffect(() => {
+  
+  // Estado local para exibir tempo formatado no modal
+  const [timeValue, setTimeValue] = useState('');
+  
+  useEffect(() => { 
     if (initialData) {
-      setFormData(initialData);
+      const fator = Number(initialData.fatorMultiplicador) || 0;
+      setFormData({
+        ...formData,
+        ...initialData,
+        fatorMultiplicador: fator
+      });
+      // Mesmo para QTD, agora carregamos o fator como HH:MM:SS
+      setTimeValue(fator > 0 ? minutesToHhmmss(fator) : '');
+    } else {
+      setFormData({
+        nome: '', 
+        status: 'Ativa', 
+        tipoMedida: MeasureType.QTD, 
+        fatorMultiplicador: 0, 
+        categoriaId: '' 
+      });
+      setTimeValue('');
     }
-  }, [initialData]);
+  }, [initialData, isOpen]);
 
-  useEffect(() => {
-    if (formData.tipoMedida === MeasureType.TEMPO) {
-      setFormData(prev => ({ ...prev, fatiorMultiplicador: 1 }));
-    }
-  }, [formData.tipoMedida]);
+  if (!isOpen) return null;
 
-  const validateAndSave = () => {
-    const newErrors: Record<string, boolean> = {};
-    if (!formData.nome?.trim()) newErrors.nome = true;
-    if (!formData.categoriaId) newErrors.categoriaId = true;
-    if (formData.tipoMedida === MeasureType.QTD && (!formData.fatorMultiplicador || formData.fatorMultiplicador <= 0)) {
-      newErrors.fator = true;
-    }
-
-    if (Object.keys(newErrors).length > 0) {
-      setErrors(newErrors);
+  const handleLocalSave = () => {
+    if (!formData.nome || !formData.categoriaId) {
+      alert("Por favor, preencha o nome e selecione uma categoria.");
       return;
     }
 
-    setErrors({});
-    onSave(formData);
+    // Converte HH:MM:SS para minutos decimais antes de salvar (válido para ambos os tipos agora)
+    const finalFator = hhmmssToMinutes(timeValue);
+    console.debug(`[DEBUG TaskModal] Convertendo entrada "${timeValue}" para ${finalFator} minutos`);
+
+    const cleanData = {
+      ...formData,
+      fatorMultiplicador: finalFator,
+      id: formData.id || Math.random().toString(36).substr(2, 9),
+      status: formData.status || 'Ativa'
+    };
+
+    onSave(cleanData);
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-3xl w-full max-lg shadow-2xl overflow-hidden">
-        <div className="p-6 bg-gray-900 text-white flex justify-between items-center">
-          <h3 className="text-xl font-bold">{title}</h3>
-          <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full"><X className="w-5 h-5" /></button>
-        </div>
-        <div className="p-8 space-y-6">
-          {Object.keys(errors).length > 0 && (
-            <div className="bg-red-50 border border-red-100 p-4 rounded-2xl flex items-center space-x-3 animate-in fade-in slide-in-from-top-2">
-              <AlertCircle className="w-5 h-5 text-red-500" />
-              <p className="text-sm font-bold text-red-600 uppercase tracking-tighter">Preencha todos os campos obrigatórios (*)</p>
-            </div>
-          )}
-
-          <div className="space-y-2">
-            <label className="text-xs font-black text-gray-400 uppercase">Nome da Tarefa *</label>
-            <input 
-              value={formData.nome} 
-              onChange={e => setFormData({...formData, nome: e.target.value})}
-              className={`w-full p-4 bg-gray-50 border rounded-2xl focus:ring-2 outline-none transition-all ${
-                errors.nome ? 'border-red-500 focus:ring-red-100' : 'border-gray-100 focus:ring-orange-100'
-              }`} 
-              placeholder="Ex: Recebimento de Carga"
-            />
-          </div>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl p-8 animate-in zoom-in-95">
+        <h3 className="text-xl font-bold mb-4">{title}</h3>
+        <div className="space-y-4">
+          <input className="w-full p-3 border rounded-xl font-bold" placeholder="Nome da Tarefa" value={formData.nome} onChange={e => setFormData({...formData, nome: e.target.value})} />
           
-          <div className="space-y-2">
-            <label className="text-xs font-black text-gray-400 uppercase">Categoria *</label>
-            <select 
-              value={formData.categoriaId}
-              onChange={e => setFormData({...formData, categoriaId: e.target.value})}
-              className={`w-full p-4 bg-gray-50 border rounded-2xl outline-none transition-all ${
-                errors.categoriaId ? 'border-red-500' : 'border-gray-100'
-              }`}
-            >
-              <option value="">Selecionar Categoria...</option>
-              {categories.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
-            </select>
-          </div>
+          <select 
+            className="w-full p-3 border rounded-xl font-bold text-sm" 
+            value={formData.categoriaId} 
+            onChange={e => setFormData({...formData, categoriaId: e.target.value})}
+          >
+            <option value="">Selecione uma Categoria...</option>
+            {categories?.map(cat => <option key={cat.id} value={cat.id}>{cat.nome}</option>)}
+          </select>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className="text-xs font-black text-gray-400 uppercase">Tipo de Medida *</label>
-              <select 
-                value={formData.tipoMedida}
-                onChange={e => setFormData({...formData, tipoMedida: e.target.value as any})}
-                className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl outline-none"
-              >
-                <option value={MeasureType.QTD}>Quantidade (Multiplica)</option>
-                <option value={MeasureType.TEMPO}>Tempo Direto (Minutos)</option>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <label className="text-[10px] font-black text-gray-400 uppercase">Medida</label>
+              <select className="w-full p-3 border rounded-xl font-bold text-sm" value={formData.tipoMedida} onChange={e => setFormData({...formData, tipoMedida: e.target.value as MeasureType})}>
+                <option value={MeasureType.QTD}>QTD</option>
+                <option value={MeasureType.TEMPO}>TEMPO</option>
               </select>
             </div>
-            <div className="space-y-2">
-              <label className="text-xs font-black text-gray-400 uppercase">
-                {formData.tipoMedida === MeasureType.TEMPO ? 'Fator (Anulado)' : 'Fator (min/unid) *'}
+            <div className="space-y-1">
+              <label className="text-[10px] font-black text-gray-400 uppercase">
+                {formData.tipoMedida === MeasureType.QTD ? 'Fator (HH:MM:SS)' : 'Tempo (HH:MM:SS)'}
               </label>
-              <input 
-                type="number"
-                disabled={formData.tipoMedida === MeasureType.TEMPO}
-                value={formData.fatorMultiplicador} 
-                onChange={e => setFormData({...formData, fatorMultiplicador: parseInt(e.target.value) || 0})}
-                className={`w-full p-4 border rounded-2xl outline-none transition-all ${
-                  formData.tipoMedida === MeasureType.TEMPO 
-                  ? 'bg-gray-100 text-gray-400 border-gray-100' 
-                  : (errors.fator ? 'border-red-500 bg-red-50' : 'bg-gray-50 border-gray-100')
-                }`} 
-                placeholder={formData.tipoMedida === MeasureType.TEMPO ? "Consid. Tempo Direto" : "Ex: 5"}
+              <TimeInput 
+                value={timeValue} 
+                onChange={setTimeValue} 
+                className="w-full p-3 border rounded-xl text-orange-600"
+                placeholder="00:00:00"
               />
             </div>
           </div>
-
-          <div className="flex items-center space-x-3 p-4 bg-orange-50 rounded-2xl border border-orange-100">
-            <input 
-              type="checkbox" 
-              checked={formData.obrigatoriedade}
-              onChange={e => setFormData({...formData, obrigatoriedade: e.target.checked})}
-              className="w-5 h-5 accent-orange-600 rounded-lg cursor-pointer" 
-            />
-            <span className="font-bold text-orange-800 text-sm cursor-pointer select-none">Tarefa obrigatória para fechamento.</span>
-          </div>
         </div>
-        <div className="p-8 border-t flex space-x-3 bg-gray-50/50">
-          <button onClick={onClose} className="flex-1 py-4 font-bold text-gray-400 hover:text-gray-600">Cancelar</button>
-          <button onClick={validateAndSave} className="flex-1 py-4 font-bold gol-orange text-white rounded-2xl shadow-xl shadow-orange-100 hover:scale-[1.02] active:scale-[0.98] transition-all">
-            Confirmar Tarefa
-          </button>
+        <div className="flex space-x-2 mt-6">
+          <button onClick={onClose} className="flex-1 py-3 bg-gray-100 rounded-xl font-bold text-gray-500">Cancelar</button>
+          <button onClick={handleLocalSave} className="flex-1 py-3 bg-orange-600 text-white rounded-xl font-bold shadow-lg">Salvar</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export const CategoryModal: React.FC<ModalProps> = ({ isOpen, onClose, onSave, title, initialData }) => {
+  const [formData, setFormData] = useState<Partial<Category>>({ nome: '', status: 'Ativa', ordem: 1 });
+  useEffect(() => { if (initialData) setFormData(initialData); }, [initialData]);
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl p-8 animate-in zoom-in-95">
+        <h3 className="text-xl font-bold mb-4">{title}</h3>
+        <div className="space-y-4">
+          <input className="w-full p-3 border rounded-xl font-bold uppercase" placeholder="Nome da Categoria" value={formData.nome} onChange={e => setFormData({...formData, nome: e.target.value})} />
+          <input type="number" className="w-full p-3 border rounded-xl font-bold" placeholder="Ordem" value={formData.ordem} onChange={e => setFormData({...formData, ordem: parseInt(e.target.value) || 1})} />
+        </div>
+        <div className="flex space-x-2 mt-6">
+          <button onClick={onClose} className="flex-1 py-3 bg-gray-100 rounded-xl font-bold text-gray-500">Cancelar</button>
+          <button onClick={() => onSave({...formData, id: formData.id || Math.random().toString(36).substr(2, 9)})} className="flex-1 py-3 bg-orange-600 text-white rounded-xl font-bold shadow-lg">Salvar</button>
         </div>
       </div>
     </div>
@@ -544,19 +334,75 @@ export const TaskModal: React.FC<ModalProps & { categories: Category[] }> = ({ i
 
 export const ControlModal: React.FC<ModalProps> = ({ isOpen, onClose, onSave, title, initialData }) => {
   const [formData, setFormData] = useState<Partial<Control>>({
-    nome: '',
-    tipo: 'TAT',
-    descricao: '',
-    unidade: 'horas',
-    status: 'Ativo',
-    alertaConfig: {
-      verde: 0,
-      amarelo: 0,
-      vermelho: 0,
-      permitirPopup: true,
-      mensagemPopup: '',
-      tipoPopup: 'aviso'
+    nome: '', 
+    status: 'Ativo', 
+    alertaConfig: { 
+      verde: 0, amarelo: 0, vermelho: 0, 
+      permitirPopupVerde: false, permitirPopupAmarelo: false, permitirPopupVermelho: false, 
+      mensagemVerde: '', mensagemAmarelo: '', mensagemVermelho: '' 
     }
+  });
+
+  useEffect(() => { 
+    if (initialData) setFormData(initialData); 
+  }, [initialData]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto">
+      <div className="bg-white rounded-3xl w-full max-w-2xl shadow-2xl p-8 animate-in zoom-in-95 my-10">
+        <h3 className="text-2xl font-bold mb-6 flex items-center space-x-2">
+          <Shield className="text-orange-600" />
+          <span>{title}</span>
+        </h3>
+        
+        <div className="space-y-6">
+          <div>
+            <label className="text-xs font-black text-gray-400 uppercase tracking-widest block mb-2">Nome do Controle</label>
+            <input className="w-full p-4 bg-gray-50 border rounded-2xl font-bold" placeholder="Ex: Locations Diárias" value={formData.nome} onChange={e => setFormData({...formData, nome: e.target.value})} />
+          </div>
+
+          <div className="p-6 bg-gray-50 rounded-3xl border border-gray-100 space-y-4">
+             <h4 className="font-black text-xs uppercase text-gray-400 tracking-widest">Configuração de Alertas e Popups</h4>
+             
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end p-4 bg-white rounded-2xl border-l-4 border-green-500 shadow-sm">
+                <div>
+                   <label className="text-[10px] font-black text-green-600 uppercase block mb-1">Popup no Verde (OK)</label>
+                   <input className="w-full p-2 border rounded-lg text-sm" placeholder="Mensagem do Alerta..." value={formData.alertaConfig?.mensagemVerde} onChange={e => setFormData({...formData, alertaConfig: {...formData.alertaConfig!, mensagemVerde: e.target.value}})} />
+                </div>
+                <div className="flex items-center space-x-2 pb-2">
+                   <input type="checkbox" className="w-5 h-5 accent-green-500" checked={formData.alertaConfig?.permitirPopupVerde} onChange={e => setFormData({...formData, alertaConfig: {...formData.alertaConfig!, permitirPopupVerde: e.target.checked}})} />
+                   <span className="text-xs font-bold text-gray-500">Ativar Popup</span>
+                </div>
+             </div>
+
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end p-4 bg-white rounded-2xl border-l-4 border-red-500 shadow-sm">
+                <div>
+                   <label className="text-[10px] font-black text-red-600 uppercase block mb-1">Popup no Vermelho (ALERTA)</label>
+                   <input className="w-full p-2 border rounded-lg text-sm" placeholder="Mensagem Crítica..." value={formData.alertaConfig?.mensagemVermelho} onChange={e => setFormData({...formData, alertaConfig: {...formData.alertaConfig!, mensagemVermelho: e.target.value}})} />
+                </div>
+                <div className="flex items-center space-x-2 pb-2">
+                   <input type="checkbox" className="w-5 h-5 accent-red-500" checked={formData.alertaConfig?.permitirPopupVermelho} onChange={e => setFormData({...formData, alertaConfig: {...formData.alertaConfig!, permitirPopupVermelho: e.target.checked}})} />
+                   <span className="text-xs font-bold text-gray-500">Ativar Popup</span>
+                </div>
+             </div>
+          </div>
+        </div>
+
+        <div className="flex space-x-3 mt-8">
+          <button onClick={onClose} className="flex-1 py-4 bg-gray-100 rounded-2xl font-bold text-gray-500">Cancelar</button>
+          <button onClick={() => onSave({...formData, id: formData.id || Math.random().toString(36).substr(2, 9)})} className="flex-1 py-4 bg-orange-600 text-white rounded-2xl font-bold shadow-xl shadow-orange-100">Salvar Configurações</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export const DefaultLocationModal: React.FC<ModalProps> = ({ isOpen, onClose, onSave, title, initialData }) => {
+  const [formData, setFormData] = useState<Partial<DefaultLocationItem>>({
+    nomeLocation: '',
+    status: 'ativo'
   });
 
   useEffect(() => {
@@ -566,96 +412,94 @@ export const ControlModal: React.FC<ModalProps> = ({ isOpen, onClose, onSave, ti
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto">
-      <div className="bg-white rounded-3xl w-full max-w-2xl shadow-2xl">
-        <div className="p-6 border-b flex justify-between items-center bg-gray-900 text-white rounded-t-3xl">
-          <h3 className="text-xl font-bold">{title}</h3>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl animate-in zoom-in-95">
+        <div className="p-6 border-b flex justify-between items-center bg-gray-800 text-white rounded-t-3xl">
+          <h3 className="text-xl font-bold flex items-center space-x-2"><Box className="w-5 h-5" /> <span>{title}</span></h3>
           <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full"><X className="w-5 h-5" /></button>
         </div>
-        <div className="p-8 space-y-8">
-          <div className="grid grid-cols-2 gap-6">
-            <div className="space-y-2">
-              <label className="text-xs font-black text-gray-400 uppercase">Nome do Controle</label>
-              <input value={formData.nome} onChange={e => setFormData({...formData, nome: e.target.value})} className="w-full p-4 bg-gray-50 border rounded-2xl" />
-            </div>
-            <div className="space-y-2">
-              <label className="text-xs font-black text-gray-400 uppercase">Tipo</label>
-              <select value={formData.tipo} onChange={e => setFormData({...formData, tipo: e.target.value as any})} className="w-full p-4 bg-gray-50 border rounded-2xl">
-                <option value="TAT">TAT</option>
-                <option value="Vencimento">Vencimento</option>
-                <option value="Crítico">Crítico</option>
-                <option value="Outro">Outro</option>
-              </select>
-            </div>
-          </div>
-
-          <div className="p-6 bg-gray-50 rounded-3xl border border-gray-100 space-y-6">
-            <h4 className="font-black text-xs uppercase text-gray-400 tracking-widest flex items-center space-x-2">
-              <Shield className="w-4 h-4" /> <span>Configuração de Alertas</span>
-            </h4>
-            <div className="grid grid-cols-3 gap-4">
-              <div className="space-y-2">
-                 <div className="flex items-center space-x-2">
-                    <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-                    <label className="text-xs font-bold text-gray-500">Verde até</label>
-                 </div>
-                 <input 
-                  type="number" 
-                  value={formData.alertaConfig?.verde} 
-                  onChange={e => setFormData({...formData, alertaConfig: {...formData.alertaConfig!, verde: parseInt(e.target.value) || 0}})}
-                  className="w-full p-3 bg-white border rounded-xl font-bold text-center" 
-                />
-              </div>
-              <div className="space-y-2">
-                 <div className="flex items-center space-x-2">
-                    <div className="w-3 h-3 bg-yellow-500 rounded-full"></div>
-                    <label className="text-xs font-bold text-gray-500">Amarelo até</label>
-                 </div>
-                 <input 
-                  type="number" 
-                  value={formData.alertaConfig?.amarelo} 
-                  onChange={e => setFormData({...formData, alertaConfig: {...formData.alertaConfig!, amarelo: parseInt(e.target.value) || 0}})}
-                  className="w-full p-3 bg-white border rounded-xl font-bold text-center" 
-                />
-              </div>
-              <div className="space-y-2">
-                 <div className="flex items-center space-x-2">
-                    <div className="w-3 h-3 bg-red-500 rounded-full"></div>
-                    <label className="text-xs font-bold text-gray-500">Vermelho após</label>
-                 </div>
-                 <div className="w-full p-3 bg-white/50 border rounded-xl font-bold text-center text-red-600">
-                    {formData.alertaConfig?.amarelo} +
-                 </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-             <div className="flex items-center justify-between">
-                <span className="font-bold text-gray-700">Ativar Popup de Notificação</span>
-                <input 
-                  type="checkbox" 
-                  checked={formData.alertaConfig?.permitirPopup}
-                  onChange={e => setFormData({...formData, alertaConfig: {...formData.alertaConfig!, permitirPopup: e.target.checked}})}
-                  className="w-6 h-6 accent-orange-500"
-                />
-             </div>
-             {formData.alertaConfig?.permitirPopup && (
-               <div className="space-y-2 animate-in slide-in-from-top-2">
-                  <label className="text-xs font-black text-gray-400 uppercase">Mensagem Customizada</label>
-                  <textarea 
-                    value={formData.alertaConfig?.mensagemPopup}
-                    onChange={e => setFormData({...formData, alertaConfig: {...formData.alertaConfig!, mensagemPopup: e.target.value}})}
-                    className="w-full p-4 bg-gray-50 border rounded-2xl outline-none"
-                    placeholder="Ex: Atenção! O limite crítico de TAT foi atingido."
-                  />
-               </div>
-             )}
+        <div className="p-8 space-y-4">
+          <div className="space-y-1">
+            <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Nome da Location</label>
+            <input value={formData.nomeLocation} onChange={e => setFormData({...formData, nomeLocation: e.target.value})} className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-gray-800 outline-none focus:border-orange-500 transition-all" placeholder="Ex: GOL-01" />
           </div>
         </div>
         <div className="p-8 border-t flex space-x-3">
-          <button onClick={onClose} className="flex-1 py-4 font-bold text-gray-400">Descartar</button>
-          <button onClick={() => onSave(formData)} className="flex-1 py-4 font-bold bg-black text-white rounded-2xl shadow-xl">Salvar Configurações</button>
+          <button onClick={onClose} className="flex-1 py-4 font-bold text-gray-400">Cancelar</button>
+          <button onClick={() => onSave({...formData, id: formData.id || Math.random().toString(36).substr(2, 9)})} className="flex-1 py-4 font-bold bg-orange-600 text-white rounded-2xl shadow-xl">Salvar Item</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export const DefaultTransitModal: React.FC<ModalProps> = ({ isOpen, onClose, onSave, title, initialData }) => {
+  const [formData, setFormData] = useState<Partial<DefaultTransitItem>>({
+    nomeTransito: '',
+    diasPadrao: 0,
+    status: 'ativo'
+  });
+
+  useEffect(() => {
+    if (initialData) setFormData(initialData);
+  }, [initialData]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl animate-in zoom-in-95">
+        <div className="p-6 border-b flex justify-between items-center bg-gray-800 text-white rounded-t-3xl">
+          <h3 className="text-xl font-bold flex items-center space-x-2"><Truck className="w-5 h-5" /> <span>{title}</span></h3>
+          <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="p-8 space-y-4">
+          <div className="space-y-1">
+            <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Nome/Tipo de Trânsito</label>
+            <input value={formData.nomeTransito} onChange={e => setFormData({...formData, nomeTransito: e.target.value})} className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-gray-800 outline-none focus:border-orange-500" placeholder="Ex: TERRESTRE" />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Dias Padrão de TAT</label>
+            <input type="number" value={formData.diasPadrao} onChange={e => setFormData({...formData, diasPadrao: parseInt(e.target.value) || 0})} className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold" />
+          </div>
+        </div>
+        <div className="p-8 border-t flex space-x-3">
+          <button onClick={onClose} className="flex-1 py-4 font-bold text-gray-400">Cancelar</button>
+          <button onClick={() => onSave({...formData, id: formData.id || Math.random().toString(36).substr(2, 9)})} className="flex-1 py-4 font-bold bg-orange-600 text-white rounded-2xl shadow-xl">Salvar Item</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export const DefaultCriticalModal: React.FC<ModalProps> = ({ isOpen, onClose, onSave, title, initialData }) => {
+  const [formData, setFormData] = useState<Partial<DefaultCriticalItem>>({
+    partNumber: '',
+    status: 'ativo'
+  });
+
+  useEffect(() => {
+    if (initialData) setFormData(initialData);
+  }, [initialData]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl animate-in zoom-in-95">
+        <div className="p-6 border-b flex justify-between items-center bg-gray-800 text-white rounded-t-3xl">
+          <h3 className="text-xl font-bold flex items-center space-x-2"><AlertOctagon className="w-5 h-5" /> <span>{title}</span></h3>
+          <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="p-8 space-y-4">
+          <div className="space-y-1">
+            <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Part Number (P/N)</label>
+            <input value={formData.partNumber} onChange={e => setFormData({...formData, partNumber: e.target.value})} className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-gray-800 outline-none focus:border-orange-500 transition-all" placeholder="Ex: SKU-12345" />
+          </div>
+        </div>
+        <div className="p-8 border-t flex space-x-3">
+          <button onClick={onClose} className="flex-1 py-4 font-bold text-gray-400">Cancelar</button>
+          <button onClick={() => onSave({...formData, id: formData.id || Math.random().toString(36).substr(2, 9)})} className="flex-1 py-4 font-bold bg-orange-600 text-white rounded-2xl shadow-xl">Salvar Item</button>
         </div>
       </div>
     </div>

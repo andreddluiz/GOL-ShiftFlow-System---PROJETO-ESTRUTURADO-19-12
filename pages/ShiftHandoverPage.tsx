@@ -9,9 +9,9 @@ import { useStore } from '../hooks/useStore';
 import { 
   MeasureType, OutraAtividade, Control, 
   LocationRow, TransitRow, ShelfLifeRow, CriticalRow, AlertConfig, ManagedItem,
-  User, Task, Category
+  User, Task, Category, ConditionConfig
 } from '../types';
-import { DatePickerField, TimeInput, hhmmssToMinutes, minutesToHhmmss } from '../modals';
+import { DatePickerField, TimeInput, hhmmssToMinutes, minutesToHhmmss, ConfirmModal } from '../modals';
 
 // Utilitários de Data
 const parseDate = (str: string): Date | null => {
@@ -31,7 +31,6 @@ const getDaysDiff = (dateStr: string): number => {
   const today = new Date();
   today.setHours(0,0,0,0);
   date.setHours(0,0,0,0);
-  // Diferença absoluta (usada para locations e transito)
   return Math.abs(Math.floor((today.getTime() - date.getTime()) / (1000 * 60 * 60 * 24)));
 };
 
@@ -41,7 +40,6 @@ const getDaysRemaining = (dateStr: string): number => {
   const today = new Date();
   today.setHours(0,0,0,0);
   date.setHours(0,0,0,0);
-  // Dias até o vencimento
   return Math.floor((date.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 };
 
@@ -49,7 +47,9 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
   const { 
     getControlesCombinados, getDefaultLocations, getDefaultTransits, getDefaultCriticals, getDefaultShelfLifes,
     customControlTypes, getCustomControlItems,
-    bases, users, tasks: allTasks, categories: allCats, controls: allControls, initialized, refreshData 
+    bases, users, tasks: allTasks, categories: allCats, controls: allControls, 
+    defaultLocations: storeLocs, defaultTransits: storeTrans, defaultCriticals: storeCrit, defaultShelfLifes: storeShelf,
+    initialized, refreshData 
   } = useStore();
   
   const currentBase = useMemo(() => bases.find(b => b.id === baseId), [bases, baseId]);
@@ -58,15 +58,6 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
   useEffect(() => {
     refreshData(false);
   }, [baseId]);
-
-  // Lógica de Categorias e Tarefas Operacionais
-  const opCategories = useMemo(() => {
-    return allCats.filter(c => c.tipo === 'operacional' && c.status === 'Ativa' && (!c.baseId || c.baseId === baseId)).sort((a,b) => a.ordem - b.ordem);
-  }, [allCats, baseId]);
-
-  const opTasks = useMemo(() => {
-    return allTasks.filter(t => t.status === 'Ativa' && (!t.baseId || t.baseId === baseId));
-  }, [allTasks, baseId]);
 
   const activeControls = useMemo(() => getControlesCombinados(baseId || ''), [getControlesCombinados, baseId, allControls]);
 
@@ -83,26 +74,71 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
   const [transit, setTransit] = useState<TransitRow[]>([]);
   const [shelfLife, setShelfLife] = useState<ShelfLifeRow[]>([]);
   const [critical, setCritical] = useState<CriticalRow[]>([]);
-  const [customData, setCustomData] = useState<Record<string, any[]>>({});
-
+  
   const [activeAlert, setActiveAlert] = useState<{titulo: string, mensagem: string, color: string} | null>(null);
+  
+  const [confirmModal, setConfirmModal] = useState<{
+    open: boolean,
+    title: string,
+    message: string,
+    onConfirm: () => void,
+    type?: 'danger' | 'warning' | 'info'
+  }>({
+    open: false,
+    title: '',
+    message: '',
+    onConfirm: () => {}
+  });
 
-  // Inicialização de Itens Padrão
+  // Problema 1: Sincronização Imediata usando flag 'visivel'
   useEffect(() => {
-    if (baseId && initialized) {
-      console.debug("[Ajuste 2] Carregando apenas itens ATIVOS para a Passagem...");
-      setLocations(getDefaultLocations(baseId).map(i => ({ id: i.id, nomeLocation: i.nomeLocation, quantidade: 0, dataMaisAntigo: '', isPadrao: true, config: i })));
-      setTransit(getDefaultTransits(baseId).map(i => ({ id: i.id, nomeTransito: i.nomeTransito, diasPadrao: i.diasPadrao, quantidade: 0, dataSaida: '', isPadrao: true, config: i })));
-      setCritical(getDefaultCriticals(baseId).map(i => ({ id: i.id, partNumber: i.partNumber, lote: '', saldoSistema: 0, saldoFisico: 0, isPadrao: true, config: i })));
-      setShelfLife(getDefaultShelfLifes(baseId).map(i => ({ id: i.id, partNumber: i.partNumber, lote: i.lote || '', dataVencimento: i.dataVencimento || '', config: i })));
-      
-      const custObj: Record<string, any[]> = {};
-      customControlTypes.forEach(t => {
-        custObj[t.id] = getCustomControlItems(baseId, t.id).map(i => ({ id: i.id, valores: {...i.valores}, isPadrao: true, config: i }));
-      });
-      setCustomData(custObj);
-    }
-  }, [baseId, initialized]);
+    if (!initialized || !baseId) return;
+
+    setLocations(prev => {
+      const activeStoreItems = getDefaultLocations(baseId);
+      const activeStoreIds = activeStoreItems.map(i => i.id);
+      const filtered = prev.filter(p => !p.isPadrao || activeStoreIds.includes(p.id));
+      const toAdd = activeStoreItems.filter(i => !prev.some(p => p.id === i.id));
+      if (toAdd.length === 0 && filtered.length === prev.length) return prev;
+      return [...filtered, ...toAdd.map(i => ({ id: i.id, nomeLocation: i.nomeLocation, quantidade: 0, dataMaisAntigo: '', isPadrao: true, config: i }))];
+    });
+
+    setTransit(prev => {
+      const activeStoreItems = getDefaultTransits(baseId);
+      const activeStoreIds = activeStoreItems.map(i => i.id);
+      const filtered = prev.filter(p => !p.isPadrao || activeStoreIds.includes(p.id));
+      const toAdd = activeStoreItems.filter(i => !prev.some(p => p.id === i.id));
+      if (toAdd.length === 0 && filtered.length === prev.length) return prev;
+      return [...filtered, ...toAdd.map(i => ({ id: i.id, nomeTransito: i.nomeTransito, diasPadrao: i.diasPadrao, quantidade: 0, dataSaida: '', isPadrao: true, config: i }))];
+    });
+
+    setCritical(prev => {
+      const activeStoreItems = getDefaultCriticals(baseId);
+      const activeStoreIds = activeStoreItems.map(i => i.id);
+      const filtered = prev.filter(p => !p.isPadrao || activeStoreIds.includes(p.id));
+      const toAdd = activeStoreItems.filter(i => !prev.some(p => p.id === i.id));
+      if (toAdd.length === 0 && filtered.length === prev.length) return prev;
+      return [...filtered, ...toAdd.map(i => ({ id: i.id, partNumber: i.partNumber, lote: '', saldoSistema: 0, saldoFisico: 0, isPadrao: true, config: i }))];
+    });
+
+    setShelfLife(prev => {
+      const activeStoreItems = getDefaultShelfLifes(baseId);
+      const activeStoreIds = activeStoreItems.map(i => i.id);
+      const filtered = prev.filter(p => !p.isPadrao || activeStoreIds.includes(p.id));
+      const toAdd = activeStoreItems.filter(i => !prev.some(p => p.id === i.id));
+      if (toAdd.length === 0 && filtered.length === prev.length) return prev;
+      return [...filtered, ...toAdd.map(i => ({ id: i.id, partNumber: i.partNumber, lote: i.lote || '', dataVencimento: i.dataVencimento || '', isPadrao: true, config: i }))];
+    });
+  }, [baseId, initialized, storeLocs, storeTrans, storeCrit, storeShelf]);
+
+  // Lógica de Categorias e Tarefas Operacionais
+  const opCategories = useMemo(() => {
+    return allCats.filter(c => c.tipo === 'operacional' && c.status === 'Ativa' && (c.visivel !== false) && (!c.baseId || c.baseId === baseId)).sort((a,b) => a.ordem - b.ordem);
+  }, [allCats, baseId]);
+
+  const opTasks = useMemo(() => {
+    return allTasks.filter(t => t.status === 'Ativa' && (t.visivel !== false) && (!t.baseId || t.baseId === baseId));
+  }, [allTasks, baseId]);
 
   // Cálculos de Produtividade
   const { horasDisponiveis, horasProduzidas, performance } = useMemo(() => {
@@ -130,7 +166,11 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
 
   const handleColaboradorChange = (idx: number, id: string | null) => {
     if (id && colaboradoresIds.includes(id)) {
-      alert("Este colaborador já foi selecionado neste turno.");
+      setActiveAlert({
+        titulo: "Colaborador Duplicado",
+        mensagem: "Este colaborador já foi selecionado para este turno. Por favor, escolha outro.",
+        color: "bg-orange-600"
+      });
       return;
     }
     const newIds = [...colaboradoresIds];
@@ -138,30 +178,44 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
     setColaboradoresIds(newIds);
   };
 
-  // Ajuste 5 e 6: Pop-ups baseados em dias e divergência
+  // Avaliação de Alerta Integrada
   const evaluateAlert = (item: any, value: any, controlType: string) => {
-    console.debug(`[Ajuste 5/6] Avaliando alerta para ${controlType}, valor: ${value}`);
-    
-    // Ajuste 6: Itens Críticos (Divergência)
-    if (controlType === 'itens_criticos') {
-      const diff = Math.abs(value);
-      if (diff > 5) {
-        setActiveAlert({ titulo: 'ALERTA CRÍTICO', mensagem: `Divergência Crítica: ${diff} unidades detectadas!`, color: 'bg-red-600' });
-      } else if (diff > 0) {
-        setActiveAlert({ titulo: 'ATENÇÃO: DIVERGÊNCIA', mensagem: `Divergência de ${diff} unidades no saldo.`, color: 'bg-yellow-600' });
-      } else {
-        setActiveAlert({ titulo: 'SALDO OK', mensagem: `Conferência realizada: Saldos batendo 100%.`, color: 'bg-green-600' });
-      }
-      return;
-    }
+    const config = item.config || activeControls.find((c: any) => c.tipo === controlType);
+    if (!config) return;
 
-    // Ajuste 5: Prazos em Dias
-    const days = Number(value);
-    if (controlType === 'shelf_life' || controlType === 'locations' || controlType === 'transito') {
-      if (days < 5) {
-        setActiveAlert({ titulo: 'PRAZO CRÍTICO', mensagem: `Alerta: Restam apenas ${days} dias! Ação imediata necessária.`, color: 'bg-red-600' });
-      } else if (days <= 10) {
-        setActiveAlert({ titulo: 'ATENÇÃO AO PRAZO', mensagem: `Item com ${days} dias registrados. Monitorar status.`, color: 'bg-yellow-600' });
+    console.debug(`[Pop-up Evaluation] Avaliando: ${controlType}, valor: ${value}`);
+
+    const checkCondition = (rule: ConditionConfig, val: number) => {
+      const ref = Number(rule.valor);
+      const op = rule.operador;
+      if (op === '>') return val > ref;
+      if (op === '<') return val < ref;
+      if (op === '=') return val === ref;
+      if (op === '>=') return val >= ref;
+      if (op === '<=') return val <= ref;
+      return false;
+    };
+
+    if (config.cores && config.popups) {
+      const val = Number(value);
+      if (checkCondition(config.cores.vermelho, val)) {
+        setActiveAlert({ 
+          titulo: config.popups.vermelho.titulo || 'ALERTA CRÍTICO', 
+          mensagem: config.popups.vermelho.mensagem.replace('X', String(val)), 
+          color: 'bg-red-600' 
+        });
+      } else if (checkCondition(config.cores.amarelo, val)) {
+        setActiveAlert({ 
+          titulo: config.popups.amarelo.titulo || 'ATENÇÃO', 
+          mensagem: config.popups.amarelo.mensagem.replace('X', String(val)), 
+          color: 'bg-yellow-600' 
+        });
+      } else if (checkCondition(config.cores.verde, val)) {
+        setActiveAlert({ 
+          titulo: config.popups.verde.titulo || 'STATUS OK', 
+          mensagem: config.popups.verde.mensagem.replace('X', String(val)), 
+          color: 'bg-green-600' 
+        });
       }
     }
   };
@@ -170,22 +224,42 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
     setList(list.map(item => item.id === id ? { ...item, [field]: value } : item));
   };
 
+  // Problema 3: Trigger do evaluateAlert disparado no fechamento do calendário
   const handleBlur = (item: any, controlType: string, value: any) => {
+     if (value === '' || value === undefined) return;
      let calcVal = Number(value);
-     // Ajuste 4: Cálculo Automático de Dias
      if (['locations', 'transito'].includes(controlType) && typeof value === 'string' && value !== '') calcVal = getDaysDiff(value);
      if (controlType === 'shelf_life' && typeof value === 'string' && value !== '') calcVal = getDaysRemaining(value);
+     if (controlType === 'itens_criticos') {
+        const row = critical.find(c => c.id === item.id);
+        calcVal = Math.abs((row?.saldoSistema || 0) - (row?.saldoFisico || 0));
+     }
      
+     console.debug("[Problema 3] Disparando avaliação de pop-up para valor:", calcVal);
      evaluateAlert(item, calcVal, controlType);
   };
 
   const isViewOnly = status === 'Finalizado';
 
-  // Helper para Cores de Dias (Ajuste 4)
-  const getDayColorClass = (days: number) => {
-    if (days < 5) return 'text-red-600 font-black';
-    if (days <= 10) return 'text-yellow-600 font-black';
-    return 'text-green-600 font-black';
+  const getItemStatusColor = (item: any, val: number, controlType: string) => {
+    const config = item.config || activeControls.find((c: any) => c.tipo === controlType);
+    if (!config || !config.cores) return 'text-gray-400';
+
+    const checkCondition = (rule: ConditionConfig, v: number) => {
+      const ref = Number(rule.valor);
+      const op = rule.operador;
+      if (op === '>') return v > ref;
+      if (op === '<') return v < ref;
+      if (op === '=') return v === ref;
+      if (op === '>=') return v >= ref;
+      if (op === '<=') return v <= ref;
+      return false;
+    };
+
+    if (checkCondition(config.cores.vermelho, val)) return 'text-red-600 font-black';
+    if (checkCondition(config.cores.amarelo, val)) return 'text-yellow-600 font-black';
+    if (checkCondition(config.cores.verde, val)) return 'text-green-600 font-black';
+    return 'text-gray-400';
   };
 
   return (
@@ -205,7 +279,17 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
         </div>
       )}
 
-      {/* HEADER DA BASE */}
+      {/* Confirmação de Finalização */}
+      <ConfirmModal 
+        isOpen={confirmModal.open}
+        onClose={() => setConfirmModal({ ...confirmModal, open: false })}
+        onConfirm={confirmModal.onConfirm}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        type={confirmModal.type}
+      />
+
+      {/* HEADER */}
       <header className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-6">
          <div className="flex items-center space-x-6">
             <div className="w-16 h-16 bg-orange-50 rounded-2xl flex items-center justify-center text-orange-600 shadow-inner">
@@ -223,7 +307,7 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
          </div>
       </header>
 
-      {/* GRID SUPERIOR: PRODUTIVIDADE E DATA OPERACIONAL */}
+      {/* PRODUTIVIDADE */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
          <div className="lg:col-span-2 bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-100 space-y-8">
             <div className="flex justify-between items-center">
@@ -262,7 +346,7 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
          </div>
       </div>
 
-      {/* PAINEL EQUIPE E TURNO - AJUSTE 1: Formato "Nome - Base - Jornada" */}
+      {/* EQUIPE */}
       <section className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-100 space-y-8">
          <div className="flex justify-between items-center">
             <h3 className="font-black text-gray-800 uppercase tracking-widest flex items-center space-x-2 text-sm">
@@ -295,7 +379,7 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
          </div>
       </section>
 
-      {/* ATIVIDADES DO TURNO */}
+      {/* TAREFAS */}
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-12">
          {opCategories.map(cat => (
             <div key={cat.id} className="space-y-6">
@@ -317,6 +401,8 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                           disabled={isViewOnly}
                           value={tarefasValores[task.id] || ''}
                           onChange={e => handleTaskChange(task.id, e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter' || e.key === 'Tab') handleBlur({id: task.id}, 'tarefa', tarefasValores[task.id]); }}
+                          onBlur={() => handleBlur({id: task.id}, 'tarefa', tarefasValores[task.id])}
                           placeholder="0"
                           className="w-24 p-4 bg-gray-50 border border-transparent rounded-2xl font-black text-center focus:bg-white focus:border-orange-200 transition-all outline-none text-gray-800"
                         />
@@ -327,9 +413,8 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
          ))}
       </section>
 
-      {/* PAINÉIS DE CONTROLE DINÂMICOS - AJUSTE 4, 5, 6 */}
+      {/* PAINÉIS DE CONTROLE */}
       <section className="grid grid-cols-1 gap-12">
-        {/* LOCATIONS - Ajuste 4/5 */}
         <PanelContainer title="Locations" icon={<Box className="w-4 h-4 text-orange-500" />} onAdd={() => setLocations([...locations, { id: Date.now().toString(), nomeLocation: '', quantidade: 0, dataMaisAntigo: '' }])} isViewOnly={isViewOnly}>
           <table className="w-full text-left">
             <thead><tr className="bg-gray-50 text-[10px] font-black text-gray-400 uppercase tracking-widest"><th className="px-8 py-4">Location</th><th className="px-8 py-4">Quant.</th><th className="px-8 py-4">Dias (Auto)</th></tr></thead>
@@ -341,8 +426,8 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                     <td className="px-8 py-4 font-bold"><input disabled={isViewOnly || row.isPadrao} className="bg-transparent w-full outline-none uppercase" value={row.nomeLocation} onChange={e => updateRow(locations, setLocations, row.id, 'nomeLocation', e.target.value)} /></td>
                     <td className="px-8 py-4"><input type="number" disabled={isViewOnly} className="w-20 bg-gray-50 p-2 rounded-xl font-black text-center" value={row.quantidade} onChange={e => updateRow(locations, setLocations, row.id, 'quantidade', e.target.value)} /></td>
                     <td className="px-8 py-4 flex items-center space-x-4">
-                      <DatePickerField value={row.dataMaisAntigo} onChange={v => updateRow(locations, setLocations, row.id, 'dataMaisAntigo', v)} onBlur={() => handleBlur(row, 'locations', row.dataMaisAntigo)} />
-                      {row.dataMaisAntigo && <span className={`text-xs ${getDayColorClass(days)}`}>{days}d</span>}
+                      <DatePickerField value={row.dataMaisAntigo} onChange={v => updateRow(locations, setLocations, row.id, 'dataMaisAntigo', v)} onKeyDown={e => { if (e.key === 'Enter') handleBlur(row, 'locations', row.dataMaisAntigo); }} onBlur={() => handleBlur(row, 'locations', row.dataMaisAntigo)} />
+                      {row.dataMaisAntigo && <span className={`text-xs ${getItemStatusColor(row, days, 'locations')}`}>{days}d</span>}
                     </td>
                   </tr>
                 );
@@ -351,7 +436,6 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
           </table>
         </PanelContainer>
 
-        {/* TRÂNSITO - Ajuste 4/5 */}
         <PanelContainer title="Trânsito" icon={<Truck className="w-4 h-4 text-orange-500" />} onAdd={() => setTransit([...transit, { id: Date.now().toString(), nomeTransito: '', diasPadrao: 0, quantidade: 0, dataSaida: '' }])} isViewOnly={isViewOnly}>
           <table className="w-full text-left">
             <thead><tr className="bg-gray-50 text-[10px] font-black text-gray-400 uppercase tracking-widest"><th className="px-8 py-4">Tipo</th><th className="px-8 py-4">Quant.</th><th className="px-8 py-4">Dias (Auto)</th></tr></thead>
@@ -363,8 +447,8 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                     <td className="px-8 py-4 font-bold"><input disabled={isViewOnly || row.isPadrao} className="bg-transparent w-full outline-none uppercase" value={row.nomeTransito} onChange={e => updateRow(transit, setTransit, row.id, 'nomeTransito', e.target.value)} /></td>
                     <td className="px-8 py-4"><input type="number" disabled={isViewOnly} className="w-20 bg-gray-50 p-2 rounded-xl font-black text-center" value={row.quantidade} onChange={e => updateRow(transit, setTransit, row.id, 'quantidade', e.target.value)} /></td>
                     <td className="px-8 py-4 flex items-center space-x-4">
-                      <DatePickerField value={row.dataSaida} onChange={v => updateRow(transit, setTransit, row.id, 'dataSaida', v)} onBlur={() => handleBlur(row, 'transito', row.dataSaida)} />
-                      {row.dataSaida && <span className={`text-xs ${getDayColorClass(days)}`}>{days}d</span>}
+                      <DatePickerField value={row.dataSaida} onChange={v => updateRow(transit, setTransit, row.id, 'dataSaida', v)} onKeyDown={e => { if (e.key === 'Enter') handleBlur(row, 'transito', row.dataSaida); }} onBlur={() => handleBlur(row, 'transito', row.dataSaida)} />
+                      {row.dataSaida && <span className={`text-xs ${getItemStatusColor(row, days, 'transito')}`}>{days}d</span>}
                     </td>
                   </tr>
                 );
@@ -373,7 +457,6 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
           </table>
         </PanelContainer>
 
-        {/* SHELF LIFE - Ajuste 4/5 */}
         <PanelContainer title="Shelf Life" icon={<FlaskConical className="w-4 h-4 text-orange-500" />} onAdd={() => setShelfLife([...shelfLife, { id: Date.now().toString(), partNumber: '', lote: '', dataVencimento: '' }])} isViewOnly={isViewOnly}>
           <table className="w-full text-left">
             <thead><tr className="bg-gray-50 text-[10px] font-black text-gray-400 uppercase tracking-widest"><th className="px-8 py-4">P/N</th><th className="px-8 py-4">Lote</th><th className="px-8 py-4">Vencimento (Auto)</th></tr></thead>
@@ -385,8 +468,8 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                     <td className="px-8 py-4 font-bold"><input disabled={isViewOnly || row.isPadrao} className="bg-transparent w-full outline-none uppercase" value={row.partNumber} onChange={e => updateRow(shelfLife, setShelfLife, row.id, 'partNumber', e.target.value)} /></td>
                     <td className="px-8 py-4"><input disabled={isViewOnly} className="w-full bg-gray-50 p-2 rounded-xl font-black" value={row.lote} onChange={e => updateRow(shelfLife, setShelfLife, row.id, 'lote', e.target.value)} /></td>
                     <td className="px-8 py-4 flex items-center space-x-4">
-                      <DatePickerField value={row.dataVencimento} onChange={v => updateRow(shelfLife, setShelfLife, row.id, 'dataVencimento', v)} onBlur={() => handleBlur(row, 'shelf_life', row.dataVencimento)} />
-                      {row.dataVencimento && <span className={`text-xs ${getDayColorClass(days)}`}>{days}d</span>}
+                      <DatePickerField value={row.dataVencimento} onChange={v => updateRow(shelfLife, setShelfLife, row.id, 'dataVencimento', v)} onKeyDown={e => { if (e.key === 'Enter') handleBlur(row, 'shelf_life', row.dataVencimento); }} onBlur={() => handleBlur(row, 'shelf_life', row.dataVencimento)} />
+                      {row.dataVencimento && <span className={`text-xs ${getItemStatusColor(row, days, 'shelf_life')}`}>{days}d</span>}
                     </td>
                   </tr>
                 );
@@ -395,20 +478,18 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
           </table>
         </PanelContainer>
 
-        {/* SALDO / CRÍTICOS - Ajuste 6: Divergência */}
         <PanelContainer title="Itens Críticos" icon={<AlertOctagon className="w-4 h-4 text-orange-500" />} onAdd={() => setCritical([...critical, { id: Date.now().toString(), partNumber: '', lote: '', saldoSistema: 0, saldoFisico: 0 }])} isViewOnly={isViewOnly}>
           <table className="w-full text-left">
             <thead><tr className="bg-gray-50 text-[10px] font-black text-gray-400 uppercase tracking-widest"><th className="px-8 py-4">P/N</th><th className="px-8 py-4">Sis.</th><th className="px-8 py-4">Fís.</th><th className="px-8 py-4">Dif.</th></tr></thead>
             <tbody>
               {critical.map(row => {
                 const diff = (row.saldoSistema || 0) - (row.saldoFisico || 0);
-                const absDiff = Math.abs(diff);
                 return (
                   <tr key={row.id} className="border-t border-gray-50 hover:bg-gray-50/50 transition-colors">
                     <td className="px-8 py-4 font-bold"><input disabled={isViewOnly || row.isPadrao} className="bg-transparent w-full outline-none uppercase" value={row.partNumber} onChange={e => updateRow(critical, setCritical, row.id, 'partNumber', e.target.value)} /></td>
                     <td className="px-8 py-4"><input type="number" disabled={isViewOnly} className="w-16 bg-gray-50 p-2 rounded-xl font-black text-center" value={row.saldoSistema} onChange={e => updateRow(critical, setCritical, row.id, 'saldoSistema', e.target.value)} /></td>
-                    <td className="px-8 py-4"><input type="number" disabled={isViewOnly} className="w-16 bg-gray-50 p-2 rounded-xl font-black text-center" value={row.saldoFisico} onChange={e => updateRow(critical, setCritical, row.id, 'saldoFisico', e.target.value)} onBlur={() => handleBlur(row, 'itens_criticos', diff)} /></td>
-                    <td className={`px-8 py-4 font-black ${absDiff > 5 ? 'text-red-600' : (absDiff > 0 ? 'text-yellow-600' : 'text-green-600')}`}>
+                    <td className="px-8 py-4"><input type="number" disabled={isViewOnly} className="w-16 bg-gray-50 p-2 rounded-xl font-black text-center" value={row.saldoFisico} onChange={e => updateRow(critical, setCritical, row.id, 'saldoFisico', e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleBlur(row, 'itens_criticos', diff); }} onBlur={() => handleBlur(row, 'itens_criticos', diff)} /></td>
+                    <td className={`px-8 py-4 font-black ${getItemStatusColor(row, Math.abs(diff), 'itens_criticos')}`}>
                        {diff}
                     </td>
                   </tr>
@@ -438,10 +519,16 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
         <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-40">
           <button 
             onClick={() => {
-               if (confirm("Deseja finalizar esta passagem de serviço? Os dados serão arquivados e travados para edição.")) {
-                  setStatus('Finalizado');
-                  window.scrollTo({ top: 0, behavior: 'smooth' });
-               }
+               setConfirmModal({
+                 open: true,
+                 title: 'Finalizar Turno',
+                 message: 'Deseja finalizar esta passagem de serviço? Os dados serão arquivados e travados para edição posterior.',
+                 type: 'warning',
+                 onConfirm: () => {
+                   setStatus('Finalizado');
+                   window.scrollTo({ top: 0, behavior: 'smooth' });
+                 }
+               });
             }} 
             className="bg-orange-600 text-white px-12 py-5 rounded-2xl font-black text-sm uppercase tracking-widest shadow-2xl shadow-orange-200 hover:scale-105 transition-all flex items-center space-x-3"
           >

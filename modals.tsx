@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Plus, Trash2, Clock, MapPin, Shield, Info, AlertCircle, TrendingUp, Box, Truck, AlertOctagon, Calendar, Layers, Palette, Settings } from 'lucide-react';
+import { X, Plus, Trash2, Clock, MapPin, Shield, Info, AlertCircle, TrendingUp, Box, Truck, AlertOctagon, Calendar, Layers, Palette, Settings, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { 
   Base, User, Category, Task, Control, Shift, PermissionLevel, MeasureType,
   DefaultLocationItem, DefaultTransitItem, DefaultCriticalItem, CustomControlType, ManagedItem, ConditionConfig, PopupConfig 
@@ -11,7 +11,12 @@ import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import dayjs from 'dayjs';
+import customParseFormat from 'dayjs/plugin/customParseFormat';
 import 'dayjs/locale/pt-br';
+
+// Fix: Extend dayjs with customParseFormat plugin for string parsing
+dayjs.extend(customParseFormat);
+dayjs.locale('pt-br');
 
 interface ModalProps {
   isOpen: boolean;
@@ -20,6 +25,60 @@ interface ModalProps {
   title: string;
   initialData?: any;
 }
+
+/**
+ * Componente de Confirmação Customizado (Substitui window.confirm bloqueado)
+ */
+export const ConfirmModal: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  type?: 'danger' | 'warning' | 'info';
+}> = ({ isOpen, onClose, onConfirm, title, message, confirmLabel = "Confirmar", cancelLabel = "Cancelar", type = 'warning' }) => {
+  if (!isOpen) return null;
+
+  const colors = {
+    danger: 'bg-red-600 text-white',
+    warning: 'bg-orange-600 text-white',
+    info: 'bg-blue-600 text-white'
+  };
+
+  const icons = {
+    danger: <AlertOctagon className="w-12 h-12 mb-4" />,
+    warning: <AlertTriangle className="w-12 h-12 mb-4" />,
+    info: <Info className="w-12 h-12 mb-4" />
+  };
+
+  return (
+    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-[2.5rem] w-full max-w-sm shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+        <div className={`p-8 flex flex-col items-center text-center ${colors[type]}`}>
+          {icons[type]}
+          <h3 className="text-xl font-black uppercase tracking-tight mb-2">{title}</h3>
+          <p className="text-sm font-bold opacity-90 leading-relaxed">{message}</p>
+        </div>
+        <div className="p-6 flex space-x-3 bg-gray-50">
+          <button 
+            onClick={onClose} 
+            className="flex-1 py-4 bg-white border border-gray-200 text-gray-400 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-gray-100 transition-all"
+          >
+            {cancelLabel}
+          </button>
+          <button 
+            onClick={() => { onConfirm(); onClose(); }} 
+            className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg transition-all hover:scale-105 ${colors[type]}`}
+          >
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 /**
  * Utilitários de Conversão de Tempo
@@ -49,10 +108,12 @@ export const minutesToHhmmss = (totalMinutes: number): string => {
 export const TimeInput: React.FC<{
   value: string;
   onChange: (val: string) => void;
+  onBlur?: () => void;
+  onKeyDown?: (e: React.KeyboardEvent) => void;
   disabled?: boolean;
   className?: string;
   placeholder?: string;
-}> = ({ value, onChange, disabled, className, placeholder = "__:__:__" }) => {
+}> = ({ value, onChange, onBlur, onKeyDown, disabled, className, placeholder = "__:__:__" }) => {
   const [displayValue, setDisplayValue] = useState(value || "");
 
   useEffect(() => {
@@ -81,7 +142,7 @@ export const TimeInput: React.FC<{
     onChange(finalVal);
   };
 
-  const handleBlur = () => {
+  const handleBlurInternal = () => {
     if (displayValue && displayValue.length < 8 && displayValue !== "") {
       const parts = displayValue.split(':');
       const h = (parts[0] || '0').padStart(2, '0');
@@ -91,6 +152,7 @@ export const TimeInput: React.FC<{
       setDisplayValue(full);
       onChange(full);
     }
+    if (onBlur) onBlur();
   };
 
   return (
@@ -98,7 +160,8 @@ export const TimeInput: React.FC<{
       type="text"
       disabled={disabled}
       value={displayValue}
-      onBlur={handleBlur}
+      onBlur={handleBlurInternal}
+      onKeyDown={onKeyDown}
       onChange={handleInput}
       placeholder={placeholder}
       className={`font-black text-center outline-none ${className}`}
@@ -115,19 +178,29 @@ export const DatePickerField: React.FC<{
   placeholder?: string;
   disabled?: boolean;
 }> = ({ label, value, onChange, onBlur, onKeyDown, placeholder = "DD/MM/AAAA", disabled = false }) => {
-  const dateValue = value && dayjs(value, 'DD/MM/YYYY').isValid() 
-    ? dayjs(value, 'DD/MM/YYYY') 
+  const dateValue = value && dayjs(value as string, 'DD/MM/YYYY').isValid() 
+    ? dayjs(value as string, 'DD/MM/YYYY') 
     : null;
 
   return (
     <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="pt-br">
-      <div className="space-y-1 relative w-full" onBlur={onBlur} onKeyDown={onKeyDown}>
+      <div className="space-y-1 relative w-full">
         {label && <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">{label}</label>}
         <DatePicker
           value={dateValue}
           disabled={disabled}
           format="DD/MM/YYYY"
-          onChange={(newValue) => {
+          // Problema 3: onAccept garante que o evento dispara APÓS selecionar no calendário e ele fechar
+          onAccept={(newValue: any) => {
+            if (newValue && dayjs(newValue).isValid()) {
+              const formattedDate = dayjs(newValue).format('DD/MM/YYYY');
+              console.debug("[Problema 3] Data aceita no calendário:", formattedDate);
+              onChange(formattedDate);
+              // Pequeno delay para garantir que o calendário fechou completamente antes de disparar o onBlur (que avalia o pop-up)
+              if (onBlur) setTimeout(onBlur, 200);
+            }
+          }}
+          onChange={(newValue: any) => {
             if (newValue && dayjs(newValue).isValid()) {
               const formattedDate = dayjs(newValue).format('DD/MM/YYYY');
               onChange(formattedDate);
@@ -139,6 +212,8 @@ export const DatePickerField: React.FC<{
               variant: 'outlined',
               placeholder: placeholder,
               size: 'small',
+              onBlur: onBlur,
+              onKeyDown: onKeyDown,
               sx: {
                 '& .MuiOutlinedInput-root': {
                   borderRadius: '0.75rem',
@@ -286,6 +361,11 @@ export const ControlItemSettingsModal: React.FC<{ isOpen: boolean; onClose: () =
     </div>
   );
 
+  const handleSaveInternal = () => {
+    console.debug(`[Ajuste Operadores] Salvando com novos operadores para o item:`, item.id);
+    onSave({ ...item, cores, popups });
+  };
+
   return (
     <div className="fixed inset-0 z-[160] flex items-center justify-center bg-black/70 backdrop-blur-md p-4 overflow-y-auto">
       <div className="bg-white rounded-[2.5rem] w-full max-w-2xl shadow-2xl p-8 animate-in slide-in-from-bottom-10 my-10">
@@ -305,7 +385,7 @@ export const ControlItemSettingsModal: React.FC<{ isOpen: boolean; onClose: () =
 
         <div className="flex space-x-3 mt-8">
            <button onClick={onClose} className="flex-1 py-4 font-black text-gray-400 uppercase text-xs">Cancelar</button>
-           <button onClick={() => onSave({ ...item, cores, popups })} className="flex-1 py-4 bg-orange-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl">Salvar Regras</button>
+           <button onClick={handleSaveInternal} className="flex-1 py-4 bg-orange-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl">Salvar Regras</button>
         </div>
       </div>
     </div>

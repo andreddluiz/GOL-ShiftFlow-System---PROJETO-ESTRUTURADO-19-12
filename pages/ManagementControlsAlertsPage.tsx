@@ -2,11 +2,11 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Box, Truck, AlertOctagon, FlaskConical, Plus, Trash2, Edit2, Globe, MapPin, 
-  Search, Info, AlertCircle, CheckCircle, ChevronRight, Settings, Bell, Palette, Layers, RotateCcw
+  Search, Info, AlertCircle, CheckCircle, ChevronRight, Settings, Bell, Palette, Layers, RotateCcw, Archive
 } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
 import { ShelfLifeItem, DefaultLocationItem, DefaultTransitItem, DefaultCriticalItem, CustomControlType, CustomControlItem } from '../types';
-import { CustomControlTypeModal, ControlItemSettingsModal } from '../modals';
+import { CustomControlTypeModal, ControlItemSettingsModal, ConfirmModal } from '../modals';
 
 type ControlTab = 'shelf' | 'loc' | 'trans' | 'crit' | string;
 
@@ -26,6 +26,19 @@ const ManagementControlsAlertsPage: React.FC = () => {
   const [isTypeModalOpen, setIsTypeModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<any>(null);
+
+  const [confirmModal, setConfirmModal] = useState<{
+    open: boolean,
+    title: string,
+    message: string,
+    onConfirm: () => void,
+    type?: 'danger' | 'warning' | 'info'
+  }>({
+    open: false,
+    title: '',
+    message: '',
+    onConfirm: () => {}
+  });
 
   const [snackbar, setSnackbar] = useState<{ open: boolean, message: string, type: 'success' | 'error' }>({
     open: false, message: '', type: 'success'
@@ -50,7 +63,7 @@ const ManagementControlsAlertsPage: React.FC = () => {
 
     return list.filter(item => {
       const matchContext = contextFilter === 'global' ? item.baseId === null : item.baseId === contextFilter;
-      const matchStatus = showArchived ? true : item.status === 'ativo';
+      const matchStatus = showArchived ? true : (item.visivel !== false);
       return matchContext && matchStatus;
     });
   }, [activeTab, contextFilter, showArchived, defaultShelfLifes, defaultLocations, defaultTransits, defaultCriticals, customControlItems]);
@@ -62,7 +75,8 @@ const ManagementControlsAlertsPage: React.FC = () => {
       ...(editingItem || {}),
       id: editingItem?.id || Math.random().toString(36).substr(2, 9),
       baseId: contextFilter === 'global' ? null : contextFilter,
-      status: editingItem?.status || 'ativo'
+      status: editingItem?.status || 'ativo',
+      visivel: editingItem?.visivel ?? true
     };
 
     if (activeTab === 'shelf') {
@@ -95,26 +109,31 @@ const ManagementControlsAlertsPage: React.FC = () => {
     }
   };
 
-  // Ajuste 2: Arquivar Item de Controle
-  const handleArchive = async (item: any) => {
-    if (!confirm(`Deseja arquivar o item? Ele não aparecerá mais na Passagem de Turno.`)) return;
-    try {
-      console.debug(`[Ajuste 2] Arquivando item: ${item.id}`);
-      await saveDefaultItem(activeTab, { ...item, status: 'inativo' });
-      showSnackbar("Item arquivado com sucesso");
-    } catch (e) {
-      showSnackbar("Erro ao arquivar", "error");
-    }
+  const handleArchive = (item: any) => {
+    const label = item.partNumber || item.nomeLocation || item.nomeTransito || "este item";
+    
+    setConfirmModal({
+      open: true,
+      title: 'Arquivar Item',
+      message: `Deseja ocultar/arquivar o item "${label}"?\nEle desaparecerá da Passagem de Turno, mas continuará disponível para reativação no painel de gerenciamento.`,
+      type: 'warning',
+      onConfirm: async () => {
+        try {
+          await saveDefaultItem(activeTab, { ...item, visivel: false });
+          showSnackbar("Item ocultado com sucesso");
+        } catch (e) {
+          showSnackbar("Erro ao ocultar item", "error");
+        }
+      }
+    });
   };
 
-  // Ajuste 2: Reativar Item de Controle
   const handleReactivate = async (item: any) => {
     try {
-      console.debug(`[Ajuste 2] Reativando item: ${item.id}`);
-      await saveDefaultItem(activeTab, { ...item, status: 'ativo' });
+      await saveDefaultItem(activeTab, { ...item, visivel: true });
       showSnackbar("Item reativado com sucesso!");
     } catch (e) {
-      showSnackbar("Erro ao reativar", "error");
+      showSnackbar("Erro ao reativar item", "error");
     }
   };
 
@@ -202,10 +221,10 @@ const ManagementControlsAlertsPage: React.FC = () => {
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {currentItems.map(item => (
-                  <tr key={item.id} className={`group hover:bg-orange-50/10 transition-all ${item.status === 'inativo' ? 'bg-gray-50/50' : ''}`}>
+                  <tr key={item.id} className={`group hover:bg-orange-50/10 transition-all ${item.visivel === false ? 'bg-gray-100 opacity-60 border-dashed' : ''}`}>
                     <td className="px-6 py-5">
                       <div className="flex items-center space-x-3">
-                        <div className={`p-3 bg-gray-50 rounded-xl group-hover:bg-white text-gray-400 group-hover:text-orange-500 transition-all shadow-sm group-hover:shadow-md ${item.status === 'inativo' ? 'grayscale opacity-50' : ''}`}>
+                        <div className={`p-3 bg-gray-50 rounded-xl group-hover:bg-white text-gray-400 group-hover:text-orange-500 transition-all shadow-sm group-hover:shadow-md ${item.visivel === false ? 'grayscale opacity-50' : ''}`}>
                           {activeTab === 'shelf' && <FlaskConical className="w-5 h-5" />}
                           {activeTab === 'loc' && <Box className="w-5 h-5" />}
                           {activeTab === 'trans' && <Truck className="w-5 h-5" />}
@@ -213,7 +232,7 @@ const ManagementControlsAlertsPage: React.FC = () => {
                           {currentCustomType && <Settings className="w-5 h-5" />}
                         </div>
                         <div>
-                          <p className={`font-black uppercase tracking-tight ${item.status === 'inativo' ? 'text-gray-400 line-through' : 'text-gray-800'}`}>
+                          <p className={`font-black uppercase tracking-tight ${item.visivel === false ? 'text-gray-400 line-through' : 'text-gray-800'}`}>
                             {activeTab === 'shelf' || activeTab === 'crit' ? item.partNumber : (activeTab === 'loc' ? item.nomeLocation : (activeTab === 'trans' ? item.nomeTransito : Object.values(item.valores || {})[0] || 'Item Customizado'))}
                           </p>
                           <p className="text-[10px] font-bold text-gray-400 uppercase">
@@ -234,21 +253,21 @@ const ManagementControlsAlertsPage: React.FC = () => {
                        )}
                     </td>
                     <td className="px-6 py-5">
-                       {item.status === 'ativo' ? (
-                         <span className="px-2 py-1 bg-green-50 text-green-600 text-[10px] font-black uppercase rounded-md border border-green-100">Ativo</span>
+                       {item.visivel !== false ? (
+                         <span className="px-2 py-1 bg-green-50 text-green-600 text-[10px] font-black uppercase rounded-md border border-green-100">Visível</span>
                        ) : (
-                         <span className="px-2 py-1 bg-gray-100 text-gray-400 text-[10px] font-black uppercase rounded-md border border-gray-200">Arquivado</span>
+                         <span className="px-2 py-1 bg-gray-200 text-gray-500 text-[10px] font-black uppercase rounded-md border border-gray-300">Arquivado</span>
                        )}
                     </td>
                     <td className="px-6 py-5 text-right space-x-1">
-                       {item.status === 'ativo' ? (
+                       {item.visivel !== false ? (
                          <>
                             <button onClick={() => { setEditingItem(item); setIsModalOpen(true); }} className="p-2 text-gray-300 hover:text-orange-600 bg-gray-50 hover:bg-white rounded-lg transition-all shadow-sm border border-transparent hover:border-orange-100" title="Editar"><Edit2 className="w-4 h-4" /></button>
                             <button onClick={() => { setEditingItem(item); setIsSettingsModalOpen(true); }} className="p-2 text-gray-300 hover:text-orange-600 bg-gray-50 hover:bg-white rounded-lg transition-all shadow-sm border border-transparent hover:border-orange-100" title="Cores e Pop-ups"><Palette className="w-4 h-4" /></button>
-                            <button onClick={() => handleArchive(item)} className="p-2 text-gray-300 hover:text-red-600 bg-gray-50 hover:bg-white rounded-lg transition-all shadow-sm border border-transparent hover:border-red-100" title="Arquivar"><Trash2 className="w-4 h-4" /></button>
+                            <button onClick={() => handleArchive(item)} className="p-2 text-gray-300 hover:text-amber-600 bg-gray-50 hover:bg-white rounded-lg transition-all shadow-sm border border-transparent hover:border-amber-100" title="Arquivar"><Archive className="w-4 h-4" /></button>
                          </>
                        ) : (
-                         <button onClick={() => handleReactivate(item)} className="p-2 text-orange-600 bg-orange-50 hover:bg-white rounded-lg transition-all shadow-sm border border-orange-100" title="Reativar"><RotateCcw className="w-4 h-4" /></button>
+                         <button onClick={() => handleReactivate(item)} className="p-2 text-orange-600 bg-orange-50 hover:bg-white rounded-lg transition-all shadow-sm border border-orange-100" title="Desarquivar"><RotateCcw className="w-4 h-4" /></button>
                        )}
                     </td>
                   </tr>
@@ -267,88 +286,33 @@ const ManagementControlsAlertsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* MODAL DE FORMULÁRIO ITEM */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-           <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95">
-              <div className="gol-orange p-8 text-white flex justify-between items-center">
-                 <h3 className="text-2xl font-black tracking-tight">{editingItem ? 'Editar Item' : 'Novo Item'}</h3>
-                 <button onClick={() => setIsModalOpen(false)} className="hover:bg-white/10 p-2 rounded-full transition-colors"><Plus className="w-6 h-6 rotate-45" /></button>
-              </div>
-              <form onSubmit={handleSave} className="p-8 space-y-6">
-                 <div className="space-y-4">
-                    {(activeTab === 'shelf' || activeTab === 'crit') && (
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Part Number (P/N)</label>
-                        <input name="partNumber" required defaultValue={editingItem?.partNumber} className="w-full p-4 bg-gray-50 border rounded-2xl font-bold uppercase" placeholder="SKU-..." />
-                      </div>
-                    )}
-                    {activeTab === 'shelf' && (
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Lote</label>
-                          <input name="lote" required defaultValue={editingItem?.lote} className="w-full p-4 bg-gray-50 border rounded-2xl font-bold" />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Vencimento</label>
-                          <input name="dataVencimento" type="date" required defaultValue={editingItem?.dataVencimento} className="w-full p-4 bg-gray-50 border rounded-2xl font-bold" />
-                        </div>
-                      </div>
-                    )}
-                    {activeTab === 'loc' && (
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Nome da Location</label>
-                        <input name="nomeLocation" required defaultValue={editingItem?.nomeLocation} className="w-full p-4 bg-gray-50 border rounded-2xl font-bold uppercase" placeholder="GOL-01" />
-                      </div>
-                    )}
-                    {activeTab === 'trans' && (
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Tipo Trânsito</label>
-                          <input name="nomeTransito" required defaultValue={editingItem?.nomeTransito} className="w-full p-4 bg-gray-50 border rounded-2xl font-bold uppercase" />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">TAT Padrão</label>
-                          <input name="diasPadrao" type="number" required defaultValue={editingItem?.diasPadrao} className="w-full p-4 bg-gray-50 border rounded-2xl font-bold" />
-                        </div>
-                      </div>
-                    )}
-                    {currentCustomType && currentCustomType.campos.map(campo => (
-                      <div key={campo} className="space-y-1">
-                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{campo}</label>
-                        <input name={campo} required defaultValue={editingItem?.valores?.[campo]} className="w-full p-4 bg-gray-50 border rounded-2xl font-bold uppercase" />
-                      </div>
-                    ))}
-                 </div>
-                 <div className="flex space-x-3 pt-6">
-                    <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 py-4 text-gray-400 font-black uppercase text-xs tracking-widest">Cancelar</button>
-                    <button type="submit" className="flex-1 py-4 bg-orange-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-orange-100 hover:bg-orange-700 transition-all">Salvar Item</button>
-                 </div>
-              </form>
-           </div>
-        </div>
-      )}
+      <ConfirmModal 
+        isOpen={confirmModal.open}
+        onClose={() => setConfirmModal({ ...confirmModal, open: false })}
+        onConfirm={confirmModal.onConfirm}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        type={confirmModal.type}
+      />
 
-      {/* MODAL NOVO TIPO */}
       <CustomControlTypeModal 
         isOpen={isTypeModalOpen} 
         onClose={() => setIsTypeModalOpen(false)} 
         onSave={async (data) => {
-          await saveCustomControlType(data);
-          showSnackbar("Novo tipo de controle criado!");
+          await saveDefaultItem(activeTab, data);
+          showSnackbar("Novo tipo criado!");
           setIsTypeModalOpen(false);
         }}
-        title="Novo Tipo de Controle"
+        title="Novo Tipo"
       />
 
-      {/* MODAL CONFIGURAÇÃO CORES/POPUP */}
       <ControlItemSettingsModal
         isOpen={isSettingsModalOpen}
         onClose={() => setIsSettingsModalOpen(false)}
         item={editingItem}
         onSave={async (updatedItem) => {
           await saveDefaultItem(activeTab, updatedItem);
-          showSnackbar("Configurações salvas com sucesso!");
+          showSnackbar("Configurações salvas!");
           setIsSettingsModalOpen(false);
         }}
       />

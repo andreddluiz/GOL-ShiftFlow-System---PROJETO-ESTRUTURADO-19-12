@@ -119,14 +119,21 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   getOpCategoriesCombinadas: (baseId) => {
+    // Filtra categorias visíveis para a Passagem de Turno
     return get().categories.filter(c => 
-      c.tipo === 'operacional' && c.status === 'Ativa' && (!c.baseId || c.baseId === baseId)
+      c.tipo === 'operacional' && 
+      c.status === 'Ativa' && 
+      (c.visivel !== false) && 
+      (!c.baseId || c.baseId === baseId)
     ).sort((a,b) => a.ordem - b.ordem);
   },
 
   getOpTasksCombinadas: (baseId) => {
+    // Filtra tarefas visíveis para a Passagem de Turno
     return get().tasks.filter(t => 
-      t.status === 'Ativa' && (!t.baseId || t.baseId === baseId)
+      t.status === 'Ativa' && 
+      (t.visivel !== false) && 
+      (!t.baseId || t.baseId === baseId)
     );
   },
 
@@ -159,31 +166,31 @@ export const useStore = create<AppState>((set, get) => ({
 
   getDefaultLocations: (baseId) => {
     return get().defaultLocations.filter(i => 
-      i.status === 'ativo' && (!i.baseId || i.baseId === baseId)
+      (i.visivel !== false) && (!i.baseId || i.baseId === baseId)
     );
   },
 
   getDefaultTransits: (baseId) => {
     return get().defaultTransits.filter(i => 
-      i.status === 'ativo' && (!i.baseId || i.baseId === baseId)
+      (i.visivel !== false) && (!i.baseId || i.baseId === baseId)
     );
   },
 
   getDefaultCriticals: (baseId) => {
     return get().defaultCriticals.filter(i => 
-      i.status === 'ativo' && (!i.baseId || i.baseId === baseId)
+      (i.visivel !== false) && (!i.baseId || i.baseId === baseId)
     );
   },
 
   getDefaultShelfLifes: (baseId) => {
     return get().defaultShelfLifes.filter(i => 
-      i.status === 'ativo' && (!i.baseId || i.baseId === baseId)
+      (i.visivel !== false) && (!i.baseId || i.baseId === baseId)
     );
   },
 
   getCustomControlItems: (baseId, typeId) => {
     return get().customControlItems.filter(i => 
-      i.status === 'ativo' && i.tipoId === typeId && (!i.baseId || i.baseId === baseId)
+      (i.visivel !== false) && i.tipoId === typeId && (!i.baseId || i.baseId === baseId)
     );
   }
 }));

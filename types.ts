@@ -49,6 +49,7 @@ export interface Category {
   tipo: 'operacional' | 'mensal';
   ordem: number;
   status: 'Ativa' | 'Inativa';
+  visivel?: boolean; // Propriedade para arquivamento
   baseId?: string | null;
 }
 
@@ -60,6 +61,7 @@ export interface Task {
   fatorMultiplicador: number; 
   obrigatoriedade: boolean;
   status: 'Ativa' | 'Inativa';
+  visivel?: boolean; // Propriedade para arquivamento
   ordem: number;
   baseId?: string | null;
   dataExclusao?: string; 
@@ -82,6 +84,7 @@ export interface ManagedItem {
   id: string;
   baseId: string | null;
   status: 'ativo' | 'inativo';
+  visivel?: boolean; // Propriedade para arquivamento
   cores?: {
     verde: ConditionConfig;
     amarelo: ConditionConfig;
@@ -100,23 +103,19 @@ export interface ShelfLifeItem extends ManagedItem {
   dataVencimento: string; 
 }
 
-/* Renamed to DefaultLocationItem to resolve import errors in other files */
 export interface DefaultLocationItem extends ManagedItem {
   nomeLocation: string;
 }
 
-/* Renamed to DefaultTransitItem to resolve import errors in other files */
 export interface DefaultTransitItem extends ManagedItem {
   nomeTransito: string;
   diasPadrao: number;
 }
 
-/* Renamed to DefaultCriticalItem to resolve import errors in other files */
 export interface DefaultCriticalItem extends ManagedItem {
   partNumber: string;
 }
 
-// Para novos tipos de controle (Solicitação 2)
 export interface CustomControlItem extends ManagedItem {
   tipoId: string;
   valores: Record<string, any>;
@@ -126,7 +125,7 @@ export interface CustomControlType {
   id: string;
   nome: string;
   descricao?: string;
-  campos: string[]; // Lista de nomes de campos customizados
+  campos: string[]; 
   dataCriacao: string;
 }
 
@@ -159,6 +158,7 @@ export interface LocationRow {
   quantidade: number;
   dataMaisAntigo: string; 
   isPadrao?: boolean;
+  config?: any;
 }
 
 export interface TransitRow {
@@ -168,6 +168,7 @@ export interface TransitRow {
   quantidade: number;
   dataSaida: string; 
   isPadrao?: boolean;
+  config?: any;
 }
 
 export interface ShelfLifeRow {
@@ -175,6 +176,8 @@ export interface ShelfLifeRow {
   partNumber: string;
   lote: string;
   dataVencimento: string; 
+  isPadrao?: boolean;
+  config?: any;
 }
 
 export interface CriticalRow {
@@ -184,6 +187,7 @@ export interface CriticalRow {
   saldoSistema: number; 
   saldoFisico: number;  
   isPadrao?: boolean;
+  config?: any;
 }
 
 export interface OutraAtividade {
@@ -207,8 +211,6 @@ export interface ShiftHandover {
   informacoesImportantes: string;
   status: 'Rascunho' | 'Finalizado';
   performance: number;
-  horasDisponiveis: number;
-  horasProduzidas: number;
-  criadoEm: string;
+  CriadoEm: string;
   updatedAt: string;
 }

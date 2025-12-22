@@ -10,7 +10,7 @@ import {
   baseService, userService, taskService, categoryService 
 } from '../services';
 import { 
-  BaseModal, UserModal, TaskModal, CategoryModal
+  BaseModal, UserModal, TaskModal, CategoryModal, ConfirmModal
 } from '../modals';
 import { useStore } from '../hooks/useStore';
 import ManagementControlsAlertsPage from './ManagementControlsAlertsPage';
@@ -39,6 +39,19 @@ const ManagementPage: React.FC = () => {
     editingItem: null
   });
 
+  const [confirmModal, setConfirmModal] = useState<{
+    open: boolean,
+    title: string,
+    message: string,
+    onConfirm: () => void,
+    type?: 'danger' | 'warning' | 'info'
+  }>({
+    open: false,
+    title: '',
+    message: '',
+    onConfirm: () => {}
+  });
+
   const [snackbar, setSnackbar] = useState<{ open: boolean, message: string, type: 'success' | 'error' }>({
     open: false, message: '', type: 'success'
   });
@@ -65,13 +78,13 @@ const ManagementPage: React.FC = () => {
         if (editingItem) await userService.update(editingItem.id, formData);
         else await userService.create(formData);
       } else if (type === 'category_op' || type === 'category_month') {
-        if (editingItem) await categoryService.update(editingItem.id, dataWithContext);
-        else await categoryService.create({ ...dataWithContext, tipo: type === 'category_op' ? 'operacional' : 'mensal' });
+        if (editingItem) await categoryService.update(editingItem.id, { ...dataWithContext, visivel: editingItem.visivel ?? true });
+        else await categoryService.create({ ...dataWithContext, tipo: type === 'category_op' ? 'operacional' : 'mensal', visivel: true });
       } else if (type === 'task_modal') {
         if (editingItem?.id) {
-           await taskService.update(editingItem.id, dataWithContext);
+           await taskService.update(editingItem.id, { ...dataWithContext, visivel: editingItem.visivel ?? true });
         } else {
-           await taskService.create({ ...dataWithContext, ordem: tasks.length + 1, status: 'Ativa' });
+           await taskService.create({ ...dataWithContext, ordem: tasks.length + 1, status: 'Ativa', visivel: true });
         }
       }
       
@@ -84,57 +97,83 @@ const ManagementPage: React.FC = () => {
     }
   };
 
-  const handleDelete = async (id: string, type: string, currentItem?: any) => {
-    // Ajuste 3: Arquivar Tarefa Operacional
-    if (type === 'task_modal') {
-       if (!confirm(`Deseja arquivar a tarefa "${currentItem?.nome}"? Ela não aparecerá mais na Passagem de Turno.`)) return;
-       try {
-         console.debug(`[Ajuste 3] Arquivando tarefa: ${id}`);
-         await taskService.update(id, { status: 'Inativa', dataExclusao: new Date().toISOString() });
-         showSnackbar('Tarefa arquivada com sucesso');
-         await refreshData();
-       } catch (e) {
-         showSnackbar('Erro ao desativar tarefa', 'error');
-       }
-       return;
-    }
+  const handleArchive = (id: string, type: string, currentItem?: any) => {
+    const isCategory = type.includes('category');
+    const label = isCategory ? 'categoria' : 'tarefa';
+    
+    setConfirmModal({
+      open: true,
+      title: 'Arquivar Item',
+      message: `Deseja arquivar/ocultar a ${label} "${currentItem?.nome || 'este item'}"?\nEla deixará de aparecer na Passagem de Turno, mas o histórico de registros será mantido no sistema.`,
+      type: 'warning',
+      onConfirm: async () => {
+        try {
+          if (isCategory) {
+            await categoryService.update(id, { visivel: false });
+            showSnackbar('Categoria arquivada com sucesso');
+          } else {
+            await taskService.update(id, { visivel: false });
+            showSnackbar('Tarefa arquivada com sucesso');
+          }
+          await refreshData();
+        } catch (e) {
+          showSnackbar(`Erro ao ocultar ${label}`, 'error');
+        }
+      }
+    });
+  };
 
-    if (!confirm('Esta ação removerá o registro permanentemente. Confirmar exclusão?')) return;
+  const handleReactivate = async (id: string, type: string) => {
+    const isCategory = type.includes('category');
     try {
-      if (type === 'bases') await baseService.delete(id);
-      else if (type === 'users') await userService.delete(id);
-      else if (type.includes('category')) await categoryService.delete(id);
-      
-      showSnackbar('Item excluído permanentemente');
+      if (isCategory) {
+        await categoryService.update(id, { visivel: true });
+        showSnackbar('Categoria reativada!');
+      } else {
+        await taskService.update(id, { visivel: true });
+        showSnackbar('Tarefa reativada!');
+      }
       await refreshData();
     } catch (e) {
-      showSnackbar('Erro ao excluir item', 'error');
+      showSnackbar('Erro ao reativar item', 'error');
     }
   };
 
-  const handleReactivateTask = async (task: Task) => {
-     try {
-       console.debug(`[Ajuste 3] Reativando tarefa: ${task.id}`);
-       await taskService.update(task.id, { status: 'Ativa', dataExclusao: undefined });
-       showSnackbar('Tarefa reativada com sucesso!');
-       await refreshData();
-     } catch (e) {
-       showSnackbar('Erro ao reativar tarefa', 'error');
-     }
+  const handleDeletePermanent = (id: string, type: string) => {
+    setConfirmModal({
+      open: true,
+      title: 'Excluir Permanentemente',
+      message: 'Esta ação removerá o registro permanentemente de forma irreversível e apagará dados históricos relacionados. Confirmar exclusão?',
+      type: 'danger',
+      onConfirm: async () => {
+        try {
+          if (type === 'bases') await baseService.delete(id);
+          else if (type === 'users') await userService.delete(id);
+          else if (type.includes('category')) await categoryService.delete(id);
+          else if (type === 'task_modal') await taskService.delete(id);
+          
+          showSnackbar('Item excluído permanentemente');
+          await refreshData();
+        } catch (e) {
+          showSnackbar('Erro ao excluir item', 'error');
+        }
+      }
+    });
   };
 
   const filteredCategories = useMemo(() => 
     categories.filter(c => 
       (managementContext === 'global' ? !c.baseId : c.baseId === contextBaseId) && 
-      (activeTab === 'tasks_op' ? c.tipo === 'operacional' : c.tipo === 'mensal')
+      (activeTab === 'tasks_op' ? c.tipo === 'operacional' : c.tipo === 'mensal') &&
+      (showInactive ? true : (c.visivel !== false))
     ),
-    [categories, managementContext, contextBaseId, activeTab]
+    [categories, managementContext, contextBaseId, activeTab, showInactive]
   );
 
   const filteredTasks = useMemo(() => 
     tasks.filter(t => 
       (managementContext === 'global' ? !t.baseId : t.baseId === contextBaseId) &&
-      (showInactive ? true : t.status === 'Ativa')
+      (showInactive ? true : (t.visivel !== false))
     ),
     [tasks, managementContext, contextBaseId, showInactive]
   );
@@ -164,7 +203,7 @@ const ManagementPage: React.FC = () => {
              {(activeTab === 'tasks_op' || activeTab === 'tasks_month') && (
                 <label className="flex items-center space-x-2 cursor-pointer p-2 rounded-lg hover:bg-gray-50 group">
                   <input type="checkbox" className="w-4 h-4 accent-orange-500" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} />
-                  <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest group-hover:text-orange-600 transition-colors">Exibir Inativas</span>
+                  <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest group-hover:text-orange-600 transition-colors">Exibir Arquivados</span>
                 </label>
              )}
              {managementContext === 'base' && (activeTab !== 'bases' && activeTab !== 'users') && (
@@ -192,7 +231,7 @@ const ManagementPage: React.FC = () => {
               <div className="flex justify-end">
                 <button onClick={() => setModalState({ open: true, type: 'bases', editingItem: null })} className="bg-orange-600 text-white px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-orange-100 hover:bg-orange-700 transition-all">+ Nova Base</button>
               </div>
-              <BasesGrid bases={bases} onEdit={i => setModalState({ open: true, type: 'bases', editingItem: i })} onDelete={id => handleDelete(id, 'bases')} />
+              <BasesGrid bases={bases} onEdit={i => setModalState({ open: true, type: 'bases', editingItem: i })} onDelete={id => handleDeletePermanent(id, 'bases')} />
             </div>
           )}
           {activeTab === 'users' && (
@@ -200,7 +239,7 @@ const ManagementPage: React.FC = () => {
               <div className="flex justify-end">
                 <button onClick={() => setModalState({ open: true, type: 'users', editingItem: null })} className="bg-orange-600 text-white px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-orange-100 hover:bg-orange-700 transition-all">+ Novo Usuário</button>
               </div>
-              <UsersGrid users={users} onEdit={i => setModalState({ open: true, type: 'users', editingItem: i })} onDelete={id => handleDelete(id, 'users')} />
+              <UsersGrid users={users} onEdit={i => setModalState({ open: true, type: 'users', editingItem: i })} onDelete={id => handleDeletePermanent(id, 'users')} />
             </div>
           )}
           
@@ -216,45 +255,64 @@ const ManagementPage: React.FC = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 {filteredCategories.map(cat => (
-                  <div key={cat.id} className="bg-gray-50/50 rounded-3xl border border-gray-100 p-6 space-y-4">
+                  <div key={cat.id} className={`rounded-3xl border border-gray-100 p-6 space-y-4 transition-all ${cat.visivel === false ? 'bg-gray-100 opacity-60 border-dashed' : 'bg-gray-50/50'}`}>
                     <div className="flex justify-between items-center">
                        <h4 className="font-black text-gray-700 uppercase tracking-widest text-sm flex items-center space-x-2">
-                         <span className="w-2 h-2 rounded-full bg-orange-600"></span>
-                         <span>{cat.nome}</span>
+                         <span className={`w-2 h-2 rounded-full ${cat.visivel === false ? 'bg-gray-400' : 'bg-orange-600'}`}></span>
+                         <span className={cat.visivel === false ? 'line-through' : ''}>{cat.nome}</span>
+                         {cat.visivel === false && <span className="text-[9px] bg-gray-200 px-1.5 py-0.5 rounded text-gray-500 font-black ml-2 uppercase">Arquivado</span>}
                        </h4>
-                       <div className="flex space-x-2">
+                       <div className="flex space-x-1">
                           <button onClick={() => setModalState({ open: true, type: activeTab === 'tasks_op' ? 'category_op' : 'category_month', editingItem: cat })} className="p-2 text-gray-400 hover:text-orange-600 transition-colors"><Edit2 className="w-4 h-4" /></button>
-                          <button onClick={() => handleDelete(cat.id, activeTab === 'tasks_op' ? 'category_op' : 'category_month')} className="p-2 text-gray-400 hover:text-red-500 transition-colors"><Trash2 className="w-4 h-4" /></button>
+                          {cat.visivel !== false ? (
+                            <button onClick={() => handleArchive(cat.id, activeTab === 'tasks_op' ? 'category_op' : 'category_month', cat)} title="Arquivar" className="p-2 text-gray-400 hover:text-amber-600 transition-colors"><Archive className="w-4 h-4" /></button>
+                          ) : (
+                            <button onClick={() => handleReactivate(cat.id, activeTab === 'tasks_op' ? 'category_op' : 'category_month')} title="Desarquivar" className="p-2 text-orange-600 hover:scale-110 transition-transform"><RotateCcw className="w-4 h-4" /></button>
+                          )}
+                          <button onClick={() => handleDeletePermanent(cat.id, activeTab === 'tasks_op' ? 'category_op' : 'category_month')} className="p-2 text-gray-400 hover:text-red-500 transition-colors"><Trash2 className="w-4 h-4" /></button>
                        </div>
                     </div>
 
                     <div className="space-y-2">
-                       {filteredTasks.filter(t => t.categoriaId === cat.id).map(task => (
-                         <div key={task.id} className={`bg-white p-3 rounded-xl border border-gray-100 flex justify-between items-center group shadow-sm transition-all ${task.status === 'Inativa' ? 'opacity-40 grayscale' : 'hover:border-orange-100'}`}>
+                       {filteredTasks.filter(t => (t.visivel !== false) && t.categoriaId === cat.id).map(task => (
+                         <div key={task.id} className="bg-white p-3 rounded-xl border border-gray-100 flex justify-between items-center group shadow-sm transition-all hover:border-orange-100">
                             <div className="flex flex-col min-w-0 pr-4">
                               <span className="text-xs font-bold text-gray-600 truncate">{task.nome}</span>
                             </div>
                             <div className="flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                               {task.status === 'Ativa' ? (
-                                 <>
-                                   <button onClick={() => setModalState({ open: true, type: 'task_modal', editingItem: task })} className="p-1.5 text-gray-400 hover:text-orange-600 bg-gray-50 rounded-lg"><Edit2 className="w-3.5 h-3.5" /></button>
-                                   <button onClick={() => handleDelete(task.id, 'task_modal', task)} title="Arquivar" className="p-1.5 text-gray-400 hover:text-red-500 bg-gray-50 rounded-lg"><Archive className="w-3.5 h-3.5" /></button>
-                                 </>
-                               ) : (
-                                 <button onClick={() => handleReactivateTask(task)} title="Reativar" className="p-1.5 text-orange-600 bg-orange-50 rounded-lg hover:scale-110 transition-transform"><RotateCcw className="w-3.5 h-3.5" /></button>
-                               )}
+                               <button onClick={() => setModalState({ open: true, type: 'task_modal', editingItem: task })} className="p-1.5 text-gray-400 hover:text-orange-600 bg-gray-50 rounded-lg"><Edit2 className="w-3.5 h-3.5" /></button>
+                               <button onClick={() => handleArchive(task.id, 'task_modal', task)} title="Arquivar" className="p-1.5 text-gray-400 hover:text-amber-600 bg-gray-50 rounded-lg"><Archive className="w-3.5 h-3.5" /></button>
+                            </div>
+                         </div>
+                       ))}
+                       {showInactive && filteredTasks.filter(t => t.visivel === false && t.categoriaId === cat.id).map(task => (
+                         <div key={task.id} className="bg-gray-100 p-3 rounded-xl border border-dashed border-gray-200 flex justify-between items-center opacity-70">
+                            <div className="flex flex-col min-w-0 pr-4">
+                              <span className="text-xs font-bold text-gray-400 truncate line-through">{task.nome} (Oculta)</span>
+                            </div>
+                            <div className="flex space-x-1">
+                              <button onClick={() => handleReactivate(task.id, 'task_modal')} title="Desarquivar" className="p-1.5 text-orange-600 bg-orange-50 rounded-lg hover:scale-110 transition-transform"><RotateCcw className="w-3.5 h-3.5" /></button>
+                              <button onClick={() => handleDeletePermanent(task.id, 'task_modal')} title="Excluir Permanentemente" className="p-1.5 text-red-400 hover:text-red-600 bg-red-50 rounded-lg transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
                             </div>
                          </div>
                        ))}
                        <button 
+                        disabled={cat.visivel === false}
                         onClick={() => setModalState({ open: true, type: 'task_modal', editingItem: { categoriaId: cat.id } })}
-                        className="w-full py-3 border-2 border-dashed border-gray-200 rounded-xl text-[10px] font-black uppercase text-gray-400 hover:border-orange-200 hover:text-orange-600 transition-all bg-white/50"
+                        className={`w-full py-3 border-2 border-dashed border-gray-200 rounded-xl text-[10px] font-black uppercase text-gray-400 transition-all bg-white/50 ${cat.visivel === false ? 'cursor-not-allowed opacity-50' : 'hover:border-orange-200 hover:text-orange-600'}`}
                        >
                          + Adicionar Tarefa
                        </button>
                     </div>
                   </div>
                 ))}
+
+                {filteredCategories.length === 0 && (
+                  <div className="col-span-full py-20 text-center text-gray-300">
+                    <Archive className="w-12 h-12 mx-auto mb-4 opacity-10" />
+                    <p className="font-bold uppercase text-xs tracking-widest">Nenhuma categoria encontrada nesta base.</p>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -268,6 +326,15 @@ const ManagementPage: React.FC = () => {
       </div>
 
       {/* Modais */}
+      <ConfirmModal 
+        isOpen={confirmModal.open}
+        onClose={() => setConfirmModal({ ...confirmModal, open: false })}
+        onConfirm={confirmModal.onConfirm}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        type={confirmModal.type}
+      />
+
       {modalState.open && modalState.type === 'bases' && (
         <BaseModal
           isOpen={modalState.open}
@@ -302,7 +369,7 @@ const ManagementPage: React.FC = () => {
           onSave={handleSave}
           title={modalState.editingItem?.id ? 'Editar Tarefa' : 'Nova Tarefa'}
           initialData={modalState.editingItem}
-          categories={filteredCategories}
+          categories={filteredCategories.filter(c => c.visivel !== false)}
         />
       )}
     </div>

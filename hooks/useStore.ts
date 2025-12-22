@@ -2,7 +2,8 @@
 import { create } from 'zustand';
 import { 
   Base, User, Category, Task, Control, ControlType,
-  DefaultLocationItem, DefaultTransitItem, DefaultCriticalItem 
+  DefaultLocationItem, DefaultTransitItem, DefaultCriticalItem,
+  ShelfLifeItem, CustomControlType, CustomControlItem
 } from '../types';
 import { 
   baseService, userService, taskService, categoryService, 
@@ -18,19 +19,31 @@ interface AppState {
   defaultLocations: DefaultLocationItem[];
   defaultTransits: DefaultTransitItem[];
   defaultCriticals: DefaultCriticalItem[];
+  defaultShelfLifes: ShelfLifeItem[];
+  customControlTypes: CustomControlType[];
+  customControlItems: CustomControlItem[];
   loading: boolean;
   initialized: boolean;
   
   refreshData: (showFullLoading?: boolean) => Promise<void>;
   
+  // CRUD para Itens de Controle
+  saveDefaultItem: (type: 'shelf' | 'loc' | 'trans' | 'crit' | string, data: any) => Promise<void>;
+  deleteDefaultItem: (type: 'shelf' | 'loc' | 'trans' | 'crit' | string, id: string) => Promise<void>;
+  
+  // Custom Control Types
+  saveCustomControlType: (data: CustomControlType) => Promise<void>;
+  deleteCustomControlType: (id: string) => Promise<void>;
+
   getOpCategoriesCombinadas: (baseId?: string | null) => Category[];
   getOpTasksCombinadas: (baseId?: string | null) => Task[];
   getControlesCombinados: (baseId: string) => Control[];
   
-  // Seletores de Itens Padrão
   getDefaultLocations: (baseId: string) => DefaultLocationItem[];
   getDefaultTransits: (baseId: string) => DefaultTransitItem[];
   getDefaultCriticals: (baseId: string) => DefaultCriticalItem[];
+  getDefaultShelfLifes: (baseId: string) => ShelfLifeItem[];
+  getCustomControlItems: (baseId: string, typeId: string) => CustomControlItem[];
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -42,13 +55,16 @@ export const useStore = create<AppState>((set, get) => ({
   defaultLocations: [],
   defaultTransits: [],
   defaultCriticals: [],
+  defaultShelfLifes: [],
+  customControlTypes: [],
+  customControlItems: [],
   loading: false,
   initialized: false,
 
   refreshData: async (showFullLoading = false) => {
     if (showFullLoading) set({ loading: true });
     try {
-      const [bases, users, tasks, cats, controls, defLocs, defTrans, defCrit] = await Promise.all([
+      const [bases, users, tasks, cats, controls, defLocs, defTrans, defCrit, defShelf, custTypes, custItems] = await Promise.all([
         baseService.getAll(),
         userService.getAll(),
         taskService.getAll(),
@@ -56,16 +72,50 @@ export const useStore = create<AppState>((set, get) => ({
         controlService.getAll(),
         defaultItemsService.getLocations(),
         defaultItemsService.getTransits(),
-        defaultItemsService.getCriticals()
+        defaultItemsService.getCriticals(),
+        defaultItemsService.getShelfLifes(),
+        defaultItemsService.getCustomTypes(),
+        defaultItemsService.getCustomItems()
       ]);
       set({ 
         bases, users, tasks, categories: cats, controls, 
         defaultLocations: defLocs, defaultTransits: defTrans, defaultCriticals: defCrit,
+        defaultShelfLifes: defShelf,
+        customControlTypes: custTypes,
+        customControlItems: custItems,
         initialized: true 
       });
     } finally {
       if (showFullLoading) set({ loading: false });
     }
+  },
+
+  saveDefaultItem: async (type, data) => {
+    if (type === 'shelf') await defaultItemsService.saveShelfLife(data);
+    else if (type === 'loc') await defaultItemsService.saveLocation(data);
+    else if (type === 'trans') await defaultItemsService.saveTransit(data);
+    else if (type === 'crit') await defaultItemsService.saveCritical(data);
+    else await defaultItemsService.saveCustomItem(data);
+    await get().refreshData();
+  },
+
+  deleteDefaultItem: async (type, id) => {
+    if (type === 'shelf') await defaultItemsService.deleteShelfLife(id);
+    else if (type === 'loc') await defaultItemsService.deleteLocation(id);
+    else if (type === 'trans') await defaultItemsService.deleteTransit(id);
+    else if (type === 'crit') await defaultItemsService.deleteCritical(id);
+    else await defaultItemsService.deleteCustomItem(id);
+    await get().refreshData();
+  },
+
+  saveCustomControlType: async (data) => {
+    await defaultItemsService.saveCustomType(data);
+    await get().refreshData();
+  },
+
+  deleteCustomControlType: async (id) => {
+    await defaultItemsService.deleteCustomType(id);
+    await get().refreshData();
   },
 
   getOpCategoriesCombinadas: (baseId) => {
@@ -122,6 +172,18 @@ export const useStore = create<AppState>((set, get) => ({
   getDefaultCriticals: (baseId) => {
     return get().defaultCriticals.filter(i => 
       i.status === 'ativo' && (!i.baseId || i.baseId === baseId)
+    );
+  },
+
+  getDefaultShelfLifes: (baseId) => {
+    return get().defaultShelfLifes.filter(i => 
+      i.status === 'ativo' && (!i.baseId || i.baseId === baseId)
+    );
+  },
+
+  getCustomControlItems: (baseId, typeId) => {
+    return get().customControlItems.filter(i => 
+      i.status === 'ativo' && i.tipoId === typeId && (!i.baseId || i.baseId === baseId)
     );
   }
 }));

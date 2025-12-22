@@ -1,7 +1,8 @@
 
 import { 
   Base, User, Category, Task, Control, 
-  DefaultLocationItem, DefaultTransitItem, DefaultCriticalItem 
+  DefaultLocationItem, DefaultTransitItem, DefaultCriticalItem,
+  ShelfLifeItem, CustomControlType, CustomControlItem
 } from './types';
 import { BASES, CATEGORIES, TASKS, CONTROLS, USERS } from './constants';
 
@@ -13,14 +14,16 @@ const STORAGE_KEYS = {
   CONTROLS: 'gol_shiftflow_controls_v2',
   DEF_LOCS: 'gol_shiftflow_def_locations_v2',
   DEF_TRANS: 'gol_shiftflow_def_transits_v2',
-  DEF_CRIT: 'gol_shiftflow_def_criticals_v2'
+  DEF_CRIT: 'gol_shiftflow_def_criticals_v2',
+  DEF_SHELF: 'gol_shiftflow_def_shelf_v2',
+  CUSTOM_TYPES: 'gol_shiftflow_custom_control_types',
+  CUSTOM_ITEMS: 'gol_shiftflow_custom_control_items'
 };
 
 const getFromStorage = <T>(key: string, defaultVal: T[]): T[] => {
   try {
     const data = localStorage.getItem(key);
     const parsed = data ? JSON.parse(data) : defaultVal;
-    console.debug(`[DEBUG Storage] Carregando ${key}:`, parsed.length, "itens");
     return parsed;
   } catch (e) {
     console.error("[DEBUG Storage] Erro ao ler storage", key, e);
@@ -30,7 +33,6 @@ const getFromStorage = <T>(key: string, defaultVal: T[]): T[] => {
 
 const saveToStorage = <T>(key: string, data: T[]) => {
   try {
-    console.debug(`[DEBUG Storage] Salvando ${key}:`, data.length, "itens");
     localStorage.setItem(key, JSON.stringify(data));
   } catch (e) {
     console.error("[DEBUG Storage] Erro ao salvar storage", key, e);
@@ -60,6 +62,99 @@ export const baseService = {
   async delete(id: string): Promise<void> {
     const bases = await this.getAll();
     saveToStorage(STORAGE_KEYS.BASES, bases.filter(b => b.id !== id));
+  }
+};
+
+export const defaultItemsService = {
+  async getLocations(): Promise<DefaultLocationItem[]> {
+    return getFromStorage<DefaultLocationItem>(STORAGE_KEYS.DEF_LOCS, []);
+  },
+  async saveLocation(data: DefaultLocationItem): Promise<void> {
+    const items = await this.getLocations();
+    const existingIndex = items.findIndex(i => i.id === data.id);
+    if (existingIndex > -1) items[existingIndex] = data;
+    else items.push(data);
+    saveToStorage(STORAGE_KEYS.DEF_LOCS, items);
+  },
+  async deleteLocation(id: string): Promise<void> {
+    const items = await this.getLocations();
+    saveToStorage(STORAGE_KEYS.DEF_LOCS, items.filter(i => i.id !== id));
+  },
+
+  async getTransits(): Promise<DefaultTransitItem[]> {
+    return getFromStorage<DefaultTransitItem>(STORAGE_KEYS.DEF_TRANS, []);
+  },
+  async saveTransit(data: DefaultTransitItem): Promise<void> {
+    const items = await this.getTransits();
+    const existingIndex = items.findIndex(i => i.id === data.id);
+    if (existingIndex > -1) items[existingIndex] = data;
+    else items.push(data);
+    saveToStorage(STORAGE_KEYS.DEF_TRANS, items);
+  },
+  async deleteTransit(id: string): Promise<void> {
+    const items = await this.getTransits();
+    saveToStorage(STORAGE_KEYS.DEF_TRANS, items.filter(i => i.id !== id));
+  },
+
+  async getCriticals(): Promise<DefaultCriticalItem[]> {
+    return getFromStorage<DefaultCriticalItem>(STORAGE_KEYS.DEF_CRIT, []);
+  },
+  async saveCritical(data: DefaultCriticalItem): Promise<void> {
+    const items = await this.getCriticals();
+    const existingIndex = items.findIndex(i => i.id === data.id);
+    if (existingIndex > -1) items[existingIndex] = data;
+    else items.push(data);
+    saveToStorage(STORAGE_KEYS.DEF_CRIT, items);
+  },
+  async deleteCritical(id: string): Promise<void> {
+    const items = await this.getCriticals();
+    saveToStorage(STORAGE_KEYS.DEF_CRIT, items.filter(i => i.id !== id));
+  },
+
+  async getShelfLifes(): Promise<ShelfLifeItem[]> {
+    return getFromStorage<ShelfLifeItem>(STORAGE_KEYS.DEF_SHELF, []);
+  },
+  async saveShelfLife(data: ShelfLifeItem): Promise<void> {
+    const items = await this.getShelfLifes();
+    const existingIndex = items.findIndex(i => i.id === data.id);
+    if (existingIndex > -1) items[existingIndex] = data;
+    else items.push(data);
+    saveToStorage(STORAGE_KEYS.DEF_SHELF, items);
+  },
+  async deleteShelfLife(id: string): Promise<void> {
+    const items = await this.getShelfLifes();
+    saveToStorage(STORAGE_KEYS.DEF_SHELF, items.filter(i => i.id !== id));
+  },
+
+  // Novos serviços para custom types
+  async getCustomTypes(): Promise<CustomControlType[]> {
+    return getFromStorage<CustomControlType>(STORAGE_KEYS.CUSTOM_TYPES, []);
+  },
+  async saveCustomType(data: CustomControlType): Promise<void> {
+    const types = await this.getCustomTypes();
+    const idx = types.findIndex(t => t.id === data.id);
+    if (idx > -1) types[idx] = data;
+    else types.push(data);
+    saveToStorage(STORAGE_KEYS.CUSTOM_TYPES, types);
+  },
+  async deleteCustomType(id: string): Promise<void> {
+    const types = await this.getCustomTypes();
+    saveToStorage(STORAGE_KEYS.CUSTOM_TYPES, types.filter(t => t.id !== id));
+  },
+
+  async getCustomItems(): Promise<CustomControlItem[]> {
+    return getFromStorage<CustomControlItem>(STORAGE_KEYS.CUSTOM_ITEMS, []);
+  },
+  async saveCustomItem(data: CustomControlItem): Promise<void> {
+    const items = await this.getCustomItems();
+    const idx = items.findIndex(i => i.id === data.id);
+    if (idx > -1) items[idx] = data;
+    else items.push(data);
+    saveToStorage(STORAGE_KEYS.CUSTOM_ITEMS, items);
+  },
+  async deleteCustomItem(id: string): Promise<void> {
+    const items = await this.getCustomItems();
+    saveToStorage(STORAGE_KEYS.CUSTOM_ITEMS, items.filter(i => i.id !== id));
   }
 };
 
@@ -99,7 +194,6 @@ export const taskService = {
     return data;
   },
   async create(data: Omit<Task, 'id'>): Promise<Task> {
-    console.debug("[DEBUG TaskService] Criando tarefa:", data);
     const tasks = await this.getAll();
     const newTask = { ...data, id: Math.random().toString(36).substr(2, 9) } as Task;
     saveToStorage(STORAGE_KEYS.TASKS, [...tasks, newTask]);
@@ -139,62 +233,6 @@ export const controlService = {
   async delete(id: string): Promise<void> {
     const controls = await this.getAll();
     saveToStorage(STORAGE_KEYS.CONTROLS, controls.filter(c => c.id !== id));
-  }
-};
-
-export const defaultItemsService = {
-  async getLocations(): Promise<DefaultLocationItem[]> {
-    return getFromStorage<DefaultLocationItem>(STORAGE_KEYS.DEF_LOCS, []);
-  },
-  async saveLocation(data: DefaultLocationItem): Promise<void> {
-    const items = await this.getLocations();
-    const existingIndex = items.findIndex(i => i.id === data.id);
-    if (existingIndex > -1) {
-      items[existingIndex] = data;
-    } else {
-      items.push(data);
-    }
-    saveToStorage(STORAGE_KEYS.DEF_LOCS, items);
-  },
-  async deleteLocation(id: string): Promise<void> {
-    const items = await this.getLocations();
-    saveToStorage(STORAGE_KEYS.DEF_LOCS, items.filter(i => i.id !== id));
-  },
-
-  async getTransits(): Promise<DefaultTransitItem[]> {
-    return getFromStorage<DefaultTransitItem>(STORAGE_KEYS.DEF_TRANS, []);
-  },
-  async saveTransit(data: DefaultTransitItem): Promise<void> {
-    const items = await this.getTransits();
-    const existingIndex = items.findIndex(i => i.id === data.id);
-    if (existingIndex > -1) {
-      items[existingIndex] = data;
-    } else {
-      items.push(data);
-    }
-    saveToStorage(STORAGE_KEYS.DEF_TRANS, items);
-  },
-  async deleteTransit(id: string): Promise<void> {
-    const items = await this.getTransits();
-    saveToStorage(STORAGE_KEYS.DEF_TRANS, items.filter(i => i.id !== id));
-  },
-
-  async getCriticals(): Promise<DefaultCriticalItem[]> {
-    return getFromStorage<DefaultCriticalItem>(STORAGE_KEYS.DEF_CRIT, []);
-  },
-  async saveCritical(data: DefaultCriticalItem): Promise<void> {
-    const items = await this.getCriticals();
-    const existingIndex = items.findIndex(i => i.id === data.id);
-    if (existingIndex > -1) {
-      items[existingIndex] = data;
-    } else {
-      items.push(data);
-    }
-    saveToStorage(STORAGE_KEYS.DEF_CRIT, items);
-  },
-  async deleteCritical(id: string): Promise<void> {
-    const items = await this.getCriticals();
-    saveToStorage(STORAGE_KEYS.DEF_CRIT, items.filter(i => i.id !== id));
   }
 };
 

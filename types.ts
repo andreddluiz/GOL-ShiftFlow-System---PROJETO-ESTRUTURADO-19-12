@@ -11,7 +11,7 @@ export enum MeasureType {
   TEMPO = 'TEMPO'
 }
 
-export type ControlType = 'locations' | 'transito' | 'shelf_life' | 'itens_criticos' | 'TAT';
+export type ControlType = 'locations' | 'transito' | 'shelf_life' | 'itens_criticos' | 'TAT' | string;
 
 export interface Shift {
   id: string;
@@ -62,7 +62,72 @@ export interface Task {
   status: 'Ativa' | 'Inativa';
   ordem: number;
   baseId?: string | null;
-  dataExclusao?: string; // Para soft delete
+  dataExclusao?: string; 
+}
+
+export interface ConditionConfig {
+  condicao: string; // Ex: "Dias Restantes", "Valor"
+  operador: '>' | '<' | '=' | '>=' | '<=';
+  valor: number | string;
+}
+
+export interface PopupConfig {
+  titulo: string;
+  mensagem: string;
+  icone?: string;
+  cor?: string;
+}
+
+export interface ManagedItem {
+  id: string;
+  baseId: string | null;
+  status: 'ativo' | 'inativo';
+  cores?: {
+    verde: ConditionConfig;
+    amarelo: ConditionConfig;
+    vermelho: ConditionConfig;
+  };
+  popups?: {
+    verde: PopupConfig;
+    amarelo: PopupConfig;
+    vermelho: PopupConfig;
+  };
+}
+
+export interface ShelfLifeItem extends ManagedItem {
+  partNumber: string;
+  lote: string;
+  dataVencimento: string; 
+}
+
+/* Renamed to DefaultLocationItem to resolve import errors in other files */
+export interface DefaultLocationItem extends ManagedItem {
+  nomeLocation: string;
+}
+
+/* Renamed to DefaultTransitItem to resolve import errors in other files */
+export interface DefaultTransitItem extends ManagedItem {
+  nomeTransito: string;
+  diasPadrao: number;
+}
+
+/* Renamed to DefaultCriticalItem to resolve import errors in other files */
+export interface DefaultCriticalItem extends ManagedItem {
+  partNumber: string;
+}
+
+// Para novos tipos de controle (Solicitação 2)
+export interface CustomControlItem extends ManagedItem {
+  tipoId: string;
+  valores: Record<string, any>;
+}
+
+export interface CustomControlType {
+  id: string;
+  nome: string;
+  descricao?: string;
+  campos: string[]; // Lista de nomes de campos customizados
+  dataCriacao: string;
 }
 
 export interface AlertConfig {
@@ -79,7 +144,7 @@ export interface AlertConfig {
 
 export interface Control {
   id: string;
-  baseId: string | null; // null = Global
+  baseId: string | null; 
   nome: string;
   tipo: ControlType;
   descricao: string;
@@ -88,35 +153,11 @@ export interface Control {
   status: 'Ativo' | 'Inativo';
 }
 
-// ITENS PADRÃO (Configurados em Gerenciamento)
-export interface DefaultLocationItem {
-  id: string;
-  baseId: string | null;
-  nomeLocation: string;
-  status: 'ativo' | 'inativo';
-}
-
-export interface DefaultTransitItem {
-  id: string;
-  baseId: string | null;
-  nomeTransito: string;
-  diasPadrao: number;
-  status: 'ativo' | 'inativo';
-}
-
-export interface DefaultCriticalItem {
-  id: string;
-  baseId: string | null;
-  partNumber: string;
-  status: 'ativo' | 'inativo';
-}
-
-// Interfaces para a Execução dos Painéis na Passagem de Serviço
 export interface LocationRow {
   id: string;
   nomeLocation: string;
   quantidade: number;
-  dataMaisAntigo: string; // DD/MM/AAAA
+  dataMaisAntigo: string; 
   isPadrao?: boolean;
 }
 
@@ -125,7 +166,7 @@ export interface TransitRow {
   nomeTransito: string;
   diasPadrao: number;
   quantidade: number;
-  dataSaida: string; // DD/MM/AAAA
+  dataSaida: string; 
   isPadrao?: boolean;
 }
 
@@ -133,7 +174,7 @@ export interface ShelfLifeRow {
   id: string;
   partNumber: string;
   lote: string;
-  dataVencimento: string; // DD/MM/AAAA
+  dataVencimento: string; 
 }
 
 export interface CriticalRow {
@@ -159,17 +200,15 @@ export interface ShiftHandover {
   colaboradores: (string | null)[]; 
   tarefasExecutadas: Record<string, string>;
   outrasAtividades: OutraAtividade[];
-  
   locationsData: LocationRow[];
   transitData: TransitRow[];
   shelfLifeData: ShelfLifeRow[];
   criticalData: CriticalRow[];
-  
   informacoesImportantes: string;
   status: 'Rascunho' | 'Finalizado';
   performance: number;
   horasDisponiveis: number;
   horasProduzidas: number;
   criadoEm: string;
-  atualizadoEm: string;
+  updatedAt: string;
 }

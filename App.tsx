@@ -34,14 +34,12 @@ const App: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isBaseModalOpen, setIsBaseModalOpen] = useState(false);
 
-  // Carga inicial disparada apenas UMA VEZ na montagem do App
   useEffect(() => {
     if (!initialized) {
-      refreshData(true); // showFullLoading = true
+      refreshData(true);
     }
   }, [initialized, refreshData]);
 
-  // Abre modal de seleção se não houver base selecionada após inicializar
   useEffect(() => {
     if (initialized && !selectedBase && bases.length > 0) {
       setIsBaseModalOpen(true);
@@ -50,7 +48,6 @@ const App: React.FC = () => {
 
   const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
 
-  // Só bloqueia a tela se estiver no loading INICIAL
   if (loading && !initialized) {
     return (
       <div className="h-screen w-screen flex flex-col items-center justify-center bg-gray-50">

@@ -85,9 +85,11 @@ const ManagementPage: React.FC = () => {
   };
 
   const handleDelete = async (id: string, type: string, currentItem?: any) => {
+    // Ajuste 3: Arquivar Tarefa Operacional
     if (type === 'task_modal') {
-       if (!confirm(`Deseja arquivar/desativar a tarefa "${currentItem?.nome}"?`)) return;
+       if (!confirm(`Deseja arquivar a tarefa "${currentItem?.nome}"? Ela não aparecerá mais na Passagem de Turno.`)) return;
        try {
+         console.debug(`[Ajuste 3] Arquivando tarefa: ${id}`);
          await taskService.update(id, { status: 'Inativa', dataExclusao: new Date().toISOString() });
          showSnackbar('Tarefa arquivada com sucesso');
          await refreshData();
@@ -108,6 +110,17 @@ const ManagementPage: React.FC = () => {
     } catch (e) {
       showSnackbar('Erro ao excluir item', 'error');
     }
+  };
+
+  const handleReactivateTask = async (task: Task) => {
+     try {
+       console.debug(`[Ajuste 3] Reativando tarefa: ${task.id}`);
+       await taskService.update(task.id, { status: 'Ativa', dataExclusao: undefined });
+       showSnackbar('Tarefa reativada com sucesso!');
+       await refreshData();
+     } catch (e) {
+       showSnackbar('Erro ao reativar tarefa', 'error');
+     }
   };
 
   const filteredCategories = useMemo(() => 
@@ -169,7 +182,7 @@ const ManagementPage: React.FC = () => {
           <TabButton active={activeTab === 'bases'} onClick={() => setActiveTab('bases')} icon={<MapPin className="w-4 h-4" />} label="Bases" />
           <TabButton active={activeTab === 'users'} onClick={() => setActiveTab('users')} icon={<UsersIcon className="w-4 h-4" />} label="Usuários" />
           <TabButton active={activeTab === 'tasks_op'} onClick={() => setActiveTab('tasks_op')} icon={<ClipboardList className="w-4 h-4" />} label="Tarefas Operacionais" />
-          <TabButton active={activeTab === 'tasks_month'} onClick={() => setActiveTab('tasks_month')} icon={<CalendarDays className="w-4 h-4" />} label="Tarefas Mensais" />
+          <TabButton active={activeTab === 'tasks_month'} onClick={() => setActiveTab('tasks_month'} icon={<CalendarDays className="w-4 h-4" />} label="Tarefas Mensais" />
           <TabButton active={activeTab === 'alerts'} onClick={() => setActiveTab('alerts')} icon={<ShieldAlert className="w-4 h-4" />} label="Controles & Alertas" />
         </div>
 
@@ -222,8 +235,14 @@ const ManagementPage: React.FC = () => {
                               <span className="text-xs font-bold text-gray-600 truncate">{task.nome}</span>
                             </div>
                             <div className="flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                               <button onClick={() => setModalState({ open: true, type: 'task_modal', editingItem: task })} className="p-1.5 text-gray-400 hover:text-orange-600 bg-gray-50 rounded-lg"><Edit2 className="w-3.5 h-3.5" /></button>
-                               <button onClick={() => handleDelete(task.id, 'task_modal', task)} title="Arquivar" className="p-1.5 text-gray-400 hover:text-red-500 bg-gray-50 rounded-lg"><Archive className="w-3.5 h-3.5" /></button>
+                               {task.status === 'Ativa' ? (
+                                 <>
+                                   <button onClick={() => setModalState({ open: true, type: 'task_modal', editingItem: task })} className="p-1.5 text-gray-400 hover:text-orange-600 bg-gray-50 rounded-lg"><Edit2 className="w-3.5 h-3.5" /></button>
+                                   <button onClick={() => handleDelete(task.id, 'task_modal', task)} title="Arquivar" className="p-1.5 text-gray-400 hover:text-red-500 bg-gray-50 rounded-lg"><Archive className="w-3.5 h-3.5" /></button>
+                                 </>
+                               ) : (
+                                 <button onClick={() => handleReactivateTask(task)} title="Reativar" className="p-1.5 text-orange-600 bg-orange-50 rounded-lg hover:scale-110 transition-transform"><RotateCcw className="w-3.5 h-3.5" /></button>
+                               )}
                             </div>
                          </div>
                        ))}

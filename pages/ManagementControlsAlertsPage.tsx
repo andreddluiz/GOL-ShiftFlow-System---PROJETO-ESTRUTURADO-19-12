@@ -77,7 +77,6 @@ const ManagementControlsAlertsPage: React.FC = () => {
     } else if (activeTab === 'crit') {
       data.partNumber = formData.get('partNumber');
     } else {
-      // Custom Control
       data.tipoId = activeTab;
       data.valores = {};
       const type = customControlTypes.find(t => t.id === activeTab);
@@ -96,9 +95,11 @@ const ManagementControlsAlertsPage: React.FC = () => {
     }
   };
 
+  // Ajuste 2: Arquivar Item de Controle
   const handleArchive = async (item: any) => {
-    if (!confirm(`Deseja arquivar o item? Ele não aparecerá mais na Passagem de Serviço.`)) return;
+    if (!confirm(`Deseja arquivar o item? Ele não aparecerá mais na Passagem de Turno.`)) return;
     try {
+      console.debug(`[Ajuste 2] Arquivando item: ${item.id}`);
       await saveDefaultItem(activeTab, { ...item, status: 'inativo' });
       showSnackbar("Item arquivado com sucesso");
     } catch (e) {
@@ -106,10 +107,12 @@ const ManagementControlsAlertsPage: React.FC = () => {
     }
   };
 
+  // Ajuste 2: Reativar Item de Controle
   const handleReactivate = async (item: any) => {
     try {
+      console.debug(`[Ajuste 2] Reativando item: ${item.id}`);
       await saveDefaultItem(activeTab, { ...item, status: 'ativo' });
-      showSnackbar("Item reativado!");
+      showSnackbar("Item reativado com sucesso!");
     } catch (e) {
       showSnackbar("Erro ao reativar", "error");
     }

@@ -3,7 +3,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { 
   CheckCircle, Trash2, Info, Users, Clock, AlertTriangle, ClipboardList,
   X, TrendingUp, Timer, MapPin, Box, Truck, FlaskConical, AlertOctagon, Plane, Settings,
-  Calendar, UserCheck, Activity, BarChart3, MessageSquare
+  Calendar, UserCheck, Activity, BarChart3, MessageSquare, PlusCircle, ShieldCheck
 } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
 import { 
@@ -108,6 +108,13 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
   const [tarefasValores, setTarefasValores] = useState<Record<string, string>>({}); 
   const [obs, setObs] = useState('');
 
+  // Tarefas Não Rotineiras (Inicia com 3 linhas em branco)
+  const [nonRoutineTasks, setNonRoutineTasks] = useState([
+    { id: 'nr1', description: '', time: '' },
+    { id: 'nr2', description: '', time: '' },
+    { id: 'nr3', description: '', time: '' },
+  ]);
+
   // Estados dos Painéis de Controle
   const [locations, setLocations] = useState<LocationRow[]>([]);
   const [transit, setTransit] = useState<TransitRow[]>([]);
@@ -188,6 +195,8 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
       return acc + (user?.jornadaPadrao || 0);
     }, 0);
     let prod = 0;
+    
+    // Soma de tarefas fixas
     Object.entries(tarefasValores).forEach(([taskId, val]: [string, string]) => {
       const task = opTasks.find(t => t.id === taskId);
       if (!task) return;
@@ -198,8 +207,16 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
         prod += (parseFloat(val) || 0) * task.fatorMultiplicador / 60;
       }
     });
+
+    // Soma de tarefas não rotineiras (dinâmico)
+    nonRoutineTasks.forEach(nrTask => {
+      if (nrTask.time) {
+        prod += hhmmssToMinutes(nrTask.time) / 60;
+      }
+    });
+
     return { horasDisponiveis: disp, horasProduzidas: prod, performance: disp > 0 ? (prod / disp) * 100 : 0 };
-  }, [colaboradoresIds, tarefasValores, baseUsers, opTasks]);
+  }, [colaboradoresIds, tarefasValores, nonRoutineTasks, baseUsers, opTasks]);
 
   const performanceColor = useMemo(() => {
     if (!currentBase) return 'text-orange-600';
@@ -214,6 +231,18 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
     if (performance >= (currentBase.metaAmarelo || 50)) return 'bg-yellow-500';
     return 'bg-red-500';
   }, [performance, currentBase]);
+
+  const handleAddNonRoutineTask = () => {
+    setNonRoutineTasks([
+      ...nonRoutineTasks,
+      { id: `nr-extra-${Date.now()}`, description: '', time: '' }
+    ]);
+  };
+
+  const handleRemoveNonRoutineTask = (id: string) => {
+    if (nonRoutineTasks.length <= 1) return;
+    setNonRoutineTasks(nonRoutineTasks.filter(t => t.id !== id));
+  };
 
   const evaluateAlert = (item: any, value: any, controlType: string) => {
     if (value === undefined || value === null || value === '') return;
@@ -236,7 +265,7 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
 
   const getRowStatusClasses = (item: any, val: number, controlType: string) => {
     if (!item.isPadrao && !item.partNumber && !item.dataVencimento && !item.nomeLocation && !item.nomeTransito) return '';
-    if (val === undefined || val === null || isNaN(val)) return '';
+    if (val === undefined || isNaN(val)) return '';
     const categoryConfig = activeControls.find(c => c.tipo === controlType);
     const itemConfig = item.config;
     const cores = (itemConfig?.cores?.vermelho) ? itemConfig.cores : categoryConfig?.cores;
@@ -290,7 +319,7 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
         
         {/* Lado Esquerdo: Produção e Observações (Sticky) */}
         <aside className="w-full lg:w-1/4 sticky top-6 z-20 self-start space-y-4">
-           {/* Bloco de Produção (KPIs) - REDUZIDO PARA ~60% DO TAMANHO ORIGINAL */}
+           {/* Bloco de Produção (KPIs) */}
            <div className="bg-white p-5 rounded-[2rem] shadow-sm border border-gray-100 space-y-4">
               <h3 className="font-black text-gray-800 uppercase tracking-widest flex items-center space-x-2 text-[11px]">
                  <BarChart3 className="w-3.5 h-3.5 text-orange-500" /> 
@@ -314,7 +343,7 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
               </div>
            </div>
 
-           {/* Bloco de Observações - MAIS VISÍVEL */}
+           {/* Bloco de Observações */}
            <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-100 space-y-4">
               <h3 className="font-black text-gray-800 uppercase tracking-widest flex items-center space-x-2 text-sm">
                  <MessageSquare className="w-4 h-4 text-orange-500" /> 
@@ -379,7 +408,7 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
               </div>
            </section>
 
-           {/* 3. Controles e Alertas (Locations, Trânsito, etc.) */}
+           {/* 3. Controles e Alertas */}
            <section className="space-y-12">
               <h3 className="font-black text-gray-800 uppercase tracking-widest flex items-center space-x-2 text-sm">
                  <ShieldCheck className="w-4 h-4 text-orange-500" />
@@ -477,7 +506,7 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
               </div>
            </section>
 
-           {/* 4. Tarefas Operacionais (Final da Produção) */}
+           {/* 4. Tarefas Operacionais */}
            <section className="space-y-12 pb-12">
               <h3 className="font-black text-gray-800 uppercase tracking-widest flex items-center space-x-2 text-sm">
                  <Activity className="w-4 h-4 text-orange-500" />
@@ -524,6 +553,76 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                        </div>
                     </div>
                  ))}
+
+                 {/* QUADRO: TAREFAS NÃO ROTINEIRAS DINÂMICAS */}
+                 <div className="space-y-6">
+                    <div className="flex justify-between items-center px-4">
+                      <h3 className="text-xl font-black text-gray-800 uppercase tracking-tight flex items-center space-x-3">
+                        <div className="w-1.5 h-6 bg-orange-600 rounded-full" />
+                        <span>Tarefas Não Rotineiras</span>
+                      </h3>
+                      {!isViewOnly && (
+                        <button 
+                          onClick={handleAddNonRoutineTask}
+                          className="text-[10px] font-black text-orange-600 bg-orange-50 px-4 py-2 rounded-xl uppercase tracking-widest hover:bg-orange-600 hover:text-white transition-all shadow-sm"
+                        >
+                          + Adicionar Atividade
+                        </button>
+                      )}
+                    </div>
+                    <div className="bg-white rounded-[2.5rem] shadow-sm border border-gray-100 overflow-hidden divide-y divide-gray-50">
+                       <div className="p-4 bg-orange-50/30">
+                          <p className="text-[10px] font-black text-orange-600 uppercase tracking-widest text-center italic">Atividades esporádicas para registro de produtividade</p>
+                       </div>
+                       {nonRoutineTasks.map((nr, idx) => (
+                          <div key={nr.id} className="p-6 flex items-center space-x-4 hover:bg-orange-50/10 transition-colors animate-in slide-in-from-left-2 duration-300">
+                             <div className="flex-1 space-y-1">
+                                <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest block">Descrição da Tarefa {idx + 1}</label>
+                                <input 
+                                  disabled={isViewOnly}
+                                  value={nr.description}
+                                  onChange={e => {
+                                    const newTasks = [...nonRoutineTasks];
+                                    newTasks[idx].description = e.target.value;
+                                    setNonRoutineTasks(newTasks);
+                                  }}
+                                  placeholder="Digite a atividade..."
+                                  className="w-full p-3 bg-gray-50 border border-transparent rounded-xl font-bold text-sm outline-none focus:bg-white focus:border-orange-100 transition-all"
+                                />
+                             </div>
+                             <div className="w-32 space-y-1">
+                                <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest block text-center">Tempo Gasto</label>
+                                <TimeInput 
+                                  disabled={isViewOnly}
+                                  value={nr.time}
+                                  onChange={v => {
+                                    const newTasks = [...nonRoutineTasks];
+                                    newTasks[idx].time = v;
+                                    setNonRoutineTasks(newTasks);
+                                  }}
+                                  className="w-full p-3 bg-gray-50 border border-transparent rounded-xl font-black text-center focus:bg-white focus:border-orange-200 outline-none transition-all text-orange-600"
+                                />
+                             </div>
+                             {!isViewOnly && nonRoutineTasks.length > 3 && (
+                               <button 
+                                 onClick={() => handleRemoveNonRoutineTask(nr.id)}
+                                 className="mt-4 p-2 text-gray-300 hover:text-red-500 transition-colors bg-gray-50 rounded-lg"
+                               >
+                                 <Trash2 className="w-4 h-4" />
+                               </button>
+                             )}
+                          </div>
+                       ))}
+                       <div className="p-4 border-t border-gray-50">
+                          <div className="flex items-center justify-center space-x-2 text-gray-300">
+                             <PlusCircle className="w-4 h-4" />
+                             <span className="text-[10px] font-black uppercase tracking-widest">
+                               {isViewOnly ? 'Registro de atividades extras' : 'Adicione mais linhas se necessário'}
+                             </span>
+                          </div>
+                       </div>
+                    </div>
+                 </div>
               </div>
            </section>
         </div>
@@ -557,10 +656,6 @@ const PanelContainer: React.FC<{title: string, icon: any, children: any, onAdd: 
     </div>
     <div className="bg-white rounded-[2.5rem] shadow-sm border border-gray-100 overflow-hidden">{children}</div>
   </div>
-);
-
-const ShieldCheck: React.FC<any> = (props) => (
-  <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg>
 );
 
 export default ShiftHandoverPage;

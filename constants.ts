@@ -1,5 +1,5 @@
 
-import { Base, Category, Task, MeasureType, Control, User, PermissionLevel } from './types';
+import { Base, Category, Task, MeasureType, Control, User, PermissionLevel, DefaultLocationItem, DefaultTransitItem, DefaultCriticalItem } from './types';
 
 export const BASES: Base[] = [
   { 
@@ -35,27 +35,46 @@ export const BASES: Base[] = [
 ];
 
 export const USERS: User[] = [
-  // Usuários POA
-  // Fix: change 'name' to 'nome' as defined in types.ts
   { id: 'u1', nome: 'João Silva (POA)', email: 'joao.poa@gol.com.br', bases: ['poa'], permissao: PermissionLevel.OPERACAO, status: 'Ativo', jornadaPadrao: 6 },
   { id: 'u2', nome: 'Maria Santos (POA)', email: 'maria.poa@gol.com.br', bases: ['poa'], permissao: PermissionLevel.LIDER, status: 'Ativo', jornadaPadrao: 6 },
-  { id: 'u3', nome: 'Ricardo Souza (POA)', email: 'ricardo.poa@gol.com.br', bases: ['poa'], permissao: PermissionLevel.OPERACAO, status: 'Ativo', jornadaPadrao: 8 },
-  
-  // Usuários GRU
-  { id: 'u4', nome: 'Carlos Oliveira (GRU)', email: 'carlos.gru@gol.com.br', bases: ['gru'], permissao: PermissionLevel.OPERACAO, status: 'Ativo', jornadaPadrao: 12 },
   { id: 'u5', nome: 'Fernanda Lima (GRU)', email: 'fernanda.gru@gol.com.br', bases: ['gru'], permissao: PermissionLevel.GESTOR, status: 'Ativo', jornadaPadrao: 12 },
-  { id: 'u6', nome: 'Bruno Costa (GRU)', email: 'bruno.gru@gol.com.br', bases: ['gru'], permissao: PermissionLevel.OPERACAO, status: 'Ativo', jornadaPadrao: 8 },
 ];
 
 export const CATEGORIES: Category[] = [
-  { id: 'cat1', nome: 'RECEBIMENTO', tipo: 'operacional', ordem: 1, status: 'Ativa' },
-  { id: 'cat2', nome: 'DESPACHO', tipo: 'operacional', ordem: 2, status: 'Ativa' },
+  { id: 'cat_recebimento', nome: 'RECEBIMENTO', tipo: 'operacional', ordem: 1, status: 'Ativa' },
+  { id: 'cat_fornecer', nome: 'FORNECER', tipo: 'operacional', ordem: 2, status: 'Ativa' },
+  { id: 'cat_despacho', nome: 'DESPACHO', tipo: 'operacional', ordem: 3, status: 'Ativa' },
 ];
 
 export const TASKS: Task[] = [
-  { id: 't1', categoriaId: 'cat1', nome: 'Receber Carga', tipoMedida: MeasureType.QTD, fatorMultiplicador: 5, obrigatoriedade: true, status: 'Ativa', ordem: 1 },
-  { id: 't2', categoriaId: 'cat1', nome: 'Conferir Docs', tipoMedida: MeasureType.QTD, fatorMultiplicador: 3, obrigatoriedade: true, status: 'Ativa', ordem: 2 },
-  { id: 't3', categoriaId: 'cat2', nome: 'Carregamento TECA', tipoMedida: MeasureType.TEMPO, fatorMultiplicador: 1, obrigatoriedade: false, status: 'Ativa', ordem: 1 },
+  // RECEBIMENTO
+  { id: 't_rec1', categoriaId: 'cat_recebimento', nome: 'Abrir caixas (Número de caixas abertas)', tipoMedida: MeasureType.QTD, fatorMultiplicador: 5, obrigatoriedade: true, status: 'Ativa', ordem: 1 },
+  { id: 't_rec2', categoriaId: 'cat_recebimento', nome: 'Descarregamento de materiais de grande porte (Roda, Freio, IDG, Janela, Chapa de ...', tipoMedida: MeasureType.QTD, fatorMultiplicador: 15, obrigatoriedade: true, status: 'Ativa', ordem: 2 },
+  
+  // FORNECER
+  { id: 't_for1', categoriaId: 'cat_fornecer', nome: 'Retornar Saldo para a Location original (Atendimento FRACIONADO)', tipoMedida: MeasureType.QTD, fatorMultiplicador: 8, obrigatoriedade: true, status: 'Ativa', ordem: 1 },
+  { id: 't_for2', categoriaId: 'cat_fornecer', nome: 'Colocação e remoção dos prefixos nas caixas para atendimento no pernoite (Se rea...', tipoMedida: MeasureType.QTD, fatorMultiplicador: 10, obrigatoriedade: true, status: 'Ativa', ordem: 2 },
+  { id: 't_for3', categoriaId: 'cat_fornecer', nome: "Pesquisa de PN's para a manutenção (Tempo gasto)", tipoMedida: MeasureType.TEMPO, fatorMultiplicador: 1, obrigatoriedade: true, status: 'Ativa', ordem: 3 },
+  { id: 't_for4', categoriaId: 'cat_fornecer', nome: 'Pesquisa de materiais endereçados ao MX/MF (Tempo gasto)', tipoMedida: MeasureType.TEMPO, fatorMultiplicador: 1, obrigatoriedade: true, status: 'Ativa', ordem: 4 },
+];
+
+export const DEFAULT_LOCATIONS: DefaultLocationItem[] = [
+  { id: 'loc1', nomeLocation: 'ITENS EM "INV"', baseId: null, status: 'ativo', visivel: true },
+  { id: 'loc2', nomeLocation: 'ITENS EM "TEMPRARY" (5 DIAS)', baseId: null, status: 'ativo', visivel: true },
+  { id: 'loc3', nomeLocation: 'ITENS EM "NDOT" (5 DIAS)', baseId: null, status: 'ativo', visivel: true },
+  { id: 'loc4', nomeLocation: 'ITENS EM "RELEASE" (7 DIAS)', baseId: null, status: 'ativo', visivel: true },
+  { id: 'loc5', nomeLocation: 'ITENS EM "VRG-QTN" (QUARENTENA 7 DIAS)', baseId: null, status: 'ativo', visivel: true },
+];
+
+export const DEFAULT_TRANSITS: DefaultTransitItem[] = [
+  { id: 'trans1', nomeTransito: 'AÉREO (5 DIAS)', diasPadrao: 5, baseId: null, status: 'ativo', visivel: true },
+  { id: 'trans2', nomeTransito: 'TERRESTRE (20 DIAS)', diasPadrao: 20, baseId: null, status: 'ativo', visivel: true },
+];
+
+export const DEFAULT_CRITICALS: DefaultCriticalItem[] = [
+  { id: 'crit1', partNumber: 'BPT02197', baseId: null, status: 'ativo', visivel: true },
+  { id: 'crit2', partNumber: 'SKYDROLY', baseId: null, status: 'ativo', visivel: true },
+  { id: 'crit3', partNumber: 'BPT02380', baseId: null, status: 'ativo', visivel: true },
 ];
 
 export const CONTROLS: Control[] = [
@@ -63,12 +82,10 @@ export const CONTROLS: Control[] = [
     id: 'c1',
     baseId: null,
     nome: 'TAT de Recebimento',
-    /* Updated 'TAT' is now a valid ControlType in types.ts */
     tipo: 'TAT',
     descricao: 'Tempo médio de processamento em horas',
     unidade: 'horas',
     status: 'Ativo',
-    /* Fixed AlertaConfig to match the interface definition in types.ts */
     alertaConfig: {
       verde: 2,
       amarelo: 5,

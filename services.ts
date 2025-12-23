@@ -4,7 +4,7 @@ import {
   DefaultLocationItem, DefaultTransitItem, DefaultCriticalItem,
   ShelfLifeItem, CustomControlType, CustomControlItem
 } from './types';
-import { BASES, CATEGORIES, TASKS, CONTROLS, USERS } from './constants';
+import { BASES, CATEGORIES, TASKS, CONTROLS, USERS, DEFAULT_LOCATIONS, DEFAULT_TRANSITS, DEFAULT_CRITICALS } from './constants';
 
 const STORAGE_KEYS = {
   BASES: 'gol_shiftflow_bases_v2',
@@ -60,7 +60,6 @@ export const baseService = {
     saveToStorage(STORAGE_KEYS.BASES, updated);
   },
   async delete(id: string): Promise<void> {
-    // Exclusão Lógica para Bases
     const bases = await this.getAll();
     const updated = bases.map(b => b.id === id ? { ...b, deletada: true, status: 'Inativa' } : b) as Base[];
     saveToStorage(STORAGE_KEYS.BASES, updated);
@@ -69,7 +68,12 @@ export const baseService = {
 
 export const defaultItemsService = {
   async getLocations(): Promise<DefaultLocationItem[]> {
-    return getFromStorage<DefaultLocationItem>(STORAGE_KEYS.DEF_LOCS, []);
+    let data = getFromStorage<DefaultLocationItem>(STORAGE_KEYS.DEF_LOCS, []);
+    if (data.length === 0) {
+      data = DEFAULT_LOCATIONS;
+      saveToStorage(STORAGE_KEYS.DEF_LOCS, data);
+    }
+    return data;
   },
   async saveLocation(data: DefaultLocationItem): Promise<void> {
     const items = await this.getLocations();
@@ -85,7 +89,12 @@ export const defaultItemsService = {
   },
 
   async getTransits(): Promise<DefaultTransitItem[]> {
-    return getFromStorage<DefaultTransitItem>(STORAGE_KEYS.DEF_TRANS, []);
+    let data = getFromStorage<DefaultTransitItem>(STORAGE_KEYS.DEF_TRANS, []);
+    if (data.length === 0) {
+      data = DEFAULT_TRANSITS;
+      saveToStorage(STORAGE_KEYS.DEF_TRANS, data);
+    }
+    return data;
   },
   async saveTransit(data: DefaultTransitItem): Promise<void> {
     const items = await this.getTransits();
@@ -101,7 +110,12 @@ export const defaultItemsService = {
   },
 
   async getCriticals(): Promise<DefaultCriticalItem[]> {
-    return getFromStorage<DefaultCriticalItem>(STORAGE_KEYS.DEF_CRIT, []);
+    let data = getFromStorage<DefaultCriticalItem>(STORAGE_KEYS.DEF_CRIT, []);
+    if (data.length === 0) {
+      data = DEFAULT_CRITICALS;
+      saveToStorage(STORAGE_KEYS.DEF_CRIT, data);
+    }
+    return data;
   },
   async saveCritical(data: DefaultCriticalItem): Promise<void> {
     const items = await this.getCriticals();
@@ -186,7 +200,6 @@ export const categoryService = {
     saveToStorage(STORAGE_KEYS.CATEGORIES, updated);
   },
   async delete(id: string): Promise<void> {
-    // EXCLUSÃO LÓGICA: Mantém o histórico para relatórios
     const cats = await this.getAll();
     const updated = cats.map(c => c.id === id ? { ...c, deletada: true, status: 'Inativa', visivel: false } : c) as Category[];
     saveToStorage(STORAGE_KEYS.CATEGORIES, updated);
@@ -214,7 +227,6 @@ export const taskService = {
     saveToStorage(STORAGE_KEYS.TASKS, updated);
   },
   async delete(id: string): Promise<void> {
-    // EXCLUSÃO LÓGICA: Mantém o histórico para relatórios
     const tasks = await this.getAll();
     const updated = tasks.map(t => t.id === id ? { ...t, deletada: true, status: 'Inativa', visivel: false } : t) as Task[];
     saveToStorage(STORAGE_KEYS.TASKS, updated);

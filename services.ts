@@ -60,8 +60,10 @@ export const baseService = {
     saveToStorage(STORAGE_KEYS.BASES, updated);
   },
   async delete(id: string): Promise<void> {
+    // Exclusão Lógica para Bases
     const bases = await this.getAll();
-    saveToStorage(STORAGE_KEYS.BASES, bases.filter(b => b.id !== id));
+    const updated = bases.map(b => b.id === id ? { ...b, deletada: true, status: 'Inativa' } : b) as Base[];
+    saveToStorage(STORAGE_KEYS.BASES, updated);
   }
 };
 
@@ -78,7 +80,8 @@ export const defaultItemsService = {
   },
   async deleteLocation(id: string): Promise<void> {
     const items = await this.getLocations();
-    saveToStorage(STORAGE_KEYS.DEF_LOCS, items.filter(i => i.id !== id));
+    const updated = items.map(i => i.id === id ? { ...i, deletada: true } : i) as DefaultLocationItem[];
+    saveToStorage(STORAGE_KEYS.DEF_LOCS, updated);
   },
 
   async getTransits(): Promise<DefaultTransitItem[]> {
@@ -93,7 +96,8 @@ export const defaultItemsService = {
   },
   async deleteTransit(id: string): Promise<void> {
     const items = await this.getTransits();
-    saveToStorage(STORAGE_KEYS.DEF_TRANS, items.filter(i => i.id !== id));
+    const updated = items.map(i => i.id === id ? { ...i, deletada: true } : i) as DefaultTransitItem[];
+    saveToStorage(STORAGE_KEYS.DEF_TRANS, updated);
   },
 
   async getCriticals(): Promise<DefaultCriticalItem[]> {
@@ -108,7 +112,8 @@ export const defaultItemsService = {
   },
   async deleteCritical(id: string): Promise<void> {
     const items = await this.getCriticals();
-    saveToStorage(STORAGE_KEYS.DEF_CRIT, items.filter(i => i.id !== id));
+    const updated = items.map(i => i.id === id ? { ...i, deletada: true } : i) as DefaultCriticalItem[];
+    saveToStorage(STORAGE_KEYS.DEF_CRIT, updated);
   },
 
   async getShelfLifes(): Promise<ShelfLifeItem[]> {
@@ -123,10 +128,10 @@ export const defaultItemsService = {
   },
   async deleteShelfLife(id: string): Promise<void> {
     const items = await this.getShelfLifes();
-    saveToStorage(STORAGE_KEYS.DEF_SHELF, items.filter(i => i.id !== id));
+    const updated = items.map(i => i.id === id ? { ...i, deletada: true } : i) as ShelfLifeItem[];
+    saveToStorage(STORAGE_KEYS.DEF_SHELF, updated);
   },
 
-  // Novos serviços para custom types
   async getCustomTypes(): Promise<CustomControlType[]> {
     return getFromStorage<CustomControlType>(STORAGE_KEYS.CUSTOM_TYPES, []);
   },
@@ -139,7 +144,8 @@ export const defaultItemsService = {
   },
   async deleteCustomType(id: string): Promise<void> {
     const types = await this.getCustomTypes();
-    saveToStorage(STORAGE_KEYS.CUSTOM_TYPES, types.filter(t => t.id !== id));
+    const updated = types.map(t => t.id === id ? { ...t, deletada: true } : t) as CustomControlType[];
+    saveToStorage(STORAGE_KEYS.CUSTOM_TYPES, updated);
   },
 
   async getCustomItems(): Promise<CustomControlItem[]> {
@@ -154,7 +160,8 @@ export const defaultItemsService = {
   },
   async deleteCustomItem(id: string): Promise<void> {
     const items = await this.getCustomItems();
-    saveToStorage(STORAGE_KEYS.CUSTOM_ITEMS, items.filter(i => i.id !== id));
+    const updated = items.map(i => i.id === id ? { ...i, deletada: true } : i) as CustomControlItem[];
+    saveToStorage(STORAGE_KEYS.CUSTOM_ITEMS, updated);
   }
 };
 
@@ -179,8 +186,10 @@ export const categoryService = {
     saveToStorage(STORAGE_KEYS.CATEGORIES, updated);
   },
   async delete(id: string): Promise<void> {
+    // EXCLUSÃO LÓGICA: Mantém o histórico para relatórios
     const cats = await this.getAll();
-    saveToStorage(STORAGE_KEYS.CATEGORIES, cats.filter(c => c.id !== id));
+    const updated = cats.map(c => c.id === id ? { ...c, deletada: true, status: 'Inativa', visivel: false } : c) as Category[];
+    saveToStorage(STORAGE_KEYS.CATEGORIES, updated);
   }
 };
 
@@ -205,8 +214,10 @@ export const taskService = {
     saveToStorage(STORAGE_KEYS.TASKS, updated);
   },
   async delete(id: string): Promise<void> {
+    // EXCLUSÃO LÓGICA: Mantém o histórico para relatórios
     const tasks = await this.getAll();
-    saveToStorage(STORAGE_KEYS.TASKS, tasks.filter(t => t.id !== id));
+    const updated = tasks.map(t => t.id === id ? { ...t, deletada: true, status: 'Inativa', visivel: false } : t) as Task[];
+    saveToStorage(STORAGE_KEYS.TASKS, updated);
   }
 };
 
@@ -258,6 +269,7 @@ export const userService = {
   },
   async delete(id: string): Promise<void> {
     const users = await this.getAll();
-    saveToStorage(STORAGE_KEYS.USERS, users.filter(u => u.id !== id));
+    const updated = users.map(u => u.id === id ? { ...u, deletada: true, status: 'Inativo' } : u) as User[];
+    saveToStorage(STORAGE_KEYS.USERS, updated);
   }
 };

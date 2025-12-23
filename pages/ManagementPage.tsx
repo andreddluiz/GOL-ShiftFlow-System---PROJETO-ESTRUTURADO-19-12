@@ -104,7 +104,7 @@ const ManagementPage: React.FC = () => {
     setConfirmModal({
       open: true,
       title: 'Arquivar Item',
-      message: `Deseja arquivar/ocultar a ${label} "${currentItem?.nome || 'este item'}"?\nEla deixará de aparecer na Passagem de Turno, mas o histórico de registros será mantido no sistema.`,
+      message: `Deseja arquivar/ocultar a ${label} "${currentItem?.nome || 'este item'}"?\nEla deixará de aparecer na Passagem de Turno, mas continuará disponível para edição no gerenciamento.`,
       type: 'warning',
       onConfirm: async () => {
         try {
@@ -139,20 +139,24 @@ const ManagementPage: React.FC = () => {
     }
   };
 
-  const handleDeletePermanent = (id: string, type: string) => {
+  const handleDeletePermanent = (id: string, type: string, currentItem?: any) => {
+    const isCategory = type.includes('category');
+    const isTask = type === 'task_modal';
+    const label = isCategory ? 'categoria' : (isTask ? 'tarefa' : 'item');
+
     setConfirmModal({
       open: true,
-      title: 'Excluir Permanentemente',
-      message: 'Esta ação removerá o registro permanentemente de forma irreversível e apagará dados históricos relacionados. Confirmar exclusão?',
+      title: 'Remover Permanentemente',
+      message: `Deseja excluir a ${label} "${currentItem?.nome || 'este item'}"?\n\nAtenção: O item será removido das listas de gerenciamento e operação, mas todos os registros históricos feitos até hoje serão preservados nos relatórios.`,
       type: 'danger',
       onConfirm: async () => {
         try {
           if (type === 'bases') await baseService.delete(id);
           else if (type === 'users') await userService.delete(id);
-          else if (type.includes('category')) await categoryService.delete(id);
-          else if (type === 'task_modal') await taskService.delete(id);
+          else if (isCategory) await categoryService.delete(id);
+          else if (isTask) await taskService.delete(id);
           
-          showSnackbar('Item excluído permanentemente');
+          showSnackbar(`${label.charAt(0).toUpperCase() + label.slice(1)} removida com sucesso`);
           await refreshData();
         } catch (e) {
           showSnackbar('Erro ao excluir item', 'error');
@@ -163,6 +167,7 @@ const ManagementPage: React.FC = () => {
 
   const filteredCategories = useMemo(() => 
     categories.filter(c => 
+      !c.deletada && // Ignora deletados
       (managementContext === 'global' ? !c.baseId : c.baseId === contextBaseId) && 
       (activeTab === 'tasks_op' ? c.tipo === 'operacional' : c.tipo === 'mensal') &&
       (showInactive ? true : (c.visivel !== false))
@@ -172,6 +177,7 @@ const ManagementPage: React.FC = () => {
 
   const filteredTasks = useMemo(() => 
     tasks.filter(t => 
+      !t.deletada && // Ignora deletados
       (managementContext === 'global' ? !t.baseId : t.baseId === contextBaseId) &&
       (showInactive ? true : (t.visivel !== false))
     ),
@@ -231,7 +237,7 @@ const ManagementPage: React.FC = () => {
               <div className="flex justify-end">
                 <button onClick={() => setModalState({ open: true, type: 'bases', editingItem: null })} className="bg-orange-600 text-white px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-orange-100 hover:bg-orange-700 transition-all">+ Nova Base</button>
               </div>
-              <BasesGrid bases={bases} onEdit={i => setModalState({ open: true, type: 'bases', editingItem: i })} onDelete={id => handleDeletePermanent(id, 'bases')} />
+              <BasesGrid bases={bases} onEdit={i => setModalState({ open: true, type: 'bases', editingItem: i })} onDelete={i => handleDeletePermanent(i.id, 'bases', i)} />
             </div>
           )}
           {activeTab === 'users' && (
@@ -239,7 +245,7 @@ const ManagementPage: React.FC = () => {
               <div className="flex justify-end">
                 <button onClick={() => setModalState({ open: true, type: 'users', editingItem: null })} className="bg-orange-600 text-white px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-orange-100 hover:bg-orange-700 transition-all">+ Novo Usuário</button>
               </div>
-              <UsersGrid users={users} onEdit={i => setModalState({ open: true, type: 'users', editingItem: i })} onDelete={id => handleDeletePermanent(id, 'users')} />
+              <UsersGrid users={users} onEdit={i => setModalState({ open: true, type: 'users', editingItem: i })} onDelete={i => handleDeletePermanent(i.id, 'users', i)} />
             </div>
           )}
           
@@ -269,7 +275,7 @@ const ManagementPage: React.FC = () => {
                           ) : (
                             <button onClick={() => handleReactivate(cat.id, activeTab === 'tasks_op' ? 'category_op' : 'category_month')} title="Desarquivar" className="p-2 text-orange-600 hover:scale-110 transition-transform"><RotateCcw className="w-4 h-4" /></button>
                           )}
-                          <button onClick={() => handleDeletePermanent(cat.id, activeTab === 'tasks_op' ? 'category_op' : 'category_month')} className="p-2 text-gray-400 hover:text-red-500 transition-colors"><Trash2 className="w-4 h-4" /></button>
+                          <button onClick={() => handleDeletePermanent(cat.id, activeTab === 'tasks_op' ? 'category_op' : 'category_month', cat)} className="p-2 text-gray-400 hover:text-red-500 transition-colors"><Trash2 className="w-4 h-4" /></button>
                        </div>
                     </div>
 
@@ -282,6 +288,7 @@ const ManagementPage: React.FC = () => {
                             <div className="flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                <button onClick={() => setModalState({ open: true, type: 'task_modal', editingItem: task })} className="p-1.5 text-gray-400 hover:text-orange-600 bg-gray-50 rounded-lg"><Edit2 className="w-3.5 h-3.5" /></button>
                                <button onClick={() => handleArchive(task.id, 'task_modal', task)} title="Arquivar" className="p-1.5 text-gray-400 hover:text-amber-600 bg-gray-50 rounded-lg"><Archive className="w-3.5 h-3.5" /></button>
+                               <button onClick={() => handleDeletePermanent(task.id, 'task_modal', task)} className="p-1.5 text-gray-400 hover:text-red-500 bg-gray-50 rounded-lg"><Trash2 className="w-3.5 h-3.5" /></button>
                             </div>
                          </div>
                        ))}
@@ -292,7 +299,7 @@ const ManagementPage: React.FC = () => {
                             </div>
                             <div className="flex space-x-1">
                               <button onClick={() => handleReactivate(task.id, 'task_modal')} title="Desarquivar" className="p-1.5 text-orange-600 bg-orange-50 rounded-lg hover:scale-110 transition-transform"><RotateCcw className="w-3.5 h-3.5" /></button>
-                              <button onClick={() => handleDeletePermanent(task.id, 'task_modal')} title="Excluir Permanentemente" className="p-1.5 text-red-400 hover:text-red-600 bg-red-50 rounded-lg transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
+                              <button onClick={() => handleDeletePermanent(task.id, 'task_modal', task)} title="Excluir Definitivamente" className="p-1.5 text-red-400 hover:text-red-600 bg-red-50 rounded-lg transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
                             </div>
                          </div>
                        ))}
@@ -388,7 +395,7 @@ const TabButton: React.FC<{ active: boolean, onClick: () => void, icon: React.Re
   </button>
 );
 
-const BasesGrid: React.FC<{ bases: Base[], onEdit: (base: Base) => void, onDelete: (id: string) => void }> = ({ bases, onEdit, onDelete }) => (
+const BasesGrid: React.FC<{ bases: Base[], onEdit: (base: Base) => void, onDelete: (base: Base) => void }> = ({ bases, onEdit, onDelete }) => (
   <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-in slide-in-from-bottom-4">
     {bases.map(base => (
       <div key={base.id} className="bg-gray-50/50 p-6 rounded-3xl border border-gray-100 hover:shadow-lg transition-all group">
@@ -396,7 +403,7 @@ const BasesGrid: React.FC<{ bases: Base[], onEdit: (base: Base) => void, onDelet
           <div className="p-3 bg-white rounded-2xl shadow-sm text-orange-600"><MapPin className="w-6 h-6" /></div>
           <div className="flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
             <button onClick={() => onEdit(base)} className="p-2 text-gray-400 hover:text-orange-600 transition-colors"><Edit2 className="w-4 h-4" /></button>
-            <button onClick={() => onDelete(base.id)} className="p-2 text-gray-400 hover:text-red-500 transition-colors"><Trash2 className="w-4 h-4" /></button>
+            <button onClick={() => onDelete(base)} className="p-2 text-gray-400 hover:text-red-500 transition-colors"><Trash2 className="w-4 h-4" /></button>
           </div>
         </div>
         <h4 className="text-xl font-black text-gray-800 tracking-tight">{base.sigla}</h4>
@@ -410,7 +417,7 @@ const BasesGrid: React.FC<{ bases: Base[], onEdit: (base: Base) => void, onDelet
   </div>
 );
 
-const UsersGrid: React.FC<{ users: User[], onEdit: (user: User) => void, onDelete: (id: string) => void }> = ({ users, onEdit, onDelete }) => (
+const UsersGrid: React.FC<{ users: User[], onEdit: (user: User) => void, onDelete: (user: User) => void }> = ({ users, onEdit, onDelete }) => (
   <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-in slide-in-from-bottom-4">
     {users.map(user => (
       <div key={user.id} className="bg-gray-50/50 p-6 rounded-3xl border border-gray-100 hover:shadow-lg transition-all group">
@@ -418,7 +425,7 @@ const UsersGrid: React.FC<{ users: User[], onEdit: (user: User) => void, onDelet
           <div className="w-12 h-12 rounded-2xl bg-white shadow-sm flex items-center justify-center font-black text-orange-600 text-xl">{user.nome.charAt(0)}</div>
           <div className="flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
             <button onClick={() => onEdit(user)} className="p-2 text-gray-400 hover:text-orange-600 transition-colors"><Edit2 className="w-4 h-4" /></button>
-            <button onClick={() => onDelete(user.id)} className="p-2 text-gray-400 hover:text-red-500 transition-colors"><Trash2 className="w-4 h-4" /></button>
+            <button onClick={() => onDelete(user)} className="p-2 text-gray-400 hover:text-red-500 transition-colors"><Trash2 className="w-4 h-4" /></button>
           </div>
         </div>
         <h4 className="text-lg font-black text-gray-800 tracking-tight">{user.nome}</h4>

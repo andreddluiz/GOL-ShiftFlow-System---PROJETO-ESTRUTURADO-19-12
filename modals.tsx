@@ -55,7 +55,7 @@ export const ConfirmModal: React.FC<{
 
   return (
     <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-[2.5rem] w-full max-w-sm shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+      <div className="bg-white rounded-[2.5rem] w-full max-sm shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
         <div className={`p-8 flex flex-col items-center text-center ${colors[type]}`}>
           {icons[type]}
           <h3 className="text-xl font-black uppercase tracking-tight mb-2">{title}</h3>
@@ -190,13 +190,10 @@ export const DatePickerField: React.FC<{
           value={dateValue}
           disabled={disabled}
           format="DD/MM/YYYY"
-          // Problema 3: onAccept garante que o evento dispara APÓS selecionar no calendário e ele fechar
           onAccept={(newValue: any) => {
             if (newValue && dayjs(newValue).isValid()) {
               const formattedDate = dayjs(newValue).format('DD/MM/YYYY');
-              console.debug("[Problema 3] Data aceita no calendário:", formattedDate);
               onChange(formattedDate);
-              // Pequeno delay para garantir que o calendário fechou completamente antes de disparar o onBlur (que avalia o pop-up)
               if (onBlur) setTimeout(onBlur, 200);
             }
           }}
@@ -232,6 +229,103 @@ export const DatePickerField: React.FC<{
     </LocalizationProvider>
   );
 };
+
+/**
+ * Modal para Cadastrar/Editar Itens de Controle (Standard & Custom)
+ */
+export const ControlItemModal: React.FC<ModalProps & { activeTab: string, customControlTypes: CustomControlType[] }> = ({ isOpen, onClose, onSave, title, initialData, activeTab, customControlTypes }) => {
+  const [formData, setFormData] = useState<any>({});
+  
+  useEffect(() => {
+    if (initialData) {
+      setFormData(initialData);
+    } else {
+      // Setup de valores iniciais por tipo
+      const base = { id: Math.random().toString(36).substr(2, 9), status: 'ativo', visivel: true };
+      if (activeTab === 'shelf') setFormData({ ...base, partNumber: '', lote: '', dataVencimento: '' });
+      else if (activeTab === 'loc') setFormData({ ...base, nomeLocation: '' });
+      else if (activeTab === 'trans') setFormData({ ...base, nomeTransito: '', diasPadrao: 0 });
+      else if (activeTab === 'crit') setFormData({ ...base, partNumber: '' });
+      else {
+        // Custom
+        const type = customControlTypes.find(t => t.id === activeTab);
+        const valores: any = {};
+        type?.campos.forEach(c => valores[c] = '');
+        setFormData({ ...base, tipoId: activeTab, valores });
+      }
+    }
+  }, [initialData, isOpen, activeTab, customControlTypes]);
+
+  if (!isOpen) return null;
+
+  const currentCustomType = customControlTypes.find(t => t.id === activeTab);
+
+  const handleCustomFieldChange = (campo: string, valor: any) => {
+    setFormData({
+      ...formData,
+      valores: {
+        ...(formData.valores || {}),
+        [campo]: valor
+      }
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl p-8 animate-in zoom-in-95">
+        <h3 className="text-xl font-black text-gray-800 uppercase tracking-tight mb-6">{title}</h3>
+        
+        <div className="space-y-4">
+          {activeTab === 'shelf' && (
+            <>
+              <Input label="Part Number" value={formData.partNumber} onChange={v => setFormData({...formData, partNumber: v})} />
+              <Input label="Lote" value={formData.lote} onChange={v => setFormData({...formData, lote: v})} />
+              <DatePickerField label="Data de Vencimento" value={formData.dataVencimento} onChange={v => setFormData({...formData, dataVencimento: v})} />
+            </>
+          )}
+
+          {activeTab === 'loc' && (
+            <Input label="Nome da Location" value={formData.nomeLocation} onChange={v => setFormData({...formData, nomeLocation: v.toUpperCase()})} />
+          )}
+
+          {activeTab === 'trans' && (
+            <>
+              <Input label="Nome do Trânsito" value={formData.nomeTransito} onChange={v => setFormData({...formData, nomeTransito: v.toUpperCase()})} />
+              <Input label="TAT Padrão (Dias)" type="number" value={formData.diasPadrao} onChange={v => setFormData({...formData, diasPadrao: parseInt(v) || 0})} />
+            </>
+          )}
+
+          {activeTab === 'crit' && (
+            <Input label="Part Number" value={formData.partNumber} onChange={v => setFormData({...formData, partNumber: v})} />
+          )}
+
+          {currentCustomType && (
+            currentCustomType.campos.map(campo => (
+              <Input key={campo} label={campo} value={formData.valores?.[campo] || ''} onChange={v => handleCustomFieldChange(campo, v)} />
+            ))
+          )}
+        </div>
+
+        <div className="flex space-x-2 mt-8">
+          <button onClick={onClose} className="flex-1 py-4 bg-gray-100 rounded-2xl font-black uppercase text-[10px] tracking-widest text-gray-400 hover:bg-gray-200 transition-all">Cancelar</button>
+          <button onClick={() => onSave(formData)} className="flex-1 py-4 bg-orange-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-orange-100 hover:bg-orange-700 transition-all">Salvar Item</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const Input: React.FC<{ label: string, value: any, onChange: (val: string) => void, type?: string }> = ({ label, value, onChange, type = "text" }) => (
+  <div className="space-y-1">
+    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{label}</label>
+    <input 
+      type={type}
+      className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-orange-100 transition-all text-sm"
+      value={value}
+      onChange={e => onChange(e.target.value)}
+    />
+  </div>
+);
 
 export const BaseModal: React.FC<ModalProps> = ({ isOpen, onClose, onSave, title, initialData }) => {
   const [formData, setFormData] = useState<Partial<Base>>({ nome: '', sigla: '', status: 'Ativa' });
@@ -314,15 +408,15 @@ export const CustomControlTypeModal: React.FC<ModalProps> = ({ isOpen, onClose, 
 
 export const ControlItemSettingsModal: React.FC<{ isOpen: boolean; onClose: () => void; item: any; onSave: (updatedItem: any) => void }> = ({ isOpen, onClose, item, onSave }) => {
   const [cores, setCores] = useState<any>(item?.cores || {
-    verde: { condicao: 'Valor', operador: '>', valor: 0 },
-    amarelo: { condicao: 'Valor', operador: '=', valor: 0 },
-    vermelho: { condicao: 'Valor', operador: '<', valor: 0 }
+    verde: { condicao: 'Valor', operador: '>', valor: 0, habilitado: true },
+    amarelo: { condicao: 'Valor', operador: '=', valor: 0, habilitado: true },
+    vermelho: { condicao: 'Valor', operador: '<', valor: 0, habilitado: true }
   });
   
   const [popups, setPopups] = useState<any>(item?.popups || {
-    verde: { titulo: 'Tudo OK', mensagem: 'Item dentro dos parâmetros.' },
-    amarelo: { titulo: 'Atenção', mensagem: 'Item requer atenção imediata.' },
-    vermelho: { titulo: 'Crítico!', mensagem: 'Item em estado de alerta crítico!' }
+    verde: { titulo: 'Tudo OK', mensagem: 'Item dentro dos parâmetros.', habilitado: true },
+    amarelo: { titulo: 'Atenção', mensagem: 'Item requer atenção imediata.', habilitado: true },
+    vermelho: { titulo: 'Crítico!', mensagem: 'Item em estado de alerta crítico!', habilitado: true }
   });
 
   useEffect(() => {
@@ -335,34 +429,72 @@ export const ControlItemSettingsModal: React.FC<{ isOpen: boolean; onClose: () =
   if (!isOpen) return null;
 
   const renderConfigSection = (level: 'verde' | 'amarelo' | 'vermelho', color: string) => (
-    <div className={`p-4 rounded-2xl border-l-4 ${color} bg-gray-50 space-y-4 shadow-sm`}>
-       <div className="flex justify-between items-center">
-          <h4 className="font-black text-xs uppercase tracking-widest flex items-center space-x-2">
-            <Palette className="w-4 h-4" /> <span>Nível {level.toUpperCase()}</span>
-          </h4>
+    <div className={`p-5 rounded-3xl border-l-8 ${color} bg-gray-50 space-y-4 shadow-sm relative overflow-hidden`}>
+       <div className="flex justify-between items-center border-b border-gray-100 pb-3">
+          <div className="flex items-center space-x-3">
+             <Palette className="w-5 h-5" /> 
+             <span className="font-black text-xs uppercase tracking-widest">Nível {level.toUpperCase()}</span>
+          </div>
+          <div className="flex items-center space-x-4">
+            <label className="flex items-center space-x-2 cursor-pointer bg-white px-3 py-1.5 rounded-xl shadow-sm border border-gray-100">
+               <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">{cores[level].habilitado ? 'Cor Ativa' : 'Cor Inativa'}</span>
+               <div 
+                 onClick={() => setCores({...cores, [level]: {...cores[level], habilitado: !cores[level].habilitado}})}
+                 className={`w-10 h-5 rounded-full transition-all relative ${cores[level].habilitado ? 'bg-green-600' : 'bg-gray-300'}`}
+               >
+                 <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${cores[level].habilitado ? 'right-1' : 'left-1'}`} />
+               </div>
+            </label>
+
+            <label className="flex items-center space-x-2 cursor-pointer bg-white px-3 py-1.5 rounded-xl shadow-sm border border-gray-100">
+               <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">{popups[level].habilitado ? 'Pop-up Ativo' : 'Pop-up Inativo'}</span>
+               <div 
+                 onClick={() => setPopups({...popups, [level]: {...popups[level], habilitado: !popups[level].habilitado}})}
+                 className={`w-10 h-5 rounded-full transition-all relative ${popups[level].habilitado ? 'bg-orange-600' : 'bg-gray-300'}`}
+               >
+                 <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${popups[level].habilitado ? 'right-1' : 'left-1'}`} />
+               </div>
+            </label>
+          </div>
        </div>
        
-       <div className="grid grid-cols-3 gap-2">
-          <select className="p-2 border rounded-lg text-[10px] font-bold" value={cores[level].operador} onChange={e => setCores({...cores, [level]: {...cores[level], operador: e.target.value}})}>
-             <option value=">">&gt;</option>
-             <option value="<">&lt;</option>
-             <option value="=">=</option>
-             <option value=">=">&gt;=</option>
-             <option value="<=">&lt;=</option>
-          </select>
-          <input type="number" className="p-2 border rounded-lg text-xs" placeholder="Valor" value={cores[level].valor} onChange={e => setCores({...cores, [level]: {...cores[level], valor: e.target.value}})} />
-          <span className="flex items-center text-[8px] font-black text-gray-400 uppercase">da condição</span>
+       <div className={`grid grid-cols-12 gap-3 transition-opacity ${!cores[level].habilitado && 'opacity-40 pointer-events-none'}`}>
+          <div className="col-span-4">
+             <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest block mb-1">Operador</label>
+             <select className="w-full p-3 border rounded-xl text-xs font-bold bg-white" value={cores[level].operador} onChange={e => setCores({...cores, [level]: {...cores[level], operador: e.target.value}})}>
+                <option value=">">Maior que (&gt;)</option>
+                <option value="<">Menor que (&lt;)</option>
+                <option value="=">Igual a (=)</option>
+                <option value="!=">Diferente de (≠)</option>
+                <option value=">=">Maior ou igual (&gt;=)</option>
+                <option value="<=">Menor ou igual (&lt;=)</option>
+                <option value="entre">Entre (X e Y)</option>
+             </select>
+          </div>
+          <div className={cores[level].operador === 'entre' ? 'col-span-4' : 'col-span-8'}>
+             <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest block mb-1">{cores[level].operador === 'entre' ? 'Mínimo' : 'Valor'}</label>
+             <input type="number" className="w-full p-3 border rounded-xl text-xs font-bold bg-white" placeholder="0" value={cores[level].valor} onChange={e => setCores({...cores, [level]: {...cores[level], valor: e.target.value}})} />
+          </div>
+          {cores[level].operador === 'entre' && (
+            <div className="col-span-4 animate-in slide-in-from-left-2">
+               <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest block mb-1">Máximo</label>
+               <input type="number" className="w-full p-3 border rounded-xl text-xs font-bold bg-white" placeholder="0" value={cores[level].valorMax || ''} onChange={e => setCores({...cores, [level]: {...cores[level], valorMax: e.target.value}})} />
+            </div>
+          )}
        </div>
 
-       <div className="space-y-2 bg-white p-3 rounded-xl border border-gray-100">
-          <input className="w-full p-2 text-xs font-bold border-none outline-none focus:ring-1 focus:ring-orange-100 rounded" placeholder="Título do Pop-up" value={popups[level].titulo} onChange={e => setPopups({...popups, [level]: {...popups[level], titulo: e.target.value}})} />
-          <textarea className="w-full p-2 text-[10px] border-none outline-none focus:ring-1 focus:ring-orange-100 rounded resize-none" rows={2} placeholder="Mensagem do Pop-up" value={popups[level].mensagem} onChange={e => setPopups({...popups, [level]: {...popups[level], mensagem: e.target.value}})} />
+       <div className={`space-y-2 bg-white p-4 rounded-2xl border border-gray-100 transition-opacity ${!popups[level].habilitado && 'opacity-40 pointer-events-none'}`}>
+          <div className="flex items-center space-x-2 text-orange-600 mb-2">
+             <AlertTriangle className="w-4 h-4" />
+             <span className="text-[10px] font-black uppercase tracking-widest">Conteúdo do Alerta</span>
+          </div>
+          <input className="w-full p-2 text-xs font-bold border-b border-gray-100 outline-none focus:border-orange-500 rounded" placeholder="Título do Pop-up" value={popups[level].titulo} onChange={e => setPopups({...popups, [level]: {...popups[level], titulo: e.target.value}})} />
+          <textarea className="w-full p-2 text-[10px] border-none outline-none focus:ring-1 focus:ring-orange-100 rounded resize-none" rows={2} placeholder="Mensagem do Pop-up (Use 'X' para o valor dinâmico)" value={popups[level].mensagem} onChange={e => setPopups({...popups, [level]: {...popups[level], mensagem: e.target.value}})} />
        </div>
     </div>
   );
 
   const handleSaveInternal = () => {
-    console.debug(`[Ajuste Operadores] Salvando com novos operadores para o item:`, item.id);
     onSave({ ...item, cores, popups });
   };
 
@@ -374,7 +506,7 @@ export const ControlItemSettingsModal: React.FC<{ isOpen: boolean; onClose: () =
             <Settings className="text-orange-600" />
             <span>Regras Personalizadas: {item.partNumber || item.nomeLocation || item.nomeTransito}</span>
           </h3>
-          <button onClick={onClose} className="p-2 text-gray-400 hover:text-red-500"><X className="w-6 h-6" /></button>
+          <button onClick={onClose} className="p-2 text-gray-400 hover:text-red-500 transition-colors"><X className="w-6 h-6" /></button>
         </div>
 
         <div className="space-y-6">
@@ -383,9 +515,9 @@ export const ControlItemSettingsModal: React.FC<{ isOpen: boolean; onClose: () =
            {renderConfigSection('vermelho', 'border-red-500 text-red-600')}
         </div>
 
-        <div className="flex space-x-3 mt-8">
-           <button onClick={onClose} className="flex-1 py-4 font-black text-gray-400 uppercase text-xs">Cancelar</button>
-           <button onClick={handleSaveInternal} className="flex-1 py-4 bg-orange-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl">Salvar Regras</button>
+        <div className="flex space-x-3 mt-8 pt-4 border-t border-gray-100">
+           <button onClick={onClose} className="flex-1 py-4 font-black text-gray-400 uppercase text-xs hover:text-gray-600 transition-colors">Cancelar</button>
+           <button onClick={handleSaveInternal} className="flex-1 py-4 bg-orange-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-orange-100 hover:bg-orange-700 transition-all hover:scale-105 active:scale-95">Salvar Configurações</button>
         </div>
       </div>
     </div>

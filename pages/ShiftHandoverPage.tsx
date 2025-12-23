@@ -90,7 +90,7 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
     onConfirm: () => {}
   });
 
-  // Problema 1: Sincronização Imediata usando flag 'visivel'
+  // Sincronização Imediata usando flag 'visivel'
   useEffect(() => {
     if (!initialized || !baseId) return;
 
@@ -178,44 +178,62 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
     setColaboradoresIds(newIds);
   };
 
-  // Avaliação de Alerta Integrada
+  // Avaliação de Alerta Integrada com flag de ativação de pop-up e operador "entre" e "!="
   const evaluateAlert = (item: any, value: any, controlType: string) => {
     const config = item.config || activeControls.find((c: any) => c.tipo === controlType);
     if (!config) return;
 
-    console.debug(`[Pop-up Evaluation] Avaliando: ${controlType}, valor: ${value}`);
-
     const checkCondition = (rule: ConditionConfig, val: number) => {
-      const ref = Number(rule.valor);
+      if (rule.habilitado === false) return false;
+      const min = Number(rule.valor);
       const op = rule.operador;
-      if (op === '>') return val > ref;
-      if (op === '<') return val < ref;
-      if (op === '=') return val === ref;
-      if (op === '>=') return val >= ref;
-      if (op === '<=') return val <= ref;
+      
+      if (op === 'entre') {
+        const max = Number(rule.valorMax);
+        return val >= min && val <= max;
+      }
+      
+      if (op === '>') return val > min;
+      if (op === '<') return val < min;
+      if (op === '=') return val === min;
+      if (op === '!=') return val !== min;
+      if (op === '>=') return val >= min;
+      if (op === '<=') return val <= min;
       return false;
     };
 
     if (config.cores && config.popups) {
       const val = Number(value);
+      
+      // VERMELHO (Prioridade 1)
       if (checkCondition(config.cores.vermelho, val)) {
-        setActiveAlert({ 
-          titulo: config.popups.vermelho.titulo || 'ALERTA CRÍTICO', 
-          mensagem: config.popups.vermelho.mensagem.replace('X', String(val)), 
-          color: 'bg-red-600' 
-        });
-      } else if (checkCondition(config.cores.amarelo, val)) {
-        setActiveAlert({ 
-          titulo: config.popups.amarelo.titulo || 'ATENÇÃO', 
-          mensagem: config.popups.amarelo.mensagem.replace('X', String(val)), 
-          color: 'bg-yellow-600' 
-        });
-      } else if (checkCondition(config.cores.verde, val)) {
-        setActiveAlert({ 
-          titulo: config.popups.verde.titulo || 'STATUS OK', 
-          mensagem: config.popups.verde.mensagem.replace('X', String(val)), 
-          color: 'bg-green-600' 
-        });
+        if (config.popups.vermelho.habilitado !== false) {
+          setActiveAlert({ 
+            titulo: config.popups.vermelho.titulo || 'ALERTA CRÍTICO', 
+            mensagem: config.popups.vermelho.mensagem.replace('X', String(val)), 
+            color: 'bg-red-600' 
+          });
+        }
+      } 
+      // AMARELO (Prioridade 2)
+      else if (checkCondition(config.cores.amarelo, val)) {
+        if (config.popups.amarelo.habilitado !== false) {
+          setActiveAlert({ 
+            titulo: config.popups.amarelo.titulo || 'ATENÇÃO', 
+            mensagem: config.popups.amarelo.mensagem.replace('X', String(val)), 
+            color: 'bg-yellow-600' 
+          });
+        }
+      } 
+      // VERDE (Prioridade 3)
+      else if (checkCondition(config.cores.verde, val)) {
+        if (config.popups.verde.habilitado !== false) {
+          setActiveAlert({ 
+            titulo: config.popups.verde.titulo || 'STATUS OK', 
+            mensagem: config.popups.verde.mensagem.replace('X', String(val)), 
+            color: 'bg-green-600' 
+          });
+        }
       }
     }
   };
@@ -224,7 +242,6 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
     setList(list.map(item => item.id === id ? { ...item, [field]: value } : item));
   };
 
-  // Problema 3: Trigger do evaluateAlert disparado no fechamento do calendário
   const handleBlur = (item: any, controlType: string, value: any) => {
      if (value === '' || value === undefined) return;
      let calcVal = Number(value);
@@ -235,7 +252,6 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
         calcVal = Math.abs((row?.saldoSistema || 0) - (row?.saldoFisico || 0));
      }
      
-     console.debug("[Problema 3] Disparando avaliação de pop-up para valor:", calcVal);
      evaluateAlert(item, calcVal, controlType);
   };
 
@@ -246,13 +262,21 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
     if (!config || !config.cores) return 'text-gray-400';
 
     const checkCondition = (rule: ConditionConfig, v: number) => {
-      const ref = Number(rule.valor);
+      if (rule.habilitado === false) return false;
+      const min = Number(rule.valor);
       const op = rule.operador;
-      if (op === '>') return v > ref;
-      if (op === '<') return v < ref;
-      if (op === '=') return v === ref;
-      if (op === '>=') return v >= ref;
-      if (op === '<=') return v <= ref;
+      
+      if (op === 'entre') {
+        const max = Number(rule.valorMax);
+        return v >= min && v <= max;
+      }
+      
+      if (op === '>') return v > min;
+      if (op === '<') return v < min;
+      if (op === '=') return v === min;
+      if (op === '!=') return v !== min;
+      if (op === '>=') return v >= min;
+      if (op === '<=') return v <= min;
       return false;
     };
 

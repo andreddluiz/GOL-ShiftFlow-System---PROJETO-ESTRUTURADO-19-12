@@ -78,11 +78,18 @@ export const useStore = create<AppState>((set, get) => ({
         defaultItemsService.getCustomItems()
       ]);
       set({ 
-        bases, users, tasks, categories: cats, controls, 
-        defaultLocations: defLocs, defaultTransits: defTrans, defaultCriticals: defCrit,
-        defaultShelfLifes: defShelf,
-        customControlTypes: custTypes,
-        customControlItems: custItems,
+        // Filtra deletados globalmente
+        bases: bases.filter(b => !b.deletada), 
+        users: users.filter(u => !u.deletada), 
+        tasks: tasks.filter(t => !t.deletada), 
+        categories: cats.filter(c => !c.deletada), 
+        controls, 
+        defaultLocations: defLocs.filter(i => !i.deletada), 
+        defaultTransits: defTrans.filter(i => !i.deletada), 
+        defaultCriticals: defCrit.filter(i => !i.deletada),
+        defaultShelfLifes: defShelf.filter(i => !i.deletada),
+        customControlTypes: custTypes.filter(t => !t.deletada),
+        customControlItems: custItems.filter(i => !i.deletada),
         initialized: true 
       });
     } finally {
@@ -119,8 +126,9 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   getOpCategoriesCombinadas: (baseId) => {
-    // Filtra categorias visíveis para a Passagem de Turno
+    // Filtra categorias visíveis e NÃO DELETADAS para a Passagem de Turno
     return get().categories.filter(c => 
+      !c.deletada &&
       c.tipo === 'operacional' && 
       c.status === 'Ativa' && 
       (c.visivel !== false) && 
@@ -129,8 +137,9 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   getOpTasksCombinadas: (baseId) => {
-    // Filtra tarefas visíveis para a Passagem de Turno
+    // Filtra tarefas visíveis e NÃO DELETADAS para a Passagem de Turno
     return get().tasks.filter(t => 
+      !t.deletada &&
       t.status === 'Ativa' && 
       (t.visivel !== false) && 
       (!t.baseId || t.baseId === baseId)
@@ -166,31 +175,31 @@ export const useStore = create<AppState>((set, get) => ({
 
   getDefaultLocations: (baseId) => {
     return get().defaultLocations.filter(i => 
-      (i.visivel !== false) && (!i.baseId || i.baseId === baseId)
+      !i.deletada && (i.visivel !== false) && (!i.baseId || i.baseId === baseId)
     );
   },
 
   getDefaultTransits: (baseId) => {
     return get().defaultTransits.filter(i => 
-      (i.visivel !== false) && (!i.baseId || i.baseId === baseId)
+      !i.deletada && (i.visivel !== false) && (!i.baseId || i.baseId === baseId)
     );
   },
 
   getDefaultCriticals: (baseId) => {
     return get().defaultCriticals.filter(i => 
-      (i.visivel !== false) && (!i.baseId || i.baseId === baseId)
+      !i.deletada && (i.visivel !== false) && (!i.baseId || i.baseId === baseId)
     );
   },
 
   getDefaultShelfLifes: (baseId) => {
     return get().defaultShelfLifes.filter(i => 
-      (i.visivel !== false) && (!i.baseId || i.baseId === baseId)
+      !i.deletada && (i.visivel !== false) && (!i.baseId || i.baseId === baseId)
     );
   },
 
   getCustomControlItems: (baseId, typeId) => {
     return get().customControlItems.filter(i => 
-      (i.visivel !== false) && i.tipoId === typeId && (!i.baseId || i.baseId === baseId)
+      !i.deletada && (i.visivel !== false) && i.tipoId === typeId && (!i.baseId || i.baseId === baseId)
     );
   }
 }));

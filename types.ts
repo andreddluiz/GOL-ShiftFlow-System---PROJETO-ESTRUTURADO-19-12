@@ -30,6 +30,7 @@ export interface Base {
   status: 'Ativa' | 'Inativa';
   metaVerde: number; 
   metaAmarelo: number; 
+  deletada?: boolean;
 }
 
 export interface User {
@@ -41,6 +42,7 @@ export interface User {
   permissao: PermissionLevel;
   status: 'Ativo' | 'Inativo';
   jornadaPadrao: number; 
+  deletada?: boolean;
 }
 
 export interface Category {
@@ -49,7 +51,8 @@ export interface Category {
   tipo: 'operacional' | 'mensal';
   ordem: number;
   status: 'Ativa' | 'Inativa';
-  visivel?: boolean; // Propriedade para arquivamento
+  visivel?: boolean; 
+  deletada?: boolean; // Propriedade para exclusão lógica
   baseId?: string | null;
 }
 
@@ -61,16 +64,19 @@ export interface Task {
   fatorMultiplicador: number; 
   obrigatoriedade: boolean;
   status: 'Ativa' | 'Inativa';
-  visivel?: boolean; // Propriedade para arquivamento
+  visivel?: boolean; 
+  deletada?: boolean; // Propriedade para exclusão lógica
   ordem: number;
   baseId?: string | null;
   dataExclusao?: string; 
 }
 
 export interface ConditionConfig {
-  condicao: string; // Ex: "Dias Restantes", "Valor"
-  operador: '>' | '<' | '=' | '>=' | '<=';
+  condicao: string; 
+  operador: '>' | '<' | '=' | '>=' | '<=' | 'entre' | '!=';
   valor: number | string;
+  valorMax?: number | string; // Campo para o operador "entre"
+  habilitado?: boolean; // Ativa/Desativa o nível de cor inteiramente
 }
 
 export interface PopupConfig {
@@ -78,13 +84,15 @@ export interface PopupConfig {
   mensagem: string;
   icone?: string;
   cor?: string;
+  habilitado?: boolean; // Flag para ativar/desativar pop-up
 }
 
 export interface ManagedItem {
   id: string;
   baseId: string | null;
   status: 'ativo' | 'inativo';
-  visivel?: boolean; // Propriedade para arquivamento
+  visivel?: boolean; 
+  deletada?: boolean;
   cores?: {
     verde: ConditionConfig;
     amarelo: ConditionConfig;
@@ -127,6 +135,7 @@ export interface CustomControlType {
   descricao?: string;
   campos: string[]; 
   dataCriacao: string;
+  deletada?: boolean;
 }
 
 export interface AlertConfig {

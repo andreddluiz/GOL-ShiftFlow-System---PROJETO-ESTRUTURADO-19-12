@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
 import { ShelfLifeItem, DefaultLocationItem, DefaultTransitItem, DefaultCriticalItem, CustomControlType, CustomControlItem } from '../types';
-import { CustomControlTypeModal, ControlItemSettingsModal, ConfirmModal } from '../modals';
+import { CustomControlTypeModal, ControlItemSettingsModal, ConfirmModal, ControlItemModal } from '../modals';
 
 type ControlTab = 'shelf' | 'loc' | 'trans' | 'crit' | string;
 
@@ -68,43 +68,21 @@ const ManagementControlsAlertsPage: React.FC = () => {
     });
   }, [activeTab, contextFilter, showArchived, defaultShelfLifes, defaultLocations, defaultTransits, defaultCriticals, customControlItems]);
 
-  const handleSave = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    const data: any = {
-      ...(editingItem || {}),
-      id: editingItem?.id || Math.random().toString(36).substr(2, 9),
-      baseId: contextFilter === 'global' ? null : contextFilter,
-      status: editingItem?.status || 'ativo',
-      visivel: editingItem?.visivel ?? true
-    };
-
-    if (activeTab === 'shelf') {
-      data.partNumber = formData.get('partNumber');
-      data.lote = formData.get('lote');
-      data.dataVencimento = formData.get('dataVencimento');
-    } else if (activeTab === 'loc') {
-      data.nomeLocation = formData.get('nomeLocation');
-    } else if (activeTab === 'trans') {
-      data.nomeTransito = formData.get('nomeTransito');
-      data.diasPadrao = parseInt(formData.get('diasPadrao') as string) || 0;
-    } else if (activeTab === 'crit') {
-      data.partNumber = formData.get('partNumber');
-    } else {
-      data.tipoId = activeTab;
-      data.valores = {};
-      const type = customControlTypes.find(t => t.id === activeTab);
-      type?.campos.forEach(c => {
-        data.valores[c] = formData.get(c);
-      });
-    }
-
+  const handleSaveItem = async (data: any) => {
     try {
-      await saveDefaultItem(activeTab, data);
+      // Garante que o item herda o contexto atual
+      const dataWithContext = {
+        ...data,
+        baseId: contextFilter === 'global' ? null : contextFilter
+      };
+      
+      await saveDefaultItem(activeTab, dataWithContext);
       showSnackbar(`Item ${editingItem?.id ? 'atualizado' : 'criado'} com sucesso!`);
       setIsModalOpen(false);
       setEditingItem(null);
+      await refreshData();
     } catch (e) {
+      console.error(e);
       showSnackbar("Erro ao salvar o item", "error");
     }
   };
@@ -121,6 +99,7 @@ const ManagementControlsAlertsPage: React.FC = () => {
         try {
           await saveDefaultItem(activeTab, { ...item, visivel: false });
           showSnackbar("Item ocultado com sucesso");
+          await refreshData();
         } catch (e) {
           showSnackbar("Erro ao ocultar item", "error");
         }
@@ -132,6 +111,7 @@ const ManagementControlsAlertsPage: React.FC = () => {
     try {
       await saveDefaultItem(activeTab, { ...item, visivel: true });
       showSnackbar("Item reativado com sucesso!");
+      await refreshData();
     } catch (e) {
       showSnackbar("Erro ao reativar item", "error");
     }
@@ -299,11 +279,21 @@ const ManagementControlsAlertsPage: React.FC = () => {
         isOpen={isTypeModalOpen} 
         onClose={() => setIsTypeModalOpen(false)} 
         onSave={async (data) => {
-          await saveDefaultItem(activeTab, data);
+          await saveCustomControlType(data);
           showSnackbar("Novo tipo criado!");
           setIsTypeModalOpen(false);
         }}
         title="Novo Tipo"
+      />
+
+      <ControlItemModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onSave={handleSaveItem}
+        title={editingItem ? "Editar Item" : "Novo Item"}
+        initialData={editingItem}
+        activeTab={activeTab}
+        customControlTypes={customControlTypes}
       />
 
       <ControlItemSettingsModal
@@ -314,6 +304,7 @@ const ManagementControlsAlertsPage: React.FC = () => {
           await saveDefaultItem(activeTab, updatedItem);
           showSnackbar("Configurações salvas!");
           setIsSettingsModalOpen(false);
+          await refreshData();
         }}
       />
     </div>

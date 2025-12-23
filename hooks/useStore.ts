@@ -3,7 +3,7 @@ import { create } from 'zustand';
 import { 
   Base, User, Category, Task, Control, ControlType,
   DefaultLocationItem, DefaultTransitItem, DefaultCriticalItem,
-  ShelfLifeItem, CustomControlType, CustomControlItem
+  ShelfLifeItem, CustomControlType, CustomControlItem, ConditionConfig, PopupConfig
 } from '../types';
 import { 
   baseService, userService, taskService, categoryService, 
@@ -27,11 +27,9 @@ interface AppState {
   
   refreshData: (showFullLoading?: boolean) => Promise<void>;
   
-  // CRUD para Itens de Controle
   saveDefaultItem: (type: 'shelf' | 'loc' | 'trans' | 'crit' | string, data: any) => Promise<void>;
   deleteDefaultItem: (type: 'shelf' | 'loc' | 'trans' | 'crit' | string, id: string) => Promise<void>;
   
-  // Custom Control Types
   saveCustomControlType: (data: CustomControlType) => Promise<void>;
   deleteCustomControlType: (id: string) => Promise<void>;
 
@@ -78,7 +76,6 @@ export const useStore = create<AppState>((set, get) => ({
         defaultItemsService.getCustomItems()
       ]);
       set({ 
-        // Filtra deletados globalmente
         bases: bases.filter(b => !b.deletada), 
         users: users.filter(u => !u.deletada), 
         tasks: tasks.filter(t => !t.deletada), 
@@ -126,7 +123,6 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   getOpCategoriesCombinadas: (baseId) => {
-    // Filtra categorias visíveis e NÃO DELETADAS para a Passagem de Turno
     return get().categories.filter(c => 
       !c.deletada &&
       c.tipo === 'operacional' && 
@@ -137,7 +133,6 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   getOpTasksCombinadas: (baseId) => {
-    // Filtra tarefas visíveis e NÃO DELETADAS para a Passagem de Turno
     return get().tasks.filter(t => 
       !t.deletada &&
       t.status === 'Ativa' && 
@@ -154,22 +149,37 @@ export const useStore = create<AppState>((set, get) => ({
     const tipos: ControlType[] = ['locations', 'transito', 'shelf_life', 'itens_criticos'];
 
     return tipos.map(tipo => {
-      const local = locais.find(l => l.tipo === tipo);
-      const global = globais.find(g => g.tipo === tipo);
-      return local || global || {
+      // Prioridade: Local da Base > Global > Mock Default
+      const control = locais.find(l => l.tipo === tipo) || globais.find(g => g.tipo === tipo);
+      
+      const mappedControl = control ? { ...control } : {
         id: `fallback-${tipo}`,
         baseId: null,
         nome: tipo.toUpperCase(),
         tipo: tipo,
-        descricao: 'Configuração padrão do sistema',
+        descricao: 'Padrão',
         unidade: 'unidade',
         status: 'Ativo',
-        alertaConfig: {
-          verde: 2, amarelo: 5, vermelho: 6,
-          permitirPopupVerde: false, permitirPopupAmarelo: true, permitirPopupVermelho: true,
-          mensagemVerde: '', mensagemAmarelo: 'Atenção ao prazo!', mensagemVermelho: 'LIMITE CRÍTICO ATINGIDO!'
-        }
+        alertaConfig: { verde: 30, amarelo: 15, vermelho: 0, permitirPopupVerde: false, permitirPopupAmarelo: true, permitirPopupVermelho: true, mensagemVerde: '', mensagemAmarelo: '', mensagemVermelho: '' }
       } as Control;
+
+      // Garantir que a estrutura moderna de cores/popups exista para o motor de alertas
+      if (!mappedControl.cores) {
+        mappedControl.cores = {
+          verde: { condicao: 'Valor', operador: '>', valor: mappedControl.alertaConfig.verde || 30, habilitado: true },
+          amarelo: { condicao: 'Valor', operador: 'entre', valor: mappedControl.alertaConfig.amarelo || 15, valorMax: mappedControl.alertaConfig.verde || 30, habilitado: true },
+          vermelho: { condicao: 'Valor', operador: '<=', valor: mappedControl.alertaConfig.vermelho || 15, habilitado: true }
+        };
+      }
+      if (!mappedControl.popups) {
+        mappedControl.popups = {
+          verde: { titulo: 'Status OK', mensagem: mappedControl.alertaConfig.mensagemVerde || 'Dentro do prazo.', habilitado: mappedControl.alertaConfig.permitirPopupVerde },
+          amarelo: { titulo: 'Atenção', mensagem: mappedControl.alertaConfig.mensagemAmarelo || 'Prazo curto (X dias).', habilitado: mappedControl.alertaConfig.permitirPopupAmarelo },
+          vermelho: { titulo: 'ALERTA CRÍTICO', mensagem: mappedControl.alertaConfig.mensagemVermelho || 'Vencimento próximo ou expirado (X dias)!', habilitado: mappedControl.alertaConfig.permitirPopupVermelho }
+        };
+      }
+      
+      return mappedControl;
     });
   },
 

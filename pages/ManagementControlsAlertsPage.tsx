@@ -2,10 +2,10 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Box, Truck, AlertOctagon, FlaskConical, Plus, Trash2, Edit2, Globe, MapPin, 
-  Search, Info, AlertCircle, CheckCircle, ChevronRight, Settings, Bell, Palette, Layers, RotateCcw, Archive
+  Search, Info, AlertCircle, CheckCircle, ChevronRight, Settings, Bell, Palette, Layers, RotateCcw, Archive, ShieldCheck
 } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
-import { ShelfLifeItem, DefaultLocationItem, DefaultTransitItem, DefaultCriticalItem, CustomControlType, CustomControlItem } from '../types';
+import { ShelfLifeItem, DefaultLocationItem, DefaultTransitItem, DefaultCriticalItem, CustomControlType, CustomControlItem, Control } from '../types';
 import { CustomControlTypeModal, ControlItemSettingsModal, ConfirmModal, ControlItemModal } from '../modals';
 
 type ControlTab = 'shelf' | 'loc' | 'trans' | 'crit' | string;
@@ -17,15 +17,16 @@ const ManagementControlsAlertsPage: React.FC = () => {
   
   const { 
     bases, defaultShelfLifes, defaultLocations, defaultTransits, defaultCriticals,
-    customControlTypes, customControlItems,
+    customControlTypes, customControlItems, controls: allControls,
     saveDefaultItem, deleteDefaultItem, saveCustomControlType, deleteCustomControlType,
-    refreshData
+    refreshData, getControlesCombinados
   } = useStore();
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isTypeModalOpen, setIsTypeModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<any>(null);
+  const [isEditingGlobalConfig, setIsEditingGlobalConfig] = useState(false);
 
   const [confirmModal, setConfirmModal] = useState<{
     open: boolean,
@@ -53,6 +54,14 @@ const ManagementControlsAlertsPage: React.FC = () => {
     refreshData();
   }, []);
 
+  // Mapeamento de abas para ControlTypes
+  const tabToControlType: Record<string, string> = {
+    'shelf': 'shelf_life',
+    'loc': 'locations',
+    'trans': 'transito',
+    'crit': 'itens_criticos'
+  };
+
   const currentItems = useMemo(() => {
     let list: any[] = [];
     if (activeTab === 'shelf') list = defaultShelfLifes;
@@ -70,7 +79,6 @@ const ManagementControlsAlertsPage: React.FC = () => {
 
   const handleSaveItem = async (data: any) => {
     try {
-      // Garante que o item herda o contexto atual
       const dataWithContext = {
         ...data,
         baseId: contextFilter === 'global' ? null : contextFilter
@@ -82,14 +90,60 @@ const ManagementControlsAlertsPage: React.FC = () => {
       setEditingItem(null);
       await refreshData();
     } catch (e) {
-      console.error(e);
       showSnackbar("Erro ao salvar o item", "error");
+    }
+  };
+
+  const handleOpenGlobalConfig = () => {
+    const controlType = tabToControlType[activeTab] || activeTab;
+    // Tenta encontrar o controle atual para o contexto (base ou global)
+    const baseId = contextFilter === 'global' ? null : contextFilter;
+    let config = allControls.find(c => c.tipo === controlType && c.baseId === baseId);
+    
+    // Se não existir um controle específico para a base, criamos um mock baseado no global ou default
+    if (!config) {
+      config = {
+        id: `global-${controlType}-${baseId || 'root'}`,
+        baseId: baseId,
+        nome: `Configuração Padrão ${activeTab.toUpperCase()}`,
+        tipo: controlType,
+        descricao: 'Regras de alerta padrão da categoria',
+        unidade: 'unidade',
+        status: 'Ativo',
+        alertaConfig: { verde: 0, amarelo: 0, vermelho: 0, permitirPopupVerde: false, permitirPopupAmarelo: true, permitirPopupVermelho: true, mensagemVerde: '', mensagemAmarelo: '', mensagemVermelho: '' }
+      } as Control;
+    }
+
+    setEditingItem(config);
+    setIsEditingGlobalConfig(true);
+    setIsSettingsModalOpen(true);
+  };
+
+  const handleSaveGlobalConfig = async (updatedConfig: any) => {
+    try {
+      // Aqui usamos o store para salvar o objeto Control
+      const { saveControl } = useStore.getState() as any; // Fallback se não estiver no types, mas podemos usar o controlService diretamente se necessário
+      // Como o useStore não tem saveControl explícito no hook, vamos usar o service
+      const { controlService } = await import('../services');
+      
+      const existing = allControls.find(c => c.id === updatedConfig.id);
+      if (existing) {
+        await controlService.update(updatedConfig.id, updatedConfig);
+      } else {
+        await controlService.create(updatedConfig);
+      }
+
+      showSnackbar("Regras padrão da categoria atualizadas!");
+      setIsSettingsModalOpen(false);
+      setIsEditingGlobalConfig(false);
+      await refreshData();
+    } catch (e) {
+      showSnackbar("Erro ao salvar regras padrão", "error");
     }
   };
 
   const handleArchive = (item: any) => {
     const label = item.partNumber || item.nomeLocation || item.nomeTransito || "este item";
-    
     setConfirmModal({
       open: true,
       title: 'Arquivar Item',
@@ -174,19 +228,28 @@ const ManagementControlsAlertsPage: React.FC = () => {
         <div className="p-8 space-y-6">
           <div className="flex justify-between items-center">
             <div className="flex items-center space-x-4">
-               <h2 className="text-sm font-black text-gray-400 uppercase tracking-[0.2em]">{currentCustomType?.nome || activeTab} Items</h2>
+               <h2 className="text-sm font-black text-gray-400 uppercase tracking-[0.2em]">{currentCustomType?.nome || activeTab.toUpperCase()} Items</h2>
                <label className="flex items-center space-x-2 cursor-pointer bg-gray-50 px-3 py-1 rounded-full group">
                   <input type="checkbox" className="w-3 h-3 accent-orange-500" checked={showArchived} onChange={e => setShowArchived(e.target.checked)} />
                   <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest group-hover:text-orange-600 transition-colors">Exibir Arquivados</span>
                </label>
             </div>
-            <button 
-              onClick={() => { setEditingItem(null); setIsModalOpen(true); }}
-              className="bg-orange-600 text-white px-6 py-3 rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-orange-100 hover:bg-orange-700 hover:scale-105 transition-all flex items-center space-x-2"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Novo Item</span>
-            </button>
+            <div className="flex space-x-3">
+              <button 
+                onClick={handleOpenGlobalConfig}
+                className="bg-gray-100 text-gray-600 px-6 py-3 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-orange-50 hover:text-orange-600 transition-all flex items-center space-x-2 border border-transparent hover:border-orange-100 shadow-sm"
+              >
+                <ShieldCheck className="w-4 h-4" />
+                <span>Regras Padrão da Categoria</span>
+              </button>
+              <button 
+                onClick={() => { setEditingItem(null); setIsEditingGlobalConfig(false); setIsModalOpen(true); }}
+                className="bg-orange-600 text-white px-6 py-3 rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-orange-100 hover:bg-orange-700 hover:scale-105 transition-all flex items-center space-x-2"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Novo Item</span>
+              </button>
+            </div>
           </div>
 
           <div className="overflow-hidden rounded-3xl border border-gray-100">
@@ -242,8 +305,8 @@ const ManagementControlsAlertsPage: React.FC = () => {
                     <td className="px-6 py-5 text-right space-x-1">
                        {item.visivel !== false ? (
                          <>
-                            <button onClick={() => { setEditingItem(item); setIsModalOpen(true); }} className="p-2 text-gray-300 hover:text-orange-600 bg-gray-50 hover:bg-white rounded-lg transition-all shadow-sm border border-transparent hover:border-orange-100" title="Editar"><Edit2 className="w-4 h-4" /></button>
-                            <button onClick={() => { setEditingItem(item); setIsSettingsModalOpen(true); }} className="p-2 text-gray-300 hover:text-orange-600 bg-gray-50 hover:bg-white rounded-lg transition-all shadow-sm border border-transparent hover:border-orange-100" title="Cores e Pop-ups"><Palette className="w-4 h-4" /></button>
+                            <button onClick={() => { setEditingItem(item); setIsEditingGlobalConfig(false); setIsModalOpen(true); }} className="p-2 text-gray-300 hover:text-orange-600 bg-gray-50 hover:bg-white rounded-lg transition-all shadow-sm border border-transparent hover:border-orange-100" title="Editar"><Edit2 className="w-4 h-4" /></button>
+                            <button onClick={() => { setEditingItem(item); setIsEditingGlobalConfig(false); setIsSettingsModalOpen(true); }} className="p-2 text-gray-300 hover:text-orange-600 bg-gray-50 hover:bg-white rounded-lg transition-all shadow-sm border border-transparent hover:border-orange-100" title="Cores e Pop-ups Personalizados"><Palette className="w-4 h-4" /></button>
                             <button onClick={() => handleArchive(item)} className="p-2 text-gray-300 hover:text-amber-600 bg-gray-50 hover:bg-white rounded-lg transition-all shadow-sm border border-transparent hover:border-amber-100" title="Arquivar"><Archive className="w-4 h-4" /></button>
                          </>
                        ) : (
@@ -298,9 +361,9 @@ const ManagementControlsAlertsPage: React.FC = () => {
 
       <ControlItemSettingsModal
         isOpen={isSettingsModalOpen}
-        onClose={() => setIsSettingsModalOpen(false)}
+        onClose={() => { setIsSettingsModalOpen(false); setIsEditingGlobalConfig(false); }}
         item={editingItem}
-        onSave={async (updatedItem) => {
+        onSave={isEditingGlobalConfig ? handleSaveGlobalConfig : async (updatedItem) => {
           await saveDefaultItem(activeTab, updatedItem);
           showSnackbar("Configurações salvas!");
           setIsSettingsModalOpen(false);

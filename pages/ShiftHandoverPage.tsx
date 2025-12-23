@@ -13,9 +13,9 @@ import {
 } from '../types';
 import { DatePickerField, TimeInput, hhmmssToMinutes, minutesToHhmmss, ConfirmModal } from '../modals';
 
-// Utilitários de Data
-const parseDate = (str: string): Date | null => {
-  if (!str) return null;
+// Utilitários de Data com checagem de tipo para evitar erro de split
+const parseDate = (str: any): Date | null => {
+  if (!str || typeof str !== 'string') return null;
   const parts = str.split('/');
   if (parts.length !== 3) return null;
   const d = parseInt(parts[0]);
@@ -25,7 +25,7 @@ const parseDate = (str: string): Date | null => {
   return isNaN(date.getTime()) ? null : date;
 };
 
-const getDaysDiff = (dateStr: string): number => {
+const getDaysDiff = (dateStr: any): number => {
   const date = parseDate(dateStr);
   if (!date) return 0;
   const today = new Date();
@@ -34,7 +34,7 @@ const getDaysDiff = (dateStr: string): number => {
   return Math.abs(Math.floor((today.getTime() - date.getTime()) / (1000 * 60 * 60 * 24)));
 };
 
-const getDaysRemaining = (dateStr: string): number => {
+const getDaysRemaining = (dateStr: any): number => {
   const date = parseDate(dateStr);
   if (!date) return 0;
   const today = new Date();
@@ -43,12 +43,63 @@ const getDaysRemaining = (dateStr: string): number => {
   return Math.floor((date.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 };
 
+// Funções auxiliares de comparação de critérios corrigidas para incluir 'Diferente de' (!=)
+const atendeCriterioVerde = (verde: any, dias: number): boolean => {
+  if (!verde || verde.habilitado === false) return false;
+  const valor = Number(verde.valor);
+  const op = verde.operador;
+  if (op === '<=') return dias <= valor;
+  if (op === '>=') return dias >= valor;
+  if (op === '=') return dias === valor;
+  if (op === '!=') return dias !== valor;
+  if (op === '<') return dias < valor;
+  if (op === '>') return dias > valor;
+  return false;
+};
+
+const atendeCriterioAmarelo = (amarelo: any, dias: number): boolean => {
+  if (!amarelo || amarelo.habilitado === false) return false;
+  const valor = Number(amarelo.valor);
+  const op = amarelo.operador;
+  if (op === 'entre') {
+    const valorMax = Number(amarelo.valorMax);
+    return dias >= valor && dias <= valorMax;
+  }
+  if (op === '<=') return dias <= valor;
+  if (op === '>=') return dias >= valor;
+  if (op === '=') return dias === valor;
+  if (op === '!=') return dias !== valor;
+  return false;
+};
+
+const atendeCriterioVermelho = (vermelho: any, dias: number): boolean => {
+  if (!vermelho || vermelho.habilitado === false) return false;
+  const valor = Number(vermelho.valor);
+  const op = vermelho.operador;
+  
+  // CORREÇÃO: Implementação explícita do Diferente de (!=)
+  if (op === '!=') {
+     const res = dias !== valor;
+     console.debug(`[Regra Vermelho] Comparando Diferente: ${dias} !== ${valor}? ${res}`);
+     return res;
+  }
+  
+  if (op === '>=') return dias >= valor;
+  if (op === '>') return dias > valor;
+  if (op === '=') return dias === valor;
+  if (op === '<=') return dias <= valor;
+  if (op === '<') return dias < valor;
+  return false;
+};
+
 const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
   const { 
     getControlesCombinados, getDefaultLocations, getDefaultTransits, getDefaultCriticals, getDefaultShelfLifes,
-    customControlTypes, getCustomControlItems,
+    defaultLocations: storeLocs, 
+    defaultTransits: storeTrans, 
+    defaultCriticals: storeCrit, 
+    defaultShelfLifes: storeShelf,
     bases, users, tasks: allTasks, categories: allCats, controls: allControls, 
-    defaultLocations: storeLocs, defaultTransits: storeTrans, defaultCriticals: storeCrit, defaultShelfLifes: storeShelf,
     initialized, refreshData 
   } = useStore();
   
@@ -57,7 +108,7 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
   
   useEffect(() => {
     refreshData(false);
-  }, [baseId]);
+  }, [baseId, refreshData]);
 
   const activeControls = useMemo(() => getControlesCombinados(baseId || ''), [getControlesCombinados, baseId, allControls]);
 
@@ -90,7 +141,7 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
     onConfirm: () => {}
   });
 
-  // Sincronização Imediata usando flag 'visivel'
+  // Sincronização e Preenchimento Mínimo
   useEffect(() => {
     if (!initialized || !baseId) return;
 
@@ -124,12 +175,33 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
     setShelfLife(prev => {
       const activeStoreItems = getDefaultShelfLifes(baseId);
       const activeStoreIds = activeStoreItems.map(i => i.id);
+      
       const filtered = prev.filter(p => !p.isPadrao || activeStoreIds.includes(p.id));
       const toAdd = activeStoreItems.filter(i => !prev.some(p => p.id === i.id));
-      if (toAdd.length === 0 && filtered.length === prev.length) return prev;
-      return [...filtered, ...toAdd.map(i => ({ id: i.id, partNumber: i.partNumber, lote: i.lote || '', dataVencimento: i.dataVencimento || '', isPadrao: true, config: i }))];
+      
+      let newList = [...filtered, ...toAdd.map(i => ({ 
+        id: i.id, 
+        partNumber: i.partNumber, 
+        lote: i.lote || '', 
+        dataVencimento: i.dataVencimento || '', 
+        isPadrao: true, 
+        config: i 
+      }))];
+
+      // GARANTIR MÍNIMO DE 3 LINHAS TOTAIS
+      while (newList.length < 3) {
+        newList.push({ 
+          id: `manual-${Date.now()}-${newList.length}`, 
+          partNumber: '', 
+          lote: '', 
+          dataVencimento: '', 
+          isPadrao: false 
+        });
+      }
+
+      return newList;
     });
-  }, [baseId, initialized, storeLocs, storeTrans, storeCrit, storeShelf]);
+  }, [baseId, initialized, storeLocs, storeTrans, storeCrit, storeShelf, getDefaultLocations, getDefaultTransits, getDefaultCriticals, getDefaultShelfLifes]);
 
   // Lógica de Categorias e Tarefas Operacionais
   const opCategories = useMemo(() => {
@@ -140,7 +212,6 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
     return allTasks.filter(t => t.status === 'Ativa' && (t.visivel !== false) && (!t.baseId || t.baseId === baseId));
   }, [allTasks, baseId]);
 
-  // Cálculos de Produtividade
   const { horasDisponiveis, horasProduzidas, performance } = useMemo(() => {
     const disp = colaboradoresIds.reduce((acc, id) => {
       if (!id) return acc;
@@ -160,138 +231,124 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
     return { horasDisponiveis: disp, horasProduzidas: prod, performance: perf };
   }, [colaboradoresIds, tarefasValores, baseUsers, opTasks]);
 
-  const handleTaskChange = (taskId: string, value: string) => {
-    setTarefasValores(prev => ({ ...prev, [taskId]: value }));
-  };
-
-  const handleColaboradorChange = (idx: number, id: string | null) => {
-    if (id && colaboradoresIds.includes(id)) {
-      setActiveAlert({
-        titulo: "Colaborador Duplicado",
-        mensagem: "Este colaborador já foi selecionado para este turno. Por favor, escolha outro.",
-        color: "bg-orange-600"
-      });
-      return;
-    }
-    const newIds = [...colaboradoresIds];
-    newIds[idx] = id;
-    setColaboradoresIds(newIds);
-  };
-
-  // Avaliação de Alerta Integrada com flag de ativação de pop-up e operador "entre" e "!="
+  /**
+   * CORREÇÃO CRÍTICA: Lógica de buscar e exibir o pop-up correto baseado na cor determinada.
+   * Suporte completo para o operador 'Diferente de' (!=).
+   */
   const evaluateAlert = (item: any, value: any, controlType: string) => {
-    const config = item.config || activeControls.find((c: any) => c.tipo === controlType);
-    if (!config) return;
+    if (value === undefined || value === null || value === '') return;
 
-    const checkCondition = (rule: ConditionConfig, val: number) => {
-      if (rule.habilitado === false) return false;
-      const min = Number(rule.valor);
-      const op = rule.operador;
-      
-      if (op === 'entre') {
-        const max = Number(rule.valorMax);
-        return val >= min && val <= max;
-      }
-      
-      if (op === '>') return val > min;
-      if (op === '<') return val < min;
-      if (op === '=') return val === min;
-      if (op === '!=') return val !== min;
-      if (op === '>=') return val >= min;
-      if (op === '<=') return val <= min;
-      return false;
-    };
+    const categoryConfig = activeControls.find((c: any) => c.tipo === controlType);
+    const itemConfig = item.config;
 
-    if (config.cores && config.popups) {
-      const val = Number(value);
-      
-      // VERMELHO (Prioridade 1)
-      if (checkCondition(config.cores.vermelho, val)) {
-        if (config.popups.vermelho.habilitado !== false) {
-          setActiveAlert({ 
-            titulo: config.popups.vermelho.titulo || 'ALERTA CRÍTICO', 
-            mensagem: config.popups.vermelho.mensagem.replace('X', String(val)), 
-            color: 'bg-red-600' 
-          });
+    // Prioridade de Dados: Item Personalizado > Categoria Padrão
+    const cores = (itemConfig?.cores && itemConfig.cores.vermelho) ? itemConfig.cores : categoryConfig?.cores;
+    const popups = (itemConfig?.popups && itemConfig.popups.vermelho) ? itemConfig.popups : categoryConfig?.popups;
+
+    if (!cores || !popups) return;
+
+    const dias = Number(value);
+    console.debug(`[Alerta Debug] Avaliando ${controlType} com valor ${dias}.`);
+    
+    // Pequeno atraso para garantir que o UI de seleção de data fechou (se for o caso)
+    setTimeout(() => {
+        // 1. VERIFICA VERDE
+        if (atendeCriterioVerde(cores.verde, dias)) {
+           console.log(`Cor determinada: VERDE para o valor ${dias} (Operador: ${cores.verde.operador}, Alvo: ${cores.verde.valor})`);
+           if (popups.verde.habilitado !== false) {
+              setActiveAlert({ 
+                titulo: popups.verde.titulo || 'Tudo OK', 
+                mensagem: popups.verde.mensagem.replace('X', String(dias)), 
+                color: 'bg-green-600' 
+              });
+           }
+           return;
         }
-      } 
-      // AMARELO (Prioridade 2)
-      else if (checkCondition(config.cores.amarelo, val)) {
-        if (config.popups.amarelo.habilitado !== false) {
-          setActiveAlert({ 
-            titulo: config.popups.amarelo.titulo || 'ATENÇÃO', 
-            mensagem: config.popups.amarelo.mensagem.replace('X', String(val)), 
-            color: 'bg-yellow-600' 
-          });
+        
+        // 2. VERIFICA AMARELO
+        if (atendeCriterioAmarelo(cores.amarelo, dias)) {
+           console.log(`Cor determinada: AMARELO para o valor ${dias} (Operador: ${cores.amarelo.operador}, Alvo: ${cores.amarelo.valor})`);
+           if (popups.amarelo.habilitado !== false) {
+              setActiveAlert({ 
+                titulo: popups.amarelo.titulo || 'Atenção', 
+                mensagem: popups.amarelo.mensagem.replace('X', String(dias)), 
+                color: 'bg-yellow-600' 
+              });
+           }
+           return;
         }
-      } 
-      // VERDE (Prioridade 3)
-      else if (checkCondition(config.cores.verde, val)) {
-        if (config.popups.verde.habilitado !== false) {
-          setActiveAlert({ 
-            titulo: config.popups.verde.titulo || 'STATUS OK', 
-            mensagem: config.popups.verde.mensagem.replace('X', String(val)), 
-            color: 'bg-green-600' 
-          });
+        
+        // 3. VERIFICA VERMELHO
+        if (atendeCriterioVermelho(cores.vermelho, dias)) {
+           console.log(`Cor determinada: VERMELHO para o valor ${dias} (Operador: ${cores.vermelho.operador}, Alvo: ${cores.vermelho.valor})`);
+           if (popups.vermelho.habilitado !== false) {
+              setActiveAlert({ 
+                titulo: popups.vermelho.titulo || 'Critical', 
+                mensagem: popups.vermelho.mensagem.replace('X', String(dias)), 
+                color: 'bg-red-600' 
+              });
+           }
+           return;
         }
-      }
-    }
+    }, 150);
   };
 
   const updateRow = (list: any[], setList: Function, id: string, field: string, value: any) => {
     setList(list.map(item => item.id === id ? { ...item, [field]: value } : item));
   };
 
+  const handleTaskChange = (taskId: string, value: string) => {
+    setTarefasValores(prev => ({ ...prev, [taskId]: value }));
+  };
+
   const handleBlur = (item: any, controlType: string, value: any) => {
-     if (value === '' || value === undefined) return;
-     let calcVal = Number(value);
-     if (['locations', 'transito'].includes(controlType) && typeof value === 'string' && value !== '') calcVal = getDaysDiff(value);
-     if (controlType === 'shelf_life' && typeof value === 'string' && value !== '') calcVal = getDaysRemaining(value);
-     if (controlType === 'itens_criticos') {
+     if (value === '' || value === undefined || value === null) return;
+     
+     let calcVal = value;
+     
+     // Cálculos automáticos baseados no tipo de controle
+     if (controlType === 'locations' || controlType === 'transito') {
+        calcVal = getDaysDiff(value);
+     } else if (controlType === 'shelf_life') {
+        calcVal = getDaysRemaining(value);
+     } else if (controlType === 'itens_criticos') {
         const row = critical.find(c => c.id === item.id);
         calcVal = Math.abs((row?.saldoSistema || 0) - (row?.saldoFisico || 0));
+     } else if (controlType === 'tarefa' && typeof value === 'string') {
+        calcVal = Number(value);
      }
      
      evaluateAlert(item, calcVal, controlType);
   };
 
-  const isViewOnly = status === 'Finalizado';
-
   const getItemStatusColor = (item: any, val: number, controlType: string) => {
-    const config = item.config || activeControls.find((c: any) => c.tipo === controlType);
-    if (!config || !config.cores) return 'text-gray-400';
+    // Para linhas manuais sem dados, não aplica cor
+    if (!item.isPadrao && !item.partNumber && !item.dataVencimento && !item.nomeLocation && !item.nomeTransito) return 'text-gray-400';
+    if (val === undefined || val === null || isNaN(val)) return 'text-gray-400';
 
-    const checkCondition = (rule: ConditionConfig, v: number) => {
-      if (rule.habilitado === false) return false;
-      const min = Number(rule.valor);
-      const op = rule.operador;
-      
-      if (op === 'entre') {
-        const max = Number(rule.valorMax);
-        return v >= min && v <= max;
-      }
-      
-      if (op === '>') return v > min;
-      if (op === '<') return v < min;
-      if (op === '=') return v === min;
-      if (op === '!=') return v !== min;
-      if (op === '>=') return v >= min;
-      if (op === '<=') return v <= min;
-      return false;
-    };
+    const categoryConfig = activeControls.find((c: any) => c.tipo === controlType);
+    const itemConfig = item.config;
+    
+    // Prioridade de Dados: Item Personalizado > Categoria Padrão
+    const effectiveCores = (itemConfig?.cores && itemConfig.cores.vermelho) ? itemConfig.cores : categoryConfig?.cores;
 
-    if (checkCondition(config.cores.vermelho, val)) return 'text-red-600 font-black';
-    if (checkCondition(config.cores.amarelo, val)) return 'text-yellow-600 font-black';
-    if (checkCondition(config.cores.verde, val)) return 'text-green-600 font-black';
+    if (!effectiveCores) return 'text-gray-400';
+
+    // A cor da tabela mantém a prioridade de gravidade para sinalização visual
+    // ORDEM DE PRIORIDADE VISUAL: VERMELHO -> AMARELO -> VERDE
+    if (atendeCriterioVermelho(effectiveCores.vermelho, val)) return 'text-red-600 font-black';
+    if (atendeCriterioAmarelo(effectiveCores.amarelo, val)) return 'text-yellow-600 font-black';
+    if (atendeCriterioVerde(effectiveCores.verde, val)) return 'text-green-600 font-black';
     return 'text-gray-400';
   };
 
+  const isViewOnly = status === 'Finalizado';
+
   return (
     <div className="max-w-6xl mx-auto space-y-12 pb-32 animate-in fade-in relative">
-      {/* Pop-up de Alerta Centralizado */}
       {activeAlert && (
         <div className="fixed inset-0 z-[200] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className={`${activeAlert.color} text-white p-8 rounded-[2.5rem] shadow-2xl max-w-sm w-full animate-in zoom-in-95 border-4 border-white/20`}>
+          <div className={`${activeAlert.color} text-white p-8 rounded-[2.5rem] shadow-2xl max-sm w-full animate-in zoom-in-95 border-4 border-white/20`}>
             <div className="flex justify-between items-start mb-4">
                <AlertTriangle className="w-12 h-12 animate-pulse" />
                <button onClick={() => setActiveAlert(null)} className="p-1 hover:bg-black/10 rounded-full transition-colors"><X className="w-6 h-6" /></button>
@@ -303,7 +360,6 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
         </div>
       )}
 
-      {/* Confirmação de Finalização */}
       <ConfirmModal 
         isOpen={confirmModal.open}
         onClose={() => setConfirmModal({ ...confirmModal, open: false })}
@@ -313,14 +369,13 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
         type={confirmModal.type}
       />
 
-      {/* HEADER */}
       <header className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-6">
          <div className="flex items-center space-x-6">
             <div className="w-16 h-16 bg-orange-50 rounded-2xl flex items-center justify-center text-orange-600 shadow-inner">
                <Plane className="w-8 h-8" />
             </div>
             <div>
-               <h2 className="text-3xl font-black text-gray-800 tracking-tighter">Passagem de Turno</h2>
+               <h2 className="text-3xl font-black text-gray-800 tracking-tighter">Passagem de Serviço</h2>
                <p className="text-gray-400 font-bold uppercase text-[10px] tracking-widest">{currentBase?.nome} - {dataOperacional}</p>
             </div>
          </div>
@@ -331,7 +386,6 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
          </div>
       </header>
 
-      {/* PRODUTIVIDADE */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
          <div className="lg:col-span-2 bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-100 space-y-8">
             <div className="flex justify-between items-center">
@@ -370,7 +424,6 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
          </div>
       </div>
 
-      {/* EQUIPE */}
       <section className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-100 space-y-8">
          <div className="flex justify-between items-center">
             <h3 className="font-black text-gray-800 uppercase tracking-widest flex items-center space-x-2 text-sm">
@@ -385,17 +438,26 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                   <select 
                     disabled={isViewOnly}
                     value={colId || ''} 
-                    onChange={e => handleColaboradorChange(idx, e.target.value || null)}
+                    onChange={e => {
+                      const id = e.target.value || null;
+                      if (id && colaboradoresIds.includes(id)) {
+                        setActiveAlert({
+                          titulo: "Colaborador Duplicado",
+                          mensagem: "Este colaborador já foi selecionado para este turno. Por favor, escolha outro.",
+                          color: "bg-orange-600"
+                        });
+                        return;
+                      }
+                      const newIds = [...colaboradoresIds];
+                      newIds[idx] = id;
+                      setColaboradoresIds(newIds);
+                    }}
                     className={`w-full p-5 bg-gray-50 border border-gray-100 rounded-2xl font-bold outline-none transition-all text-xs ${colId ? 'text-gray-800 bg-white shadow-sm border-orange-100' : 'text-gray-400'}`}
                   >
                      <option value="">Livre...</option>
                      {baseUsers.map(u => {
                         const baseSigla = bases.find(b => u.bases.includes(b.id))?.sigla || '?';
-                        return (
-                          <option key={u.id} value={u.id}>
-                            {u.nome} - {baseSigla} - {u.jornadaPadrao}h
-                          </option>
-                        );
+                        return <option key={u.id} value={u.id}>{u.nome} - {baseSigla} - {u.jornadaPadrao}h</option>;
                      })}
                   </select>
                </div>
@@ -403,7 +465,6 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
          </div>
       </section>
 
-      {/* TAREFAS */}
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-12">
          {opCategories.map(cat => (
             <div key={cat.id} className="space-y-6">
@@ -425,7 +486,6 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                           disabled={isViewOnly}
                           value={tarefasValores[task.id] || ''}
                           onChange={e => handleTaskChange(task.id, e.target.value)}
-                          onKeyDown={e => { if (e.key === 'Enter' || e.key === 'Tab') handleBlur({id: task.id}, 'tarefa', tarefasValores[task.id]); }}
                           onBlur={() => handleBlur({id: task.id}, 'tarefa', tarefasValores[task.id])}
                           placeholder="0"
                           className="w-24 p-4 bg-gray-50 border border-transparent rounded-2xl font-black text-center focus:bg-white focus:border-orange-200 transition-all outline-none text-gray-800"
@@ -437,9 +497,8 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
          ))}
       </section>
 
-      {/* PAINÉIS DE CONTROLE */}
       <section className="grid grid-cols-1 gap-12">
-        <PanelContainer title="Locations" icon={<Box className="w-4 h-4 text-orange-500" />} onAdd={() => setLocations([...locations, { id: Date.now().toString(), nomeLocation: '', quantidade: 0, dataMaisAntigo: '' }])} isViewOnly={isViewOnly}>
+        <PanelContainer title="Locations" icon={<Box className="w-4 h-4 text-orange-500" />} onAdd={() => setLocations([...locations, { id: `manual-${Date.now()}`, nomeLocation: '', quantidade: 0, dataMaisAntigo: '' }])} isViewOnly={isViewOnly}>
           <table className="w-full text-left">
             <thead><tr className="bg-gray-50 text-[10px] font-black text-gray-400 uppercase tracking-widest"><th className="px-8 py-4">Location</th><th className="px-8 py-4">Quant.</th><th className="px-8 py-4">Dias (Auto)</th></tr></thead>
             <tbody>
@@ -450,7 +509,13 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                     <td className="px-8 py-4 font-bold"><input disabled={isViewOnly || row.isPadrao} className="bg-transparent w-full outline-none uppercase" value={row.nomeLocation} onChange={e => updateRow(locations, setLocations, row.id, 'nomeLocation', e.target.value)} /></td>
                     <td className="px-8 py-4"><input type="number" disabled={isViewOnly} className="w-20 bg-gray-50 p-2 rounded-xl font-black text-center" value={row.quantidade} onChange={e => updateRow(locations, setLocations, row.id, 'quantidade', e.target.value)} /></td>
                     <td className="px-8 py-4 flex items-center space-x-4">
-                      <DatePickerField value={row.dataMaisAntigo} onChange={v => updateRow(locations, setLocations, row.id, 'dataMaisAntigo', v)} onKeyDown={e => { if (e.key === 'Enter') handleBlur(row, 'locations', row.dataMaisAntigo); }} onBlur={() => handleBlur(row, 'locations', row.dataMaisAntigo)} />
+                      <DatePickerField 
+                        value={row.dataMaisAntigo} 
+                        onChange={v => {
+                          updateRow(locations, setLocations, row.id, 'dataMaisAntigo', v);
+                          handleBlur(row, 'locations', v); // Disparo imediato no onChange
+                        }} 
+                      />
                       {row.dataMaisAntigo && <span className={`text-xs ${getItemStatusColor(row, days, 'locations')}`}>{days}d</span>}
                     </td>
                   </tr>
@@ -460,7 +525,7 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
           </table>
         </PanelContainer>
 
-        <PanelContainer title="Trânsito" icon={<Truck className="w-4 h-4 text-orange-500" />} onAdd={() => setTransit([...transit, { id: Date.now().toString(), nomeTransito: '', diasPadrao: 0, quantidade: 0, dataSaida: '' }])} isViewOnly={isViewOnly}>
+        <PanelContainer title="Trânsito" icon={<Truck className="w-4 h-4 text-orange-500" />} onAdd={() => setTransit([...transit, { id: `manual-${Date.now()}`, nomeTransito: '', diasPadrao: 0, quantidade: 0, dataSaida: '' }])} isViewOnly={isViewOnly}>
           <table className="w-full text-left">
             <thead><tr className="bg-gray-50 text-[10px] font-black text-gray-400 uppercase tracking-widest"><th className="px-8 py-4">Tipo</th><th className="px-8 py-4">Quant.</th><th className="px-8 py-4">Dias (Auto)</th></tr></thead>
             <tbody>
@@ -471,7 +536,13 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                     <td className="px-8 py-4 font-bold"><input disabled={isViewOnly || row.isPadrao} className="bg-transparent w-full outline-none uppercase" value={row.nomeTransito} onChange={e => updateRow(transit, setTransit, row.id, 'nomeTransito', e.target.value)} /></td>
                     <td className="px-8 py-4"><input type="number" disabled={isViewOnly} className="w-20 bg-gray-50 p-2 rounded-xl font-black text-center" value={row.quantidade} onChange={e => updateRow(transit, setTransit, row.id, 'quantidade', e.target.value)} /></td>
                     <td className="px-8 py-4 flex items-center space-x-4">
-                      <DatePickerField value={row.dataSaida} onChange={v => updateRow(transit, setTransit, row.id, 'dataSaida', v)} onKeyDown={e => { if (e.key === 'Enter') handleBlur(row, 'transito', row.dataSaida); }} onBlur={() => handleBlur(row, 'transito', row.dataSaida)} />
+                      <DatePickerField 
+                        value={row.dataSaida} 
+                        onChange={v => {
+                          updateRow(transit, setTransit, row.id, 'dataSaida', v);
+                          handleBlur(row, 'transito', v); // Disparo imediato no onChange
+                        }} 
+                      />
                       {row.dataSaida && <span className={`text-xs ${getItemStatusColor(row, days, 'transito')}`}>{days}d</span>}
                     </td>
                   </tr>
@@ -481,7 +552,7 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
           </table>
         </PanelContainer>
 
-        <PanelContainer title="Shelf Life" icon={<FlaskConical className="w-4 h-4 text-orange-500" />} onAdd={() => setShelfLife([...shelfLife, { id: Date.now().toString(), partNumber: '', lote: '', dataVencimento: '' }])} isViewOnly={isViewOnly}>
+        <PanelContainer title="Shelf Life" icon={<FlaskConical className="w-4 h-4 text-orange-500" />} onAdd={() => setShelfLife([...shelfLife, { id: `manual-${Date.now()}`, partNumber: '', lote: '', dataVencimento: '', isPadrao: false }])} isViewOnly={isViewOnly}>
           <table className="w-full text-left">
             <thead><tr className="bg-gray-50 text-[10px] font-black text-gray-400 uppercase tracking-widest"><th className="px-8 py-4">P/N</th><th className="px-8 py-4">Lote</th><th className="px-8 py-4">Vencimento (Auto)</th></tr></thead>
             <tbody>
@@ -489,11 +560,22 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                 const days = row.dataVencimento ? getDaysRemaining(row.dataVencimento) : 0;
                 return (
                   <tr key={row.id} className="border-t border-gray-50 hover:bg-gray-50/50 transition-colors">
-                    <td className="px-8 py-4 font-bold"><input disabled={isViewOnly || row.isPadrao} className="bg-transparent w-full outline-none uppercase" value={row.partNumber} onChange={e => updateRow(shelfLife, setShelfLife, row.id, 'partNumber', e.target.value)} /></td>
-                    <td className="px-8 py-4"><input disabled={isViewOnly} className="w-full bg-gray-50 p-2 rounded-xl font-black" value={row.lote} onChange={e => updateRow(shelfLife, setShelfLife, row.id, 'lote', e.target.value)} /></td>
+                    <td className="px-8 py-4 font-bold">
+                      <input disabled={isViewOnly || row.isPadrao} className="bg-transparent w-full outline-none uppercase placeholder:text-gray-200" placeholder="P/N..." value={row.partNumber} onChange={e => updateRow(shelfLife, setShelfLife, row.id, 'partNumber', e.target.value)} />
+                    </td>
+                    <td className="px-8 py-4">
+                      <input disabled={isViewOnly} className="w-full bg-gray-50 p-2 rounded-xl font-black placeholder:text-gray-300" placeholder="Lote..." value={row.lote} onChange={e => updateRow(shelfLife, setShelfLife, row.id, 'lote', e.target.value)} />
+                    </td>
                     <td className="px-8 py-4 flex items-center space-x-4">
-                      <DatePickerField value={row.dataVencimento} onChange={v => updateRow(shelfLife, setShelfLife, row.id, 'dataVencimento', v)} onKeyDown={e => { if (e.key === 'Enter') handleBlur(row, 'shelf_life', row.dataVencimento); }} onBlur={() => handleBlur(row, 'shelf_life', row.dataVencimento)} />
-                      {row.dataVencimento && <span className={`text-xs ${getItemStatusColor(row, days, 'shelf_life')}`}>{days}d</span>}
+                      <DatePickerField 
+                        value={row.dataVencimento} 
+                        onChange={v => {
+                          updateRow(shelfLife, setShelfLife, row.id, 'dataVencimento', v);
+                          handleBlur(row, 'shelf_life', v); // Disparo imediato no onChange
+                        }} 
+                      />
+                      {(row.dataVencimento || row.partNumber) && <span className={`text-xs ${getItemStatusColor(row, days, 'shelf_life')}`}>{days}d</span>}
+                      {!row.isPadrao && !isViewOnly && <button onClick={() => setShelfLife(shelfLife.filter(r => r.id !== row.id))} className="p-1 text-gray-200 hover:text-red-500"><Trash2 className="w-3 h-3" /></button>}
                     </td>
                   </tr>
                 );
@@ -502,20 +584,19 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
           </table>
         </PanelContainer>
 
-        <PanelContainer title="Itens Críticos" icon={<AlertOctagon className="w-4 h-4 text-orange-500" />} onAdd={() => setCritical([...critical, { id: Date.now().toString(), partNumber: '', lote: '', saldoSistema: 0, saldoFisico: 0 }])} isViewOnly={isViewOnly}>
+        <PanelContainer title="Itens Críticos" icon={<AlertOctagon className="w-4 h-4 text-orange-500" />} onAdd={() => setCritical([...critical, { id: `manual-${Date.now()}`, partNumber: '', lote: '', saldoSistema: 0, saldoFisico: 0 }])} isViewOnly={isViewOnly}>
           <table className="w-full text-left">
             <thead><tr className="bg-gray-50 text-[10px] font-black text-gray-400 uppercase tracking-widest"><th className="px-8 py-4">P/N</th><th className="px-8 py-4">Sis.</th><th className="px-8 py-4">Fís.</th><th className="px-8 py-4">Dif.</th></tr></thead>
             <tbody>
               {critical.map(row => {
                 const diff = (row.saldoSistema || 0) - (row.saldoFisico || 0);
+                const absDiff = Math.abs(diff);
                 return (
                   <tr key={row.id} className="border-t border-gray-50 hover:bg-gray-50/50 transition-colors">
                     <td className="px-8 py-4 font-bold"><input disabled={isViewOnly || row.isPadrao} className="bg-transparent w-full outline-none uppercase" value={row.partNumber} onChange={e => updateRow(critical, setCritical, row.id, 'partNumber', e.target.value)} /></td>
                     <td className="px-8 py-4"><input type="number" disabled={isViewOnly} className="w-16 bg-gray-50 p-2 rounded-xl font-black text-center" value={row.saldoSistema} onChange={e => updateRow(critical, setCritical, row.id, 'saldoSistema', e.target.value)} /></td>
-                    <td className="px-8 py-4"><input type="number" disabled={isViewOnly} className="w-16 bg-gray-50 p-2 rounded-xl font-black text-center" value={row.saldoFisico} onChange={e => updateRow(critical, setCritical, row.id, 'saldoFisico', e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleBlur(row, 'itens_criticos', diff); }} onBlur={() => handleBlur(row, 'itens_criticos', diff)} /></td>
-                    <td className={`px-8 py-4 font-black ${getItemStatusColor(row, Math.abs(diff), 'itens_criticos')}`}>
-                       {diff}
-                    </td>
+                    <td className="px-8 py-4"><input type="number" disabled={isViewOnly} className="w-16 bg-gray-50 p-2 rounded-xl font-black text-center" value={row.saldoFisico} onChange={e => updateRow(critical, setCritical, row.id, 'saldoFisico', e.target.value)} onBlur={() => handleBlur(row, 'itens_criticos', absDiff)} /></td>
+                    <td className={`px-8 py-4 font-black ${getItemStatusColor(row, absDiff, 'itens_criticos')}`}>{diff}</td>
                   </tr>
                 );
               })}
@@ -524,7 +605,6 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
         </PanelContainer>
       </section>
 
-      {/* ÁREA DE OBSERVAÇÕES */}
       <section className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-100 space-y-4">
          <h3 className="font-black text-gray-800 uppercase tracking-widest flex items-center space-x-2 text-sm">
             <ClipboardList className="w-4 h-4 text-orange-500" /> <span>Observações do Turno</span>
@@ -538,24 +618,9 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
          />
       </section>
 
-      {/* BOTÃO DE FINALIZAÇÃO */}
       {!isViewOnly && (
         <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-40">
-          <button 
-            onClick={() => {
-               setConfirmModal({
-                 open: true,
-                 title: 'Finalizar Turno',
-                 message: 'Deseja finalizar esta passagem de serviço? Os dados serão arquivados e travados para edição posterior.',
-                 type: 'warning',
-                 onConfirm: () => {
-                   setStatus('Finalizado');
-                   window.scrollTo({ top: 0, behavior: 'smooth' });
-                 }
-               });
-            }} 
-            className="bg-orange-600 text-white px-12 py-5 rounded-2xl font-black text-sm uppercase tracking-widest shadow-2xl shadow-orange-200 hover:scale-105 transition-all flex items-center space-x-3"
-          >
+          <button onClick={() => setConfirmModal({ open: true, title: 'Finalizar Turno', message: 'Deseja finalizar esta passagem de serviço? Os dados serão arquivados e travados para edição posterior.', type: 'warning', onConfirm: () => { setStatus('Finalizado'); window.scrollTo({ top: 0, behavior: 'smooth' }); } })} className="bg-orange-600 text-white px-12 py-5 rounded-2xl font-black text-sm uppercase tracking-widest shadow-2xl shadow-orange-200 hover:scale-105 transition-all flex items-center space-x-3">
             <CheckCircle className="w-5 h-5" />
             <span>Finalizar Turno</span>
           </button>
@@ -565,7 +630,6 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
   );
 };
 
-// Componentes Auxiliares
 const KpiItem: React.FC<{label: string, value: string, icon: React.ReactNode}> = ({label, value, icon}) => (
   <div className="bg-gray-50 p-6 rounded-3xl border border-gray-100 flex flex-col items-center justify-center space-y-1">
      <div className="flex items-center space-x-2 text-gray-400">

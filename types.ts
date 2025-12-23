@@ -52,7 +52,7 @@ export interface Category {
   ordem: number;
   status: 'Ativa' | 'Inativa';
   visivel?: boolean; 
-  deletada?: boolean; // Propriedade para exclusão lógica
+  deletada?: boolean; 
   baseId?: string | null;
 }
 
@@ -65,7 +65,7 @@ export interface Task {
   obrigatoriedade: boolean;
   status: 'Ativa' | 'Inativa';
   visivel?: boolean; 
-  deletada?: boolean; // Propriedade para exclusão lógica
+  deletada?: boolean; 
   ordem: number;
   baseId?: string | null;
   dataExclusao?: string; 
@@ -75,8 +75,8 @@ export interface ConditionConfig {
   condicao: string; 
   operador: '>' | '<' | '=' | '>=' | '<=' | 'entre' | '!=';
   valor: number | string;
-  valorMax?: number | string; // Campo para o operador "entre"
-  habilitado?: boolean; // Ativa/Desativa o nível de cor inteiramente
+  valorMax?: number | string; 
+  habilitado?: boolean; 
 }
 
 export interface PopupConfig {
@@ -84,7 +84,7 @@ export interface PopupConfig {
   mensagem: string;
   icone?: string;
   cor?: string;
-  habilitado?: boolean; // Flag para ativar/desativar pop-up
+  habilitado?: boolean; 
 }
 
 export interface ManagedItem {
@@ -159,6 +159,16 @@ export interface Control {
   unidade: string;
   alertaConfig: AlertConfig;
   status: 'Ativo' | 'Inativo';
+  cores?: {
+    verde: ConditionConfig;
+    amarelo: ConditionConfig;
+    vermelho: ConditionConfig;
+  };
+  popups?: {
+    verde: PopupConfig;
+    amarelo: PopupConfig;
+    vermelho: PopupConfig;
+  };
 }
 
 export interface LocationRow {

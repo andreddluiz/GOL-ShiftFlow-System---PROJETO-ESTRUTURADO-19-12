@@ -30,6 +30,7 @@ export interface Base {
   status: 'Ativa' | 'Inativa';
   metaVerde: number; 
   metaAmarelo: number; 
+  metaVermelho: number;
   deletada?: boolean;
 }
 

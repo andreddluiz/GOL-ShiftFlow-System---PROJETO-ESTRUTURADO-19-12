@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Plus, Trash2, Clock, MapPin, Shield, Info, AlertCircle, TrendingUp, Box, Truck, AlertOctagon, Calendar, Layers, Palette, Settings, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { X, Plus, Trash2, Clock, MapPin, Shield, Info, AlertCircle, TrendingUp, Box, Truck, AlertOctagon, Calendar, Layers, Palette, Settings, AlertTriangle, CheckCircle2, Target } from 'lucide-react';
 import { 
   Base, User, Category, Task, Control, Shift, PermissionLevel, MeasureType,
   DefaultLocationItem, DefaultTransitItem, DefaultCriticalItem, CustomControlType, ManagedItem, ConditionConfig, PopupConfig 
@@ -164,7 +164,7 @@ export const TimeInput: React.FC<{
       onKeyDown={onKeyDown}
       onChange={handleInput}
       placeholder={placeholder}
-      className={`font-black text-center outline-none ${className}`}
+      className={`font-black text-center outline-none ${className} ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
     />
   );
 };
@@ -315,8 +315,8 @@ export const ControlItemModal: React.FC<ModalProps & { activeTab: string, custom
   );
 };
 
-const Input: React.FC<{ label: string, value: any, onChange: (val: string) => void, type?: string }> = ({ label, value, onChange, type = "text" }) => (
-  <div className="space-y-1">
+const Input: React.FC<{ label: string, value: any, onChange: (val: string) => void, type?: string, className?: string }> = ({ label, value, onChange, type = "text", className = "" }) => (
+  <div className={`space-y-1 ${className}`}>
     <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{label}</label>
     <input 
       type={type}
@@ -328,20 +328,153 @@ const Input: React.FC<{ label: string, value: any, onChange: (val: string) => vo
 );
 
 export const BaseModal: React.FC<ModalProps> = ({ isOpen, onClose, onSave, title, initialData }) => {
-  const [formData, setFormData] = useState<Partial<Base>>({ nome: '', sigla: '', status: 'Ativa' });
-  useEffect(() => { if (initialData) setFormData(initialData); }, [initialData, isOpen]);
+  const [formData, setFormData] = useState<Partial<Base>>({ 
+    nome: '', 
+    sigla: '', 
+    status: 'Ativa', 
+    turnos: [],
+    metaVerde: 80,
+    metaAmarelo: 50,
+    metaVermelho: 30
+  });
+
+  useEffect(() => { 
+    if (initialData) {
+      setFormData(initialData);
+    } else {
+      setFormData({ nome: '', sigla: '', status: 'Ativa', turnos: [], metaVerde: 80, metaAmarelo: 50, metaVermelho: 30 });
+    }
+  }, [initialData, isOpen]);
+
   if (!isOpen) return null;
+
+  const handleAddShift = () => {
+    const nextNumber = (formData.turnos?.length || 0) + 1;
+    const newShift: Shift = {
+      id: Math.random().toString(36).substr(2, 9),
+      numero: nextNumber,
+      horaInicio: '',
+      horaFim: ''
+    };
+    setFormData({ ...formData, turnos: [...(formData.turnos || []), newShift] });
+  };
+
+  const handleRemoveShift = (id: string) => {
+    setFormData({ ...formData, turnos: formData.turnos?.filter(t => t.id !== id) });
+  };
+
+  const handleUpdateShift = (id: string, field: keyof Shift, value: any) => {
+    setFormData({
+      ...formData,
+      turnos: formData.turnos?.map(t => t.id === id ? { ...t, [field]: value } : t)
+    });
+  };
+
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl p-8 animate-in zoom-in-95">
-        <h3 className="text-xl font-bold mb-4">{title}</h3>
-        <div className="space-y-4">
-          <input className="w-full p-3 border rounded-xl font-bold" placeholder="Nome da Base" value={formData.nome} onChange={e => setFormData({...formData, nome: e.target.value})} />
-          <input className="w-full p-3 border rounded-xl font-black uppercase" placeholder="Sigla" value={formData.sigla} onChange={e => setFormData({...formData, sigla: e.target.value})} />
+      <div className="bg-white rounded-[2.5rem] w-full max-w-xl shadow-2xl p-8 animate-in zoom-in-95 max-h-[90vh] overflow-y-auto">
+        <div className="flex justify-between items-center mb-8">
+           <h3 className="text-2xl font-black text-gray-800 uppercase tracking-tight">{title}</h3>
+           <button onClick={onClose} className="p-2 text-gray-400 hover:text-red-500 transition-colors"><X className="w-6 h-6" /></button>
         </div>
-        <div className="flex space-x-2 mt-6">
-          <button onClick={onClose} className="flex-1 py-3 bg-gray-100 rounded-xl font-bold text-gray-500">Cancelar</button>
-          <button onClick={() => onSave({...formData, id: formData.id || Math.random().toString(36).substr(2, 9)})} className="flex-1 py-3 bg-orange-600 text-white rounded-xl font-bold shadow-lg">Salvar</button>
+        
+        <div className="space-y-8">
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="Nome da Base" value={formData.nome} onChange={v => setFormData({...formData, nome: v})} />
+            <Input label="Sigla" value={formData.sigla} onChange={v => setFormData({...formData, sigla: v.toUpperCase()})} />
+          </div>
+
+          <div className="space-y-4">
+            <div className="flex items-center space-x-2 text-orange-600">
+                <Target className="w-5 h-5" />
+                <span className="text-sm font-black uppercase tracking-widest">Metas de Performance (%)</span>
+            </div>
+            <div className="grid grid-cols-3 gap-4 bg-gray-50 p-6 rounded-3xl border border-gray-100">
+               <div className="space-y-1">
+                  <label className="text-[9px] font-black text-green-600 uppercase tracking-widest block">Verde (Min %)</label>
+                  <input type="number" className="w-full p-3 bg-white border border-gray-100 rounded-xl font-black text-sm outline-none focus:ring-2 focus:ring-green-100" value={formData.metaVerde} onChange={e => setFormData({...formData, metaVerde: parseInt(e.target.value) || 0})} />
+               </div>
+               <div className="space-y-1">
+                  <label className="text-[9px] font-black text-yellow-600 uppercase tracking-widest block">Amarelo (Min %)</label>
+                  <input type="number" className="w-full p-3 bg-white border border-gray-100 rounded-xl font-black text-sm outline-none focus:ring-2 focus:ring-yellow-100" value={formData.metaAmarelo} onChange={e => setFormData({...formData, metaAmarelo: parseInt(e.target.value) || 0})} />
+               </div>
+               <div className="space-y-1">
+                  <label className="text-[9px] font-black text-red-600 uppercase tracking-widest block">Vermelho (Max %)</label>
+                  <input type="number" className="w-full p-3 bg-white border border-gray-100 rounded-xl font-black text-sm outline-none focus:ring-2 focus:ring-red-100" value={formData.metaVermelho} onChange={e => setFormData({...formData, metaVermelho: parseInt(e.target.value) || 0})} />
+               </div>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div className="flex justify-between items-center">
+               <div className="flex items-center space-x-2 text-orange-600">
+                  <Clock className="w-5 h-5" />
+                  <span className="text-sm font-black uppercase tracking-widest">Gerenciamento de Turnos</span>
+               </div>
+               <button 
+                onClick={handleAddShift}
+                className="text-[10px] font-black text-orange-600 bg-orange-50 px-4 py-2 rounded-xl uppercase tracking-widest hover:bg-orange-600 hover:text-white transition-all shadow-sm"
+               >
+                 + Adicionar Turno
+               </button>
+            </div>
+
+            <div className="bg-gray-50/50 p-6 rounded-[2rem] border border-gray-100 space-y-4">
+               {formData.turnos && formData.turnos.length > 0 ? (
+                 formData.turnos.map((turno, idx) => (
+                   <div key={turno.id} className="grid grid-cols-12 gap-3 items-end bg-white p-4 rounded-2xl shadow-sm border border-gray-100 animate-in fade-in slide-in-from-left-2">
+                      <div className="col-span-2">
+                         <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest block mb-1">Nº Turno</label>
+                         <input 
+                          type="number" 
+                          className="w-full p-2.5 bg-gray-50 border border-transparent rounded-lg font-black text-center text-sm outline-none focus:bg-white focus:border-orange-200 transition-all"
+                          value={turno.numero}
+                          onChange={e => handleUpdateShift(turno.id, 'numero', parseInt(e.target.value) || 0)}
+                         />
+                      </div>
+                      <div className="col-span-4">
+                         <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest block mb-1">Hora Início</label>
+                         <input 
+                          type="text" 
+                          placeholder="00:00"
+                          className="w-full p-2.5 bg-gray-50 border border-transparent rounded-lg font-black text-center text-sm outline-none focus:bg-white focus:border-orange-200 transition-all"
+                          value={turno.horaInicio}
+                          onChange={e => handleUpdateShift(turno.id, 'horaInicio', e.target.value)}
+                         />
+                      </div>
+                      <div className="col-span-4">
+                         <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest block mb-1">Hora Fim</label>
+                         <input 
+                          type="text" 
+                          placeholder="00:00"
+                          className="w-full p-2.5 bg-gray-50 border border-transparent rounded-lg font-black text-center text-sm outline-none focus:bg-white focus:border-orange-200 transition-all"
+                          value={turno.horaFim}
+                          onChange={e => handleUpdateShift(turno.id, 'horaFim', e.target.value)}
+                         />
+                      </div>
+                      <div className="col-span-2 pb-1">
+                         <button 
+                          onClick={() => handleRemoveShift(turno.id)}
+                          className="w-full p-2.5 text-gray-300 hover:text-red-500 bg-gray-50 hover:bg-red-50 rounded-lg transition-all flex items-center justify-center"
+                         >
+                            <Trash2 className="w-4 h-4" />
+                         </button>
+                      </div>
+                   </div>
+                 ))
+               ) : (
+                 <div className="py-8 text-center text-gray-300">
+                    <Clock className="w-10 h-10 mx-auto mb-2 opacity-10" />
+                    <p className="text-[10px] font-black uppercase tracking-widest">Nenhum turno cadastrado</p>
+                 </div>
+               )}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex space-x-3 mt-10">
+          <button onClick={onClose} className="flex-1 py-4 bg-gray-100 rounded-2xl font-black uppercase text-xs tracking-widest text-gray-400 hover:bg-gray-200 transition-all">Cancelar</button>
+          <button onClick={() => onSave({...formData, id: formData.id || Math.random().toString(36).substr(2, 9)})} className="flex-1 py-4 bg-orange-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-orange-100 hover:bg-orange-700 transition-all hover:scale-105 active:scale-95">Salvar Base</button>
         </div>
       </div>
     </div>
@@ -407,6 +540,8 @@ export const CustomControlTypeModal: React.FC<ModalProps> = ({ isOpen, onClose, 
 };
 
 export const ControlItemSettingsModal: React.FC<{ isOpen: boolean; onClose: () => void; item: any; onSave: (updatedItem: any) => void }> = ({ isOpen, onClose, item, onSave }) => {
+  const [activeLevel, setActiveLevel] = useState<'verde' | 'amarelo' | 'vermelho'>('verde');
+  
   const [cores, setCores] = useState<any>(item?.cores || {
     verde: { condicao: 'Valor', operador: '>', valor: 0, habilitado: true },
     amarelo: { condicao: 'Valor', operador: '=', valor: 0, habilitado: true },
@@ -428,40 +563,41 @@ export const ControlItemSettingsModal: React.FC<{ isOpen: boolean; onClose: () =
 
   if (!isOpen) return null;
 
-  const renderConfigSection = (level: 'verde' | 'amarelo' | 'vermelho', color: string) => (
-    <div className={`p-5 rounded-3xl border-l-8 ${color} bg-gray-50 space-y-4 shadow-sm relative overflow-hidden`}>
-       <div className="flex justify-between items-center border-b border-gray-100 pb-3">
+  const renderConfigSection = (level: 'verde' | 'amarelo' | 'vermelho', colorClass: string) => (
+    <div className={`space-y-5 animate-in fade-in slide-in-from-right-2 duration-200`}>
+       <div className={`p-4 rounded-2xl border-l-4 ${colorClass} bg-gray-50 flex justify-between items-center shadow-sm`}>
           <div className="flex items-center space-x-3">
-             <Palette className="w-5 h-5" /> 
-             <span className="font-black text-xs uppercase tracking-widest">Nível {level.toUpperCase()}</span>
+             <Palette className="w-5 h-5 text-gray-400" /> 
+             <span className="font-black text-[10px] uppercase tracking-widest text-gray-600">Status do Nível {level.toUpperCase()}</span>
           </div>
-          <div className="flex items-center space-x-4">
-            <label className="flex items-center space-x-2 cursor-pointer bg-white px-3 py-1.5 rounded-xl shadow-sm border border-gray-100">
-               <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">{cores[level].habilitado ? 'Cor Ativa' : 'Cor Inativa'}</span>
+          <div className="flex items-center space-x-3">
+            <label className="flex items-center space-x-2 cursor-pointer bg-white px-2.5 py-1 rounded-lg shadow-sm border border-gray-100">
+               <span className="text-[8px] font-black text-gray-400 uppercase tracking-widest">{cores[level].habilitado ? 'Cor Ativa' : 'Cor Off'}</span>
                <div 
                  onClick={() => setCores({...cores, [level]: {...cores[level], habilitado: !cores[level].habilitado}})}
-                 className={`w-10 h-5 rounded-full transition-all relative ${cores[level].habilitado ? 'bg-green-600' : 'bg-gray-300'}`}
+                 className={`w-8 h-4 rounded-full transition-all relative ${cores[level].habilitado ? 'bg-green-500' : 'bg-gray-300'}`}
                >
-                 <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${cores[level].habilitado ? 'right-1' : 'left-1'}`} />
+                 <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${cores[level].habilitado ? 'right-0.5' : 'left-0.5'}`} />
                </div>
             </label>
 
-            <label className="flex items-center space-x-2 cursor-pointer bg-white px-3 py-1.5 rounded-xl shadow-sm border border-gray-100">
-               <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">{popups[level].habilitado ? 'Pop-up Ativo' : 'Pop-up Inativo'}</span>
+            <label className="flex items-center space-x-2 cursor-pointer bg-white px-2.5 py-1 rounded-lg shadow-sm border border-gray-100">
+               <span className="text-[8px] font-black text-gray-400 uppercase tracking-widest">{popups[level].habilitado ? 'Pop-up ON' : 'Pop-up OFF'}</span>
                <div 
                  onClick={() => setPopups({...popups, [level]: {...popups[level], habilitado: !popups[level].habilitado}})}
-                 className={`w-10 h-5 rounded-full transition-all relative ${popups[level].habilitado ? 'bg-orange-600' : 'bg-gray-300'}`}
+                 className={`w-8 h-4 rounded-full transition-all relative ${popups[level].habilitado ? 'bg-orange-600' : 'bg-gray-300'}`}
                >
-                 <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${popups[level].habilitado ? 'right-1' : 'left-1'}`} />
+                 <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${popups[level].habilitado ? 'right-0.5' : 'left-0.5'}`} />
                </div>
             </label>
           </div>
        </div>
        
-       <div className={`grid grid-cols-12 gap-3 transition-opacity ${!cores[level].habilitado && 'opacity-40 pointer-events-none'}`}>
-          <div className="col-span-4">
+       <div className={`bg-gray-50 p-6 rounded-2xl border border-gray-100 grid grid-cols-12 gap-4 transition-opacity ${!cores[level].habilitado && 'opacity-40 pointer-events-none'}`}>
+          <div className="col-span-12 mb-2"><h4 className="text-[10px] font-black uppercase text-gray-400 tracking-widest flex items-center space-x-2"><Settings className="w-3 h-3" /> <span>Condição Lógica</span></h4></div>
+          <div className="col-span-5">
              <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest block mb-1">Operador</label>
-             <select className="w-full p-3 border rounded-xl text-xs font-bold bg-white" value={cores[level].operador} onChange={e => setCores({...cores, [level]: {...cores[level], operador: e.target.value}})}>
+             <select className="w-full p-3 border border-gray-200 rounded-xl text-xs font-bold bg-white outline-none focus:border-orange-500" value={cores[level].operador} onChange={e => setCores({...cores, [level]: {...cores[level], operador: e.target.value}})}>
                 <option value=">">Maior que (&gt;)</option>
                 <option value="<">Menor que (&lt;)</option>
                 <option value="=">Igual a (=)</option>
@@ -471,25 +607,31 @@ export const ControlItemSettingsModal: React.FC<{ isOpen: boolean; onClose: () =
                 <option value="entre">Entre (X e Y)</option>
              </select>
           </div>
-          <div className={cores[level].operador === 'entre' ? 'col-span-4' : 'col-span-8'}>
-             <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest block mb-1">{cores[level].operador === 'entre' ? 'Mínimo' : 'Valor'}</label>
-             <input type="number" className="w-full p-3 border rounded-xl text-xs font-bold bg-white" placeholder="0" value={cores[level].valor} onChange={e => setCores({...cores, [level]: {...cores[level], valor: e.target.value}})} />
+          <div className={cores[level].operador === 'entre' ? 'col-span-3' : 'col-span-7'}>
+             <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest block mb-1">{cores[level].operador === 'entre' ? 'Valor Mín.' : 'Valor de Referência'}</label>
+             <input type="number" className="w-full p-3 border border-gray-200 rounded-xl text-xs font-bold bg-white outline-none focus:border-orange-500" placeholder="0" value={cores[level].valor} onChange={e => setCores({...cores, [level]: {...cores[level], valor: e.target.value}})} />
           </div>
           {cores[level].operador === 'entre' && (
             <div className="col-span-4 animate-in slide-in-from-left-2">
-               <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest block mb-1">Máximo</label>
-               <input type="number" className="w-full p-3 border rounded-xl text-xs font-bold bg-white" placeholder="0" value={cores[level].valorMax || ''} onChange={e => setCores({...cores, [level]: {...cores[level], valorMax: e.target.value}})} />
+               <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest block mb-1">Valor Máx.</label>
+               <input type="number" className="w-full p-3 border border-gray-200 rounded-xl text-xs font-bold bg-white outline-none focus:border-orange-500" placeholder="0" value={cores[level].valorMax || ''} onChange={e => setCores({...cores, [level]: {...cores[level], valorMax: e.target.value}})} />
             </div>
           )}
        </div>
 
-       <div className={`space-y-2 bg-white p-4 rounded-2xl border border-gray-100 transition-opacity ${!popups[level].habilitado && 'opacity-40 pointer-events-none'}`}>
+       <div className={`space-y-3 bg-white p-6 rounded-2xl border border-gray-100 transition-opacity ${!popups[level].habilitado && 'opacity-40 pointer-events-none'}`}>
           <div className="flex items-center space-x-2 text-orange-600 mb-2">
              <AlertTriangle className="w-4 h-4" />
-             <span className="text-[10px] font-black uppercase tracking-widest">Conteúdo do Alerta</span>
+             <span className="text-[10px] font-black uppercase tracking-widest">Configuração do Pop-up</span>
           </div>
-          <input className="w-full p-2 text-xs font-bold border-b border-gray-100 outline-none focus:border-orange-500 rounded" placeholder="Título do Pop-up" value={popups[level].titulo} onChange={e => setPopups({...popups, [level]: {...popups[level], titulo: e.target.value}})} />
-          <textarea className="w-full p-2 text-[10px] border-none outline-none focus:ring-1 focus:ring-orange-100 rounded resize-none" rows={2} placeholder="Mensagem do Pop-up (Use 'X' para o valor dinâmico)" value={popups[level].mensagem} onChange={e => setPopups({...popups, [level]: {...popups[level], mensagem: e.target.value}})} />
+          <div className="space-y-1">
+             <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest">Título do Alerta</label>
+             <input className="w-full p-3 text-xs font-bold border border-gray-100 rounded-xl outline-none focus:border-orange-500" placeholder="Ex: Atenção Crítica!" value={popups[level].titulo} onChange={e => setPopups({...popups, [level]: {...popups[level], titulo: e.target.value}})} />
+          </div>
+          <div className="space-y-1">
+             <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest">Mensagem de Texto (X = Valor Atual)</label>
+             <textarea className="w-full p-3 text-[11px] font-medium border border-gray-100 rounded-xl outline-none focus:ring-1 focus:ring-orange-100 resize-none" rows={3} placeholder="Ex: O item está com X dias de atraso." value={popups[level].mensagem} onChange={e => setPopups({...popups, [level]: {...popups[level], mensagem: e.target.value}})} />
+          </div>
        </div>
     </div>
   );
@@ -499,30 +641,76 @@ export const ControlItemSettingsModal: React.FC<{ isOpen: boolean; onClose: () =
   };
 
   return (
-    <div className="fixed inset-0 z-[160] flex items-center justify-center bg-black/70 backdrop-blur-md p-4 overflow-y-auto">
-      <div className="bg-white rounded-[2.5rem] w-full max-w-2xl shadow-2xl p-8 animate-in slide-in-from-bottom-10 my-10">
-        <div className="flex justify-between items-center mb-6">
-          <h3 className="text-xl font-black text-gray-800 uppercase tracking-tight flex items-center space-x-3">
-            <Settings className="text-orange-600" />
-            <span>Regras Personalizadas: {item.partNumber || item.nomeLocation || item.nomeTransito}</span>
-          </h3>
-          <button onClick={onClose} className="p-2 text-gray-400 hover:text-red-500 transition-colors"><X className="w-6 h-6" /></button>
+    <div className="fixed inset-0 z-[160] flex items-center justify-center bg-black/70 backdrop-blur-md p-4">
+      <div className="bg-white rounded-[2.5rem] w-full max-w-xl shadow-2xl flex flex-col animate-in slide-in-from-bottom-10 max-h-[90vh] overflow-hidden">
+        {/* Header Fixo */}
+        <div className="p-8 pb-4 flex justify-between items-center border-b border-gray-50 bg-white z-10">
+          <div>
+            <h3 className="text-xl font-black text-gray-800 uppercase tracking-tight flex items-center space-x-3">
+              <Settings className="text-orange-600 w-5 h-5" />
+              <span>Regras Customizadas</span>
+            </h3>
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">
+              {item.partNumber || item.nomeLocation || item.nomeTransito || 'Configuração Técnica'}
+            </p>
+          </div>
+          <button onClick={onClose} className="p-2 text-gray-300 hover:text-red-500 transition-colors bg-gray-50 rounded-xl"><X className="w-6 h-6" /></button>
         </div>
 
-        <div className="space-y-6">
-           {renderConfigSection('verde', 'border-green-500 text-green-600')}
-           {renderConfigSection('amarelo', 'border-yellow-500 text-yellow-600')}
-           {renderConfigSection('vermelho', 'border-red-500 text-red-600')}
+        {/* Tabs de Navegação */}
+        <div className="px-8 pt-4 flex space-x-2 bg-white">
+           <TabSelector 
+             label="Verde" 
+             active={activeLevel === 'verde'} 
+             onClick={() => setActiveLevel('verde')} 
+             colorClass="bg-green-500" 
+             activeText="text-green-600"
+             activeBg="bg-green-50"
+           />
+           <TabSelector 
+             label="Amarelo" 
+             active={activeLevel === 'amarelo'} 
+             onClick={() => setActiveLevel('amarelo')} 
+             colorClass="bg-yellow-500"
+             activeText="text-yellow-600"
+             activeBg="bg-yellow-50"
+           />
+           <TabSelector 
+             label="Vermelho" 
+             active={activeLevel === 'vermelho'} 
+             onClick={() => setActiveLevel('vermelho')} 
+             colorClass="bg-red-500"
+             activeText="text-red-600"
+             activeBg="bg-red-50"
+           />
         </div>
 
-        <div className="flex space-x-3 mt-8 pt-4 border-t border-gray-100">
-           <button onClick={onClose} className="flex-1 py-4 font-black text-gray-400 uppercase text-xs hover:text-gray-600 transition-colors">Cancelar</button>
-           <button onClick={handleSaveInternal} className="flex-1 py-4 bg-orange-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-orange-100 hover:bg-orange-700 transition-all hover:scale-105 active:scale-95">Salvar Configurações</button>
+        {/* Corpo Scrollable */}
+        <div className="flex-1 overflow-y-auto p-8 pt-6 space-y-6 scrollbar-hide">
+           {activeLevel === 'verde' && renderConfigSection('verde', 'border-green-500')}
+           {activeLevel === 'amarelo' && renderConfigSection('amarelo', 'border-yellow-500')}
+           {activeLevel === 'vermelho' && renderConfigSection('vermelho', 'border-red-500')}
+        </div>
+
+        {/* Footer Fixo */}
+        <div className="p-6 px-8 flex space-x-3 border-t border-gray-50 bg-gray-50/50">
+           <button onClick={onClose} className="flex-1 py-4 font-black text-gray-400 uppercase text-[10px] tracking-widest hover:text-gray-600 transition-colors bg-white border border-gray-200 rounded-2xl">Cancelar</button>
+           <button onClick={handleSaveInternal} className="flex-1 py-4 bg-orange-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-orange-100 hover:bg-orange-700 transition-all hover:scale-[1.02] active:scale-95">Salvar Configurações</button>
         </div>
       </div>
     </div>
   );
 };
+
+const TabSelector: React.FC<{label: string, active: boolean, onClick: () => void, colorClass: string, activeText: string, activeBg: string}> = ({ label, active, onClick, colorClass, activeText, activeBg }) => (
+  <button 
+    onClick={onClick}
+    className={`flex-1 py-3 px-4 rounded-xl flex items-center justify-center space-x-2 border transition-all ${active ? `${activeBg} border-transparent shadow-sm` : 'bg-white border-gray-100 text-gray-400 hover:bg-gray-50'}`}
+  >
+    <div className={`w-2 h-2 rounded-full ${active ? colorClass : 'bg-gray-300'}`} />
+    <span className={`text-[10px] font-black uppercase tracking-widest ${active ? activeText : ''}`}>{label}</span>
+  </button>
+);
 
 export const CategoryModal: React.FC<ModalProps> = ({ isOpen, onClose, onSave, title, initialData }) => {
   const [formData, setFormData] = useState<Partial<Category>>({ nome: '', status: 'Ativa', ordem: 1 });
@@ -559,7 +747,8 @@ export const TaskModal: React.FC<ModalProps & { categories?: Category[] }> = ({ 
   }, [initialData, isOpen]);
   if (!isOpen) return null;
   const handleLocalSave = () => {
-    const finalFator = hhmmssToMinutes(timeValue);
+    // Se for tipo tempo, o fator multiplicador é irrelevante no gerenciamento pois é preenchido no turno
+    const finalFator = formData.tipoMedida === MeasureType.TEMPO ? 0 : hhmmssToMinutes(timeValue);
     onSave({...formData, fatorMultiplicador: finalFator, id: formData.id || Math.random().toString(36).substr(2, 9)});
   };
   return (
@@ -582,9 +771,17 @@ export const TaskModal: React.FC<ModalProps & { categories?: Category[] }> = ({ 
             </div>
             <div className="space-y-1">
               <label className="text-[10px] font-black text-gray-400 uppercase">Fator (HH:MM:SS)</label>
-              <TimeInput value={timeValue} onChange={setTimeValue} className="w-full p-3 border rounded-xl text-orange-600" />
+              <TimeInput 
+                value={timeValue} 
+                onChange={setTimeValue} 
+                className={`w-full p-3 border rounded-xl text-orange-600 ${formData.tipoMedida === MeasureType.TEMPO ? 'bg-gray-100 opacity-50' : ''}`} 
+                disabled={formData.tipoMedida === MeasureType.TEMPO}
+              />
             </div>
           </div>
+          {formData.tipoMedida === MeasureType.TEMPO && (
+            <p className="text-[9px] font-bold text-orange-500 uppercase tracking-tighter">* O tempo será preenchido diretamente na passagem de serviço.</p>
+          )}
         </div>
         <div className="flex space-x-2 mt-6">
           <button onClick={onClose} className="flex-1 py-3 bg-gray-100 rounded-xl font-bold text-gray-500">Cancelar</button>

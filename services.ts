@@ -22,14 +22,12 @@ const STORAGE_KEYS = {
   FINISHED_HANDOVERS: 'gol_shiftflow_finished_handovers',
   INDICATORS: 'gol_shiftflow_indicators',
   REPORTS: 'gol_shiftflow_reports',
-  // Chaves específicas das 4 tabelas
   REP_ACOMPANHAMENTO: 'gol_rep_acompanhamento',
   REP_RESUMO: 'gol_rep_resumo',
   REP_MENSAL: 'gol_rep_mensal',
   REP_DETALHAMENTO: 'gol_rep_detalhamento'
 };
 
-// Fix: Redefine getFromStorage to support any type T instead of enforcing T[]
 const getFromStorage = <T>(key: string, defaultVal: T): T => {
   try {
     const data = localStorage.getItem(key);
@@ -39,7 +37,6 @@ const getFromStorage = <T>(key: string, defaultVal: T): T => {
   }
 };
 
-// Fix: Redefine saveToStorage to support any type T instead of enforcing T[]
 const saveToStorage = <T>(key: string, data: T) => {
   try {
     localStorage.setItem(key, JSON.stringify(data));
@@ -48,7 +45,6 @@ const saveToStorage = <T>(key: string, data: T) => {
   }
 };
 
-// --- FUNÇÕES AUXILIARES DE TEMPO PARA SOMA ACUMULADA ---
 export const timeUtils = {
   converterMinutosParaHoras: (totalMinutes: number) => {
     const horas = Math.floor(totalMinutes / 60);
@@ -63,7 +59,6 @@ export const timeUtils = {
 
 export const baseService = {
   async getAll(): Promise<Base[]> {
-    // Fix: Explicitly use Base[] for generic type after signature change
     let data = getFromStorage<Base[]>(STORAGE_KEYS.BASES, []);
     if (data.length === 0) {
       data = BASES;
@@ -91,7 +86,6 @@ export const baseService = {
 
 export const defaultItemsService = {
   async getLocations(): Promise<DefaultLocationItem[]> {
-    // Fix: Explicitly use DefaultLocationItem[] for generic type
     let data = getFromStorage<DefaultLocationItem[]>(STORAGE_KEYS.DEF_LOCS, []);
     if (data.length === 0) {
       data = DEFAULT_LOCATIONS;
@@ -113,7 +107,6 @@ export const defaultItemsService = {
   },
 
   async getTransits(): Promise<DefaultTransitItem[]> {
-    // Fix: Explicitly use DefaultTransitItem[] for generic type
     let data = getFromStorage<DefaultTransitItem[]>(STORAGE_KEYS.DEF_TRANS, []);
     if (data.length === 0) {
       data = DEFAULT_TRANSITS;
@@ -135,7 +128,6 @@ export const defaultItemsService = {
   },
 
   async getCriticals(): Promise<DefaultCriticalItem[]> {
-    // Fix: Explicitly use DefaultCriticalItem[] for generic type
     let data = getFromStorage<DefaultCriticalItem[]>(STORAGE_KEYS.DEF_CRIT, []);
     if (data.length === 0) {
       data = DEFAULT_CRITICALS;
@@ -157,7 +149,6 @@ export const defaultItemsService = {
   },
 
   async getShelfLifes(): Promise<ShelfLifeItem[]> {
-    // Fix: Explicitly use ShelfLifeItem[] for generic type
     return getFromStorage<ShelfLifeItem[]>(STORAGE_KEYS.DEF_SHELF, []);
   },
   async saveShelfLife(data: ShelfLifeItem): Promise<void> {
@@ -174,7 +165,6 @@ export const defaultItemsService = {
   },
 
   async getCustomTypes(): Promise<CustomControlType[]> {
-    // Fix: Explicitly use CustomControlType[] for generic type
     return getFromStorage<CustomControlType[]>(STORAGE_KEYS.CUSTOM_TYPES, []);
   },
   async saveCustomType(data: CustomControlType): Promise<void> {
@@ -191,7 +181,6 @@ export const defaultItemsService = {
   },
 
   async getCustomItems(): Promise<CustomControlItem[]> {
-    // Fix: Explicitly use CustomControlItem[] for generic type
     return getFromStorage<CustomControlItem[]>(STORAGE_KEYS.CUSTOM_ITEMS, []);
   },
   async saveCustomItem(data: CustomControlItem): Promise<void> {
@@ -210,7 +199,6 @@ export const defaultItemsService = {
 
 export const categoryService = {
   async getAll(): Promise<Category[]> {
-    // Fix: Explicitly use Category[] for generic type
     let data = getFromStorage<Category[]>(STORAGE_KEYS.CATEGORIES, []);
     if (data.length === 0) {
       data = CATEGORIES;
@@ -238,7 +226,6 @@ export const categoryService = {
 
 export const taskService = {
   async getAll(): Promise<Task[]> {
-    // Fix: Explicitly use Task[] for generic type
     let data = getFromStorage<Task[]>(STORAGE_KEYS.TASKS, []);
     if (data.length === 0) {
       data = TASKS;
@@ -266,7 +253,6 @@ export const taskService = {
 
 export const controlService = {
   async getAll(): Promise<Control[]> {
-    // Fix: Explicitly use Control[] for generic type
     let data = getFromStorage<Control[]>(STORAGE_KEYS.CONTROLS, []);
     if (data.length === 0) {
       data = CONTROLS;
@@ -293,7 +279,6 @@ export const controlService = {
 
 export const userService = {
   async getAll(): Promise<User[]> {
-    // Fix: Explicitly use User[] for generic type
     let data = getFromStorage<User[]>(STORAGE_KEYS.USERS, []);
     if (data.length === 0) {
       data = USERS;
@@ -324,35 +309,106 @@ export const userService = {
  */
 
 export const validationService = {
-  validarPassagem(handover: ShiftHandover): { valido: boolean; camposPendentes: string[] } {
+  /**
+   * VALIDAÇÃO 2: Verificar se já existe uma passagem finalizada para o mesmo dia e turno
+   */
+  validarPassagemDuplicada(data: string, turnoId: string, baseId: string): boolean {
+    console.debug(`[Validação 2] Verificando duplicidade: Data=${data}, Turno=${turnoId}, Base=${baseId}`);
+    const reports = getFromStorage<any[]>(STORAGE_KEYS.REP_DETALHAMENTO, []);
+    
+    const jaExiste = reports.some(r => 
+      r.data === data && 
+      r.turnoId === turnoId && 
+      r.baseId === baseId && 
+      r.status === 'Finalizado'
+    );
+    
+    if (jaExiste) console.warn(`[Validação 2] FALHOU: Turno já migrado.`);
+    return jaExiste;
+  },
+
+  /**
+   * VALIDAÇÃO 3 (CORRIGIDA): Verificar se colaboradores já estão registrados em outros turnos do mesmo dia
+   */
+  verificarColaboradoresEmOutrosTurnos(data: string, turnoId: string, baseId: string, atuaisIds: (string | null)[], users: User[]): string[] {
+    console.debug(`[Validação 3] Verificando jornada dupla para o dia ${data}`);
+    
+    const reports = getFromStorage<any[]>(STORAGE_KEYS.REP_DETALHAMENTO, []);
+    
+    // Filtra apenas passagens da mesma base, mesma data, MAS de turnos diferentes
+    const passagensDoDia = reports.filter(r => 
+      r.data === data && 
+      r.baseId === baseId && 
+      r.turnoId !== turnoId && 
+      r.status === 'Finalizado'
+    );
+
+    console.debug(`[Validação 3] Encontradas ${passagensDoDia.length} outras passagens finalizadas hoje.`);
+
+    const duplicados: string[] = [];
+    atuaisIds.forEach(id => {
+      if (!id) return;
+      
+      // Verifica se o ID do colaborador aparece no array de colaboradores de qualquer passagem do dia
+      const jaTrabalhou = passagensDoDia.some(p => {
+        // Assume que p.colaboradoresIds ou p.colaboradores contém os IDs dos usuários
+        const listaMembros = p.colaboradoresIds || p.colaboradores || [];
+        return listaMembros.includes(id);
+      });
+
+      if (jaTrabalhou) {
+        const nome = users.find(u => u.id === id)?.nome || 'Membro do Time';
+        console.warn(`[Validação 3] DUPLICIDADE DETECTADA: ${nome} já trabalhou hoje.`);
+        if (!duplicados.includes(nome)) duplicados.push(nome);
+      }
+    });
+
+    return duplicados;
+  },
+
+  validarPassagem(handover: ShiftHandover, storeTasks: Task[]): { valido: boolean; camposPendentes: string[] } {
     const pendentes: string[] = [];
 
     if (!handover.turnoId) pendentes.push("Configuração: Seleção de Turno obrigatória");
     if (handover.colaboradores.every(c => !c)) pendentes.push("Equipe: Pelo menos 1 colaborador deve ser selecionado");
 
-    handover.shelfLifeData.forEach(item => {
-      if ((item.isPadrao || item.partNumber) && !item.dataVencimento) {
-        pendentes.push(`Shelf Life - ${item.partNumber || 'Item'}: Data de Vencimento obrigatória`);
+    const baseTasks = storeTasks.filter(t => !t.deletada && t.visivel !== false && (!t.baseId || t.baseId === handover.baseId));
+    baseTasks.forEach(task => {
+      const valor = handover.tarefasExecutadas[task.id];
+      if (valor === undefined || valor === null || valor === "") {
+        pendentes.push(`Atividades: A tarefa "${task.nome}" deve ser preenchida (use 0 se não executada)`);
       }
     });
 
-    handover.locationsData.forEach(item => {
-      if (item.isPadrao && item.quantidade > 0 && !item.dataMaisAntigo) {
-        pendentes.push(`Locations - ${item.nomeLocation}: Data do volume mais antigo obrigatória para itens com saldo`);
+    handover.shelfLifeData.forEach((item, idx) => {
+      const label = item.partNumber || `Item ${idx + 1}`;
+      if (!item.partNumber) pendentes.push(`Shelf Life: Part Number obrigatório no item ${idx+1}`);
+      if (!item.dataVencimento) pendentes.push(`Shelf Life - ${label}: Data de Vencimento obrigatória`);
+    });
+
+    handover.locationsData.forEach((item, idx) => {
+      const label = item.nomeLocation || `Local ${idx + 1}`;
+      if (item.quantidade === null) {
+        pendentes.push(`Locations - ${label}: Quantidade obrigatória`);
+      } else if (item.quantidade > 0 && !item.dataMaisAntigo) {
+        pendentes.push(`Locations - ${label}: Data do volume mais antigo obrigatória para saldo positivo`);
       }
     });
 
-    handover.transitData.forEach(item => {
-      if (item.isPadrao && item.quantidade > 0 && !item.dataSaida) {
-        pendentes.push(`Trânsito - ${item.nomeTransito}: Data de Saída obrigatória para itens com saldo`);
+    handover.transitData.forEach((item, idx) => {
+      const label = item.nomeTransito || `Trânsito ${idx + 1}`;
+      if (item.quantidade === null) {
+        pendentes.push(`Trânsito - ${label}: Quantidade obrigatória`);
+      } else if (item.quantidade > 0 && !item.dataSaida) {
+        pendentes.push(`Trânsito - ${label}: Data de saída obrigatória para saldo positivo`);
       }
     });
 
-    handover.criticalData.forEach(item => {
-      if (item.isPadrao || item.partNumber) {
-        if (item.saldoSistema === undefined || item.saldoSistema === null) pendentes.push(`Saldo - ${item.partNumber || 'Item'}: Saldo Sistema obrigatório`);
-        if (item.saldoFisico === undefined || item.saldoFisico === null) pendentes.push(`Saldo - ${item.partNumber || 'Item'}: Saldo Físico obrigatório`);
-      }
+    handover.criticalData.forEach((item, idx) => {
+      const label = item.partNumber || `Item ${idx + 1}`;
+      if (!item.partNumber) pendentes.push(`Saldo Crítico: PN obrigatório no item ${idx+1}`);
+      if (item.saldoSistema === null) pendentes.push(`Saldo Crítico - ${label}: Saldo Sistema obrigatório`);
+      if (item.saldoFisico === null) pendentes.push(`Saldo Crítico - ${label}: Saldo Físico obrigatório`);
     });
 
     console.debug("[Validação] Resultado:", { valido: pendentes.length === 0, pendentes });
@@ -364,13 +420,10 @@ export const migrationService = {
   async processarMigracao(handover: ShiftHandover, store: any): Promise<void> {
     console.debug("[Migração] Iniciando processamento para base:", handover.baseId);
 
-    // 1. CARREGAR DADOS EXISTENTES
-    // Fix: Use any[] and any to match storage structure, resolving type errors on line 356 onwards
     const repAcompanhamento = getFromStorage<any[]>(STORAGE_KEYS.REP_ACOMPANHAMENTO, []);
     const repResumo = getFromStorage<any>(STORAGE_KEYS.REP_RESUMO, { categorias: [], totalHoras: 0, totalMinutos: 0 });
     const repDetalhamento = getFromStorage<any[]>(STORAGE_KEYS.REP_DETALHAMENTO, []);
 
-    // --- TABELA 1: ACOMPANHAMENTO DE TURNOS ---
     let dataEntry = repAcompanhamento.find((r: any) => r.data === handover.data);
     if (!dataEntry) {
       dataEntry = { data: handover.data, turno1: 'Pendente', turno2: 'Pendente', turno3: 'Pendente', turno4: 'Pendente' };
@@ -379,15 +432,13 @@ export const migrationService = {
     const turnoKey = `turno${handover.turnoId}` as keyof typeof dataEntry;
     dataEntry[turnoKey] = 'OK';
 
-    // --- TABELA 2: RESUMO GERAL DE PRODUTIVIDADE (SOMA ACUMULADA) ---
+    // Processar tarefas rotineiras
     Object.entries(handover.tarefasExecutadas).forEach(([taskId, val]) => {
       const task = store.tasks.find((t: any) => t.id === taskId);
       if (!task) return;
-      
       const cat = store.categories.find((c: any) => c.id === task.categoriaId);
       if (!cat) return;
 
-      // Fix: repResumo is now correctly identified as an object by TypeScript
       let catResumo = repResumo.categorias.find((r: any) => r.categoryId === cat.id);
       if (!catResumo) {
         catResumo = { categoryId: cat.id, categoryNome: cat.nome, atividades: [], totalCategoryHoras: 0, totalCategoryMinutos: 0 };
@@ -416,35 +467,46 @@ export const migrationService = {
       }
     });
 
-    // Recalcular subtotais de categoria e total geral
+    // Processar OUTRAS TAREFAS (NonRoutine)
+    if (handover.nonRoutineTasks && handover.nonRoutineTasks.length > 0) {
+      let catOutras = repResumo.categorias.find((r: any) => r.categoryId === 'cat_outras');
+      if (!catOutras) {
+        catOutras = { categoryId: 'cat_outras', categoryNome: 'OUTRAS TAREFAS', atividades: [], totalCategoryHoras: 0, totalCategoryMinutos: 0 };
+        repResumo.categorias.push(catOutras);
+      }
+
+      handover.nonRoutineTasks.forEach(nr => {
+        if (!nr.nome || !nr.tempo) return;
+        const [h, m] = nr.tempo.split(':').map(Number);
+        const mins = (h * 60) + m;
+        
+        let taskResumo = catOutras.atividades.find((a: any) => a.nome === nr.nome);
+        if (!taskResumo) {
+          taskResumo = { nome: nr.nome, tipoInput: 'TIME', totalQuantidade: 0, totalHoras: 0, totalMinutos: 0 };
+          catOutras.atividades.push(taskResumo);
+        }
+        
+        const updated = timeUtils.somarMinutos(taskResumo.totalHoras, taskResumo.totalMinutos, 0, mins);
+        taskResumo.totalHoras = updated.horas;
+        taskResumo.totalMinutos = updated.minutos;
+      });
+    }
+
     let totalGeralMins = 0;
     repResumo.categorias.forEach((cat: any) => {
       let catMins = 0;
-      cat.atividades.forEach((at: any) => {
-        catMins += (at.totalHoras * 60) + at.totalMinutos;
-      });
+      cat.atividades.forEach((at: any) => catMins += (at.totalHoras * 60) + at.totalMinutos);
       const { horas, minutos } = timeUtils.converterMinutosParaHoras(catMins);
-      cat.totalCategoryHoras = horas;
-      cat.totalCategoryMinutos = minutos;
+      cat.totalCategoryHoras = horas; cat.totalCategoryMinutos = minutos;
       totalGeralMins += catMins;
     });
     const { horas: gH, minutos: gM } = timeUtils.converterMinutosParaHoras(totalGeralMins);
-    repResumo.totalHoras = gH;
-    repResumo.totalMinutos = gM;
+    repResumo.totalHoras = gH; repResumo.totalMinutos = gM;
 
-    // --- TABELA 4: DETALHAMENTO ANALÍTICO (ANEXA TUDO) ---
     const colaboradoresNomes = handover.colaboradores
       .map(id => store.users.find((u:any) => u.id === id)?.nome)
       .filter(Boolean);
 
-    // Calcular horas disponíveis baseadas na equipe selecionada
-    let dispHorasTurno = 0;
-    handover.colaboradores.forEach(id => {
-      const u = store.users.find((u:any) => u.id === id);
-      if(u) dispHorasTurno += u.jornadaPadrao;
-    });
-
-    // Transformar tarefas para detalhamento flat
     const atividadesDetalhadas = Object.entries(handover.tarefasExecutadas).map(([taskId, val]) => {
       const task = store.tasks.find((t: any) => t.id === taskId);
       const cat = store.categories.find((c: any) => c.id === task?.categoriaId);
@@ -460,31 +522,35 @@ export const migrationService = {
       return { taskNome: task?.nome || 'Desc.', categoryNome: cat?.nome || 'Geral', horas: h, minutos: m };
     });
 
-    const novaLinhaDetalhamento = {
-      id: `det-${Date.now()}`,
-      data: handover.data,
+    // Adicionar as outras tarefas ao detalhamento
+    if (handover.nonRoutineTasks) {
+       handover.nonRoutineTasks.forEach(nr => {
+         if (!nr.nome || !nr.tempo) return;
+         const [h, m] = nr.tempo.split(':').map(Number);
+         atividadesDetalhadas.push({ taskNome: nr.nome, categoryNome: 'OUTRAS TAREFAS', horas: h, minutos: m });
+       });
+    }
+
+    repDetalhamento.push({
+      ...handover,
+      colaboradoresIds: handover.colaboradores, // Salvando explicitamente para validação futura
       horaRegistro: new Date().toLocaleTimeString('pt-BR'),
       turno: `Turno ${handover.turnoId}`,
-      baseId: handover.baseId,
       colaboradores: colaboradoresNomes,
-      horasDisponivel: dispHorasTurno,
-      horasProduzida: handover.performance * (dispHorasTurno / 100), // Aproximação baseada no cálculo da página
+      horasDisponivel: handover.colaboradores.reduce((acc, id) => acc + (store.users.find((u:any) => u.id === id)?.jornadaPadrao || 0), 0),
+      horasProduzida: (handover.performance / 100) * handover.colaboradores.reduce((acc, id) => acc + (store.users.find((u:any) => u.id === id)?.jornadaPadrao || 0), 0),
       percentualPerformance: handover.performance,
+      atividades: atividadesDetalhadas,
+      observacoes: handover.informacoesImportantes,
       shelfLifeItems: handover.shelfLifeData.map(i => ({ itemNome: i.partNumber, data: i.dataVencimento })),
       locationItems: handover.locationsData.map(i => ({ itemNome: i.nomeLocation, data: i.dataMaisAntigo, quantidade: i.quantidade })),
       transitItems: handover.transitData.map(i => ({ itemNome: i.nomeTransito, data: i.dataSaida, quantidade: i.quantidade })),
-      saldoItems: handover.criticalData.map(i => ({ itemNome: i.partNumber, saldoSistema: i.saldoSistema, saldoFisico: i.saldoFisico, divergencia: i.saldoSistema - i.saldoFisico })),
-      atividades: atividadesDetalhadas,
-      observacoes: handover.informacoesImportantes
-    };
+      saldoItems: handover.criticalData.map(i => ({ itemNome: i.partNumber, saldoSistema: i.saldoSistema, saldoFisico: i.saldoFisico, divergencia: (i.saldoSistema||0) - (i.saldoFisico||0) }))
+    });
 
-    repDetalhamento.push(novaLinhaDetalhamento);
-
-    // PERSISTIR
     saveToStorage(STORAGE_KEYS.REP_ACOMPANHAMENTO, repAcompanhamento);
     saveToStorage(STORAGE_KEYS.REP_RESUMO, repResumo);
     saveToStorage(STORAGE_KEYS.REP_DETALHAMENTO, repDetalhamento);
-
-    console.debug("[Migração] Relatórios atualizados com sucesso.");
+    console.debug("[Migração] Sucesso.");
   }
 };

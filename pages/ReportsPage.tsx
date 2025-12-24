@@ -17,7 +17,8 @@ const formatHhMm = (h: number, m: number = 0) => {
   return `${String(Math.floor(h)).padStart(2, '0')}:${String(Math.round(m)).padStart(2, '0')}`;
 };
 
-export const ReportsPage: React.FC = () => {
+// Fixed: Added baseId prop to component definition to match Route usage in App.tsx
+export const ReportsPage: React.FC<{ baseId?: string }> = ({ baseId }) => {
   const [loading, setLoading] = useState(true);
   const [acompanhamento, setAcompanhamento] = useState<any[]>([]);
   const [resumo, setResumo] = useState<any>({ categorias: [], totalHoras: 0, totalMinutos: 0 });
@@ -80,8 +81,8 @@ export const ReportsPage: React.FC = () => {
           <Typography variant="body2" sx={{ color: '#9ca3af', fontWeight: 600 }}>HISTÓRICO INTEGRAL DE PASSAGENS E COLETA MENSAL</Typography>
         </Box>
         <Box sx={{ display: 'flex', gap: 2 }}>
-           <TextField label="Data Inicial" type="date" value={dataInicio} onChange={e => setDataInicio(e.target.value)} size="small" InputLabelProps={{ shrink: true }} />
-           <TextField label="Data Final" type="date" value={dataFim} onChange={e => setDataFim(e.target.value)} size="small" InputLabelProps={{ shrink: true }} />
+           <TextField label="Data Inicial" type="date" value={dataInicio} onChange={e => dataInicio && setDataInicio(e.target.value)} size="small" InputLabelProps={{ shrink: true }} />
+           <TextField label="Data Final" type="date" value={dataFim} onChange={e => dataFim && setDataFim(e.target.value)} size="small" InputLabelProps={{ shrink: true }} />
         </Box>
       </Box>
 
@@ -178,7 +179,7 @@ export const ReportsPage: React.FC = () => {
                 <TableCell align="right" sx={{ fontWeight: 900, fontSize: '0.7rem' }}>EXPEDIR</TableCell>
                 <TableCell align="right" sx={{ fontWeight: 900, fontSize: '0.7rem' }}>PRESERVAR</TableCell>
                 <TableCell align="right" sx={{ fontWeight: 900, fontSize: '0.7rem' }}>ARMAZENAR</TableCell>
-                <TableCell align="right" sx={{ fontWeight: 900, fontSize: '0.7rem' }}>TOTAL GERAL</TableCell>
+                <TableCell align="right" sx={{ fontWeight: 900, color: '#FF5A00' }}>TOTAL GERAL</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -307,7 +308,7 @@ const CollapsibleDetailRow: React.FC<{ row: any }> = ({ row }) => {
   );
 };
 
-// --- COMPONENTES AUXILIARES DE INTERFACE ---
+// --- COMPONENTE DE LINHA EXPANSÍVEL PARA DETALHAMENTO ---
 const ReportSection: React.FC<{title: string, subtitle: string, children: any, actions?: any}> = ({ title, subtitle, children, actions }) => (
   <Box sx={{ mb: 4 }}>
     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2.5, px: 1 }}>

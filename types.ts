@@ -175,8 +175,8 @@ export interface Control {
 export interface LocationRow {
   id: string;
   nomeLocation: string;
-  quantidade: number;
-  dataMaisAntigo: string; 
+  quantidade: number | null; // OBRIGATÓRIO
+  dataMaisAntigo: string;    // OBRIGATÓRIO SE QUANTIDADE > 0
   isPadrao?: boolean;
   config?: any;
 }
@@ -185,8 +185,8 @@ export interface TransitRow {
   id: string;
   nomeTransito: string;
   diasPadrao: number;
-  quantidade: number;
-  dataSaida: string; 
+  quantidade: number | null; // OBRIGATÓRIO
+  dataSaida: string;         // OBRIGATÓRIO SE QUANTIDADE > 0
   isPadrao?: boolean;
   config?: any;
 }
@@ -204,16 +204,16 @@ export interface CriticalRow {
   id: string;
   partNumber: string;
   lote: string;
-  saldoSistema: number; 
-  saldoFisico: number;  
+  saldoSistema: number | null; 
+  saldoFisico: number | null;  
   isPadrao?: boolean;
   config?: any;
 }
 
 export interface OutraAtividade {
   id: string;
-  descricao: string;
-  tempo: number; 
+  nome: string;
+  tempo: string; // HH:MM:SS
 }
 
 export interface ShiftHandover {
@@ -223,7 +223,7 @@ export interface ShiftHandover {
   turnoId: string;
   colaboradores: (string | null)[]; 
   tarefasExecutadas: Record<string, string>;
-  nonRoutineTasks?: { id: string, description: string, time: string }[];
+  nonRoutineTasks?: OutraAtividade[]; // Corrigido para usar a nova interface de OutraAtividade
   locationsData: LocationRow[];
   transitData: TransitRow[];
   shelfLifeData: ShelfLifeRow[];
@@ -235,7 +235,6 @@ export interface ShiftHandover {
   updatedAt: string;
 }
 
-// Interfaces para Migração e Indicadores
 export interface Indicator {
   id: string;
   baseId: string;

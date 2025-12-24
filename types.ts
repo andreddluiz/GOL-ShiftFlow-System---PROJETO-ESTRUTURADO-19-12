@@ -223,7 +223,7 @@ export interface ShiftHandover {
   turnoId: string;
   colaboradores: (string | null)[]; 
   tarefasExecutadas: Record<string, string>;
-  outrasAtividades: OutraAtividade[];
+  nonRoutineTasks?: { id: string, description: string, time: string }[];
   locationsData: LocationRow[];
   transitData: TransitRow[];
   shelfLifeData: ShelfLifeRow[];
@@ -233,4 +233,55 @@ export interface ShiftHandover {
   performance: number;
   CriadoEm: string;
   updatedAt: string;
+}
+
+// Interfaces para Migração e Indicadores
+export interface Indicator {
+  id: string;
+  baseId: string;
+  turno: string;
+  data: string;
+  totalHoras: number;
+  totalMinutos: number;
+  horasPorCategoria: {
+    categoryId: string;
+    categoryNome: string;
+    horas: number;
+    minutos: number;
+    percentual: number;
+  }[];
+  horasDisponivel: number;
+  horasProduzida: number;
+  percentualProdutividade: number;
+  distribuicaoTempo: {
+    categoryId: string;
+    categoryNome: string;
+    valor: number;
+  }[];
+  dataCriacao: string;
+}
+
+export interface Report {
+  id: string;
+  baseId: string;
+  turno: string;
+  data: string;
+  statusPreenchimento: 'completo' | 'incompleto' | 'pendente';
+  responsavel?: string;
+  resumoGeral: {
+    categoryId: string;
+    categoryNome: string;
+    totalHoras: number;
+    totalMinutos: number;
+  }[];
+  detalhamento: {
+    data: string;
+    turno: string;
+    colaborador: string;
+    categoryId: string;
+    categoryNome: string;
+    horas: number;
+    minutos: number;
+  }[];
+  dataCriacao: string;
 }

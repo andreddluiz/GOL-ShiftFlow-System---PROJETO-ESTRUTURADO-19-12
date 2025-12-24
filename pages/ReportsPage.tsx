@@ -1,96 +1,342 @@
 
-import React, { useMemo } from 'react';
-import { Download, Filter, Search, FileText, BarChart3, MapPin } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { 
+  Table, TableBody, TableCell, TableContainer, TableHead, TableRow, 
+  Paper, Chip, TextField, Box, Typography, Container, CircularProgress, 
+  Button, IconButton, Tooltip, Divider, Collapse, TablePagination
+} from '@mui/material';
+import { 
+  Download, FileText, ClipboardList, Calendar, 
+  BarChart, Activity, CheckCircle, Clock, Copy,
+  ChevronDown, ChevronUp, FileSearch, Filter
+} from 'lucide-react';
 import { useStore } from '../hooks/useStore';
 
-const ReportsPage: React.FC<{baseId?: string}> = ({ baseId }) => {
-  const { bases, categories, tasks } = useStore();
+// --- UTILITÁRIOS DE FORMATAÇÃO ---
+const formatHhMm = (h: number, m: number = 0) => {
+  return `${String(Math.floor(h)).padStart(2, '0')}:${String(Math.round(m)).padStart(2, '0')}`;
+};
+
+export const ReportsPage: React.FC = () => {
+  const [loading, setLoading] = useState(true);
+  const [acompanhamento, setAcompanhamento] = useState<any[]>([]);
+  const [resumo, setResumo] = useState<any>({ categorias: [], totalHoras: 0, totalMinutos: 0 });
+  const [mensal, setMensal] = useState<any[]>([]);
+  const [detalhamento, setDetalhamento] = useState<any[]>([]);
   
-  const currentBase = useMemo(() => bases.find(b => b.id === baseId), [bases, baseId]);
-  
-  const reports = [
-    { id: 1, data: '15/10/2023', turno: 1, base: 'POA', responsavel: 'Carlos Silva', performance: '92%', status: 'Finalizada' },
-    { id: 2, data: '15/10/2023', turno: 2, base: 'POA', responsavel: 'Ana Pereira', performance: '88%', status: 'Finalizada' },
-    { id: 3, data: '14/10/2023', turno: 1, base: 'POA', responsavel: 'Carlos Silva', performance: '95%', status: 'Finalizada' },
-    { id: 4, data: '14/10/2023', turno: 2, base: 'POA', responsavel: 'Ana Pereira', performance: '82%', status: 'Finalizada' },
-  ];
+  const [dataInicio, setDataInicio] = useState('');
+  const [dataFim, setDataFim] = useState('');
+
+  useEffect(() => {
+    const loadData = () => {
+      const a = localStorage.getItem('gol_rep_acompanhamento');
+      const r = localStorage.getItem('gol_rep_resumo');
+      const m = localStorage.getItem('gol_rep_mensal');
+      const d = localStorage.getItem('gol_rep_detalhamento');
+
+      if (a) setAcompanhamento(JSON.parse(a).reverse());
+      if (r) setResumo(JSON.parse(r));
+      if (m) setMensal(JSON.parse(m).reverse());
+      if (d) setDetalhamento(JSON.parse(d).reverse());
+      
+      setLoading(false);
+    };
+    loadData();
+  }, []);
+
+  const exportCSV = (data: any[], filename: string) => {
+    if (data.length === 0) return;
+    const headers = Object.keys(data[0]).join(',');
+    const rows = data.map(row => 
+      Object.values(row).map(val => Array.isArray(val) ? `"${val.join(', ')}"` : `"${val}"`).join(',')
+    ).join('\n');
+    const blob = new Blob([`${headers}\n${rows}`], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `${filename}.csv`; a.click();
+  };
+
+  const copyToClipboard = () => {
+    const text = detalhamento.map(d => `${d.data}\t${d.turno}\t${d.horasProduzida.toFixed(1)}h\t${d.percentualPerformance.toFixed(1)}%`).join('\n');
+    navigator.clipboard.writeText(`DATA\tTURNO\tPROD\tPERF\n${text}`);
+    alert('Resumo copiado para a área de transferência!');
+  };
+
+  if (loading) {
+    return (
+      <Box sx={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '60vh', gap: 2 }}>
+        <CircularProgress color="warning" />
+        <Typography variant="caption" sx={{ fontWeight: 'bold', color: 'gray' }}>CONSOLIDANDO DADOS OPERACIONAIS...</Typography>
+      </Box>
+    );
+  }
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500">
-      <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8">
-          <div className="flex items-center space-x-4">
-            <div className="p-3 bg-blue-50 rounded-2xl">
-              <BarChart3 className="w-8 h-8 text-blue-600" />
-            </div>
-            <div>
-              <h2 className="text-2xl font-black text-gray-800">Relatórios Consolidados</h2>
-              <p className="text-xs font-bold text-gray-400 flex items-center space-x-1">
-                <MapPin className="w-3 h-3" />
-                <span>Base Ativa: {currentBase?.nome || 'Todas as bases'}</span>
-              </p>
-            </div>
-          </div>
-          <div className="flex space-x-3">
-            <button className="flex items-center space-x-2 px-5 py-3 bg-gray-50 text-gray-500 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-gray-100 transition-colors">
-              <Download className="w-4 h-4" />
-              <span>Exportar XLS</span>
-            </button>
-            <button className="flex items-center space-x-2 px-5 py-3 gol-orange text-white rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-orange-600 transition-colors shadow-lg shadow-orange-100">
-              <Filter className="w-4 h-4" />
-              <span>Filtros Avançados</span>
-            </button>
-          </div>
-        </div>
+    <Container maxWidth="xl" sx={{ py: 4 }}>
+      
+      <Box sx={{ mb: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+        <Box>
+          <Typography variant="h4" sx={{ fontWeight: 900, color: '#374151', letterSpacing: '-0.02em' }}>Relatórios & Compliance</Typography>
+          <Typography variant="body2" sx={{ color: '#9ca3af', fontWeight: 600 }}>HISTÓRICO INTEGRAL DE PASSAGENS E COLETA MENSAL</Typography>
+        </Box>
+        <Box sx={{ display: 'flex', gap: 2 }}>
+           <TextField label="Data Inicial" type="date" value={dataInicio} onChange={e => setDataInicio(e.target.value)} size="small" InputLabelProps={{ shrink: true }} />
+           <TextField label="Data Final" type="date" value={dataFim} onChange={e => setDataFim(e.target.value)} size="small" InputLabelProps={{ shrink: true }} />
+        </Box>
+      </Box>
 
-        <div className="overflow-x-auto rounded-2xl border border-gray-50">
-          <table className="w-full text-left">
-            <thead className="bg-gray-50/50 text-gray-400 text-[10px] uppercase font-black tracking-widest">
-              <tr>
-                <th className="px-6 py-5">Data</th>
-                <th className="px-6 py-5">Turno</th>
-                <th className="px-6 py-5">Responsável</th>
-                <th className="px-6 py-5">Performance</th>
-                <th className="px-6 py-5">Status</th>
-                <th className="px-6 py-5 text-right">Ações</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {reports.map((report) => (
-                <tr key={report.id} className="group hover:bg-orange-50/20 transition-all">
-                  <td className="px-6 py-5 font-bold text-gray-700">{report.data}</td>
-                  <td className="px-6 py-5">
-                    <span className="bg-gray-100 text-gray-500 px-3 py-1 rounded-lg text-xs font-black">
-                      T{report.turno}
-                    </span>
-                  </td>
-                  <td className="px-6 py-5 text-gray-600 font-medium">{report.responsavel}</td>
-                  <td className="px-6 py-5">
-                    <div className="flex items-center space-x-2">
-                      <span className="font-black text-gray-800">{report.performance}</span>
-                      <div className="w-12 bg-gray-100 h-1 rounded-full hidden md:block">
-                        <div className="bg-green-500 h-full rounded-full" style={{ width: report.performance }}></div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-5">
-                    <span className="px-3 py-1.5 bg-green-50 text-green-600 rounded-full text-[10px] font-black uppercase tracking-tighter border border-green-100">
-                      {report.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-5 text-right">
-                    <button className="p-2 text-gray-300 hover:text-orange-600 hover:bg-orange-50 rounded-xl transition-all">
-                      <FileText className="w-5 h-5" />
-                    </button>
-                  </td>
-                </tr>
+      {/* 1. PAINEL DE ACOMPANHAMENTO DE TURNOS */}
+      <ReportSection title="Painel de Acompanhamento de Turnos" subtitle="Status de preenchimento por período operacional (Passagem de Serviço).">
+        <TableContainer component={Paper} sx={{ borderRadius: '1.5rem', boxShadow: '0 4px 20px rgba(0,0,0,0.05)', overflow: 'hidden' }}>
+          <Table>
+            <TableHead sx={{ bgcolor: '#f9fafb' }}>
+              <TableRow>
+                <TableCell sx={{ fontWeight: 900, fontSize: '0.7rem' }}>DATA OPERACIONAL</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 900, fontSize: '0.7rem' }}>TURNO 1 (00-08)</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 900, fontSize: '0.7rem' }}>TURNO 2 (08-12)</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 900, fontSize: '0.7rem' }}>TURNO 3 (12-18)</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 900, fontSize: '0.7rem' }}>TURNO 4 (18-00)</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {acompanhamento.map((row, i) => (
+                <TableRow key={i} hover>
+                  <TableCell sx={{ fontWeight: 'bold', color: '#4b5563' }}>{row.data}</TableCell>
+                  <TableCell align="center"><StatusBadge status={row.turno1} /></TableCell>
+                  <TableCell align="center"><StatusBadge status={row.turno2} /></TableCell>
+                  <TableCell align="center"><StatusBadge status={row.turno3} /></TableCell>
+                  <TableCell align="center"><StatusBadge status={row.turno4} /></TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
+              {acompanhamento.length === 0 && <NoDataRows colSpan={5} />}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </ReportSection>
+
+      <Divider sx={{ my: 8 }} />
+
+      {/* 2. RESUMO GERAL DE PRODUTIVIDADE */}
+      <ReportSection title="Resumo Geral de Produtividade" subtitle="Soma acumulada de todas as passagens de serviço (Minutos convertidos em Horas).">
+        <TableContainer component={Paper} sx={{ borderRadius: '1.5rem', boxShadow: '0 4px 20px rgba(0,0,0,0.05)', overflow: 'hidden' }}>
+          <Table>
+            <TableHead sx={{ bgcolor: '#f9fafb' }}>
+              <TableRow>
+                <TableCell sx={{ fontWeight: 900, fontSize: '0.7rem' }}>CATEGORIA OPERACIONAL</TableCell>
+                <TableCell sx={{ fontWeight: 900, fontSize: '0.7rem' }}>MICRO-ATIVIDADE</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 900, fontSize: '0.7rem' }}>TIPO</TableCell>
+                <TableCell align="right" sx={{ fontWeight: 900, fontSize: '0.7rem' }}>TOTAL QTY</TableCell>
+                <TableCell align="right" sx={{ fontWeight: 900, fontSize: '0.7rem' }}>TOTAL HORAS</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {resumo.categorias.map((cat: any, ci: number) => (
+                <React.Fragment key={ci}>
+                  {cat.atividades.map((at: any, ai: number) => (
+                    <TableRow key={`${ci}-${ai}`} hover>
+                      <TableCell>
+                        {ai === 0 && (
+                          <Typography variant="caption" sx={{ fontWeight: 900, color: '#FF5A00', display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <BarChart size={12} /> {cat.categoryNome} ({formatHhMm(cat.totalCategoryHoras, cat.totalCategoryMinutos)})
+                          </Typography>
+                        )}
+                      </TableCell>
+                      <TableCell sx={{ fontWeight: 600, color: '#374151', fontSize: '0.8rem' }}>{at.nome}</TableCell>
+                      <TableCell align="center"><Chip label={at.tipoInput} size="small" sx={{ fontSize: '0.6rem', fontWeight: 900, height: 20 }} /></TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 'bold' }}>{at.tipoInput === 'QTY' ? at.totalQuantidade : '-'}</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 900, color: '#111827' }}>{formatHhMm(at.totalHoras, at.totalMinutos)}</TableCell>
+                    </TableRow>
+                  ))}
+                </React.Fragment>
+              ))}
+              {resumo.categorias.length > 0 && (
+                <TableRow sx={{ bgcolor: '#fff7ed' }}>
+                  <TableCell colSpan={4} sx={{ fontWeight: 900, color: '#ea580c' }}>TOTAL GERAL PRODUTIVO ACUMULADO</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 900, color: '#ea580c', fontSize: '1.1rem' }}>
+                    {formatHhMm(resumo.totalHoras, resumo.totalMinutos)}
+                  </TableCell>
+                </TableRow>
+              )}
+              {resumo.categorias.length === 0 && <NoDataRows colSpan={5} />}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </ReportSection>
+
+      <Divider sx={{ my: 8 }} />
+
+      {/* 3. HISTÓRICO DE DADOS MENSAIS */}
+      <ReportSection title="Histórico de Dados Mensais (Coleta)" subtitle="Registros consolidados mensais salvos exclusivamente através da página 'Coleta Mensal'.">
+        <TableContainer component={Paper} sx={{ borderRadius: '1.5rem', boxShadow: '0 4px 20px rgba(0,0,0,0.05)', overflow: 'hidden' }}>
+          <Table>
+            <TableHead sx={{ bgcolor: '#f9fafb' }}>
+              <TableRow>
+                <TableCell sx={{ fontWeight: 900, fontSize: '0.7rem' }}>MÊS REFERÊNCIA</TableCell>
+                <TableCell align="right" sx={{ fontWeight: 900, fontSize: '0.7rem' }}>RECEBIMENTO</TableCell>
+                <TableCell align="right" sx={{ fontWeight: 900, fontSize: '0.7rem' }}>FORNECER</TableCell>
+                <TableCell align="right" sx={{ fontWeight: 900, fontSize: '0.7rem' }}>CANCELAMENTO</TableCell>
+                <TableCell align="right" sx={{ fontWeight: 900, fontSize: '0.7rem' }}>EXPEDIR</TableCell>
+                <TableCell align="right" sx={{ fontWeight: 900, fontSize: '0.7rem' }}>PRESERVAR</TableCell>
+                <TableCell align="right" sx={{ fontWeight: 900, fontSize: '0.7rem' }}>ARMAZENAR</TableCell>
+                <TableCell align="right" sx={{ fontWeight: 900, fontSize: '0.7rem' }}>TOTAL GERAL</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {mensal.map((row, i) => (
+                <TableRow key={i} hover>
+                  <TableCell sx={{ fontWeight: 900, color: '#4b5563' }}>{row.mesReferencia}</TableCell>
+                  <TableCell align="right">{formatHhMm(row.recebimento.horas, row.recebimento.minutos)}</TableCell>
+                  <TableCell align="right">{formatHhMm(row.fornecer.horas, row.fornecer.minutos)}</TableCell>
+                  <TableCell align="right">{formatHhMm(row.cancelamento.horas, row.cancelamento.minutos)}</TableCell>
+                  <TableCell align="right">{formatHhMm(row.expedir.horas, row.expedir.minutos)}</TableCell>
+                  <TableCell align="right">{formatHhMm(row.preservar.horas, row.preservar.minutos)}</TableCell>
+                  <TableCell align="right">{formatHhMm(row.armazenar.horas, row.armazenar.minutos)}</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 900, color: '#FF5A00' }}>{formatHhMm(row.totalGeral.horas, row.totalGeral.minutos)}</TableCell>
+                </TableRow>
+              ))}
+              {mensal.length === 0 && <NoDataRows colSpan={8} />}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </ReportSection>
+
+      <Divider sx={{ my: 8 }} />
+
+      {/* 4. DETALHAMENTO POR DIA E TURNO */}
+      <ReportSection 
+        title="Detalhamento por Dia e Turno (Exportação)" 
+        subtitle="Matriz analítica integral com todos os campos preenchidos em cada Passagem de Serviço finalizada."
+        actions={
+          <Box sx={{ display: 'flex', gap: 1.5 }}>
+            <Button size="small" variant="outlined" startIcon={<Copy size={14}/>} onClick={copyToClipboard} sx={{ fontWeight: 900, fontSize: '0.65rem' }}>Copiar Resumo</Button>
+            <Button size="small" variant="contained" color="warning" startIcon={<Download size={14}/>} onClick={() => exportCSV(detalhamento, 'detalhamento_analitico_gol')} sx={{ fontWeight: 900, fontSize: '0.65rem' }}>Baixar CSV</Button>
+          </Box>
+        }
+      >
+        <TableContainer component={Paper} sx={{ borderRadius: '1.5rem', boxShadow: '0 4px 20px rgba(0,0,0,0.05)', overflowX: 'auto' }}>
+          <Table size="small">
+            <TableHead sx={{ bgcolor: '#f9fafb' }}>
+              <TableRow>
+                <TableCell sx={{ width: 40 }} />
+                <TableCell sx={{ fontWeight: 900, fontSize: '0.65rem' }}>DATA</TableCell>
+                <TableCell sx={{ fontWeight: 900, fontSize: '0.65rem' }}>TURNO</TableCell>
+                <TableCell sx={{ fontWeight: 900, fontSize: '0.65rem' }}>COLABORADORES</TableCell>
+                <TableCell align="right" sx={{ fontWeight: 900, fontSize: '0.65rem' }}>H.DISP.</TableCell>
+                <TableCell align="right" sx={{ fontWeight: 900, fontSize: '0.65rem' }}>H.PROD.</TableCell>
+                <TableCell align="right" sx={{ fontWeight: 900, fontSize: '0.65rem' }}>% PERF.</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 900, fontSize: '0.65rem' }}>REGISTRO</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {detalhamento.map((row, i) => (
+                <CollapsibleDetailRow key={row.id} row={row} />
+              ))}
+              {detalhamento.length === 0 && <NoDataRows colSpan={8} />}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </ReportSection>
+
+    </Container>
   );
 };
+
+// --- COMPONENTE DE LINHA EXPANSÍVEL PARA DETALHAMENTO ---
+const CollapsibleDetailRow: React.FC<{ row: any }> = ({ row }) => {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      <TableRow hover sx={{ '& > *': { borderBottom: 'unset' } }}>
+        <TableCell>
+          <IconButton size="small" onClick={() => setOpen(!open)}>
+            {open ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          </IconButton>
+        </TableCell>
+        <TableCell sx={{ fontWeight: 'bold', color: '#1f2937' }}>{row.data}</TableCell>
+        <TableCell><Chip label={row.turno} size="small" variant="outlined" sx={{ fontWeight: 800, fontSize: '0.6rem', height: 20 }} /></TableCell>
+        <TableCell sx={{ maxWidth: 200, fontSize: '0.75rem', fontWeight: 600, color: '#4b5563' }}>{row.colaboradores.join(', ')}</TableCell>
+        <TableCell align="right" sx={{ fontWeight: 700 }}>{row.horasDisponivel}h</TableCell>
+        <TableCell align="right" sx={{ fontWeight: 700 }}>{row.horasProduzida.toFixed(2)}h</TableCell>
+        <TableCell align="right">
+          <Typography sx={{ fontWeight: 900, color: row.percentualPerformance > 70 ? '#10b981' : '#f59e0b', fontSize: '0.8rem' }}>
+            {row.percentualPerformance.toFixed(1)}%
+          </Typography>
+        </TableCell>
+        <TableCell align="center" sx={{ fontSize: '0.7rem', color: '#9ca3af' }}>{row.horaRegistro}</TableCell>
+      </TableRow>
+      <TableRow>
+        <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={8}>
+          <Collapse in={open} timeout="auto" unmountOnExit>
+            <Box sx={{ p: 4, bgcolor: '#fcfcfc', border: '1px solid #f3f4f6', borderRadius: '1rem', m: 2 }}>
+              <Typography variant="overline" sx={{ fontWeight: 900, color: '#FF5A00' }}>Dados Detalhados do Turno</Typography>
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mt-4">
+                {/* Processos */}
+                <Box>
+                  <Typography variant="caption" sx={{ fontWeight: 900, color: '#9ca3af', display: 'flex', alignItems: 'center', gap: 1 }}><FileSearch size={12}/> PROCESSOS OPERACIONAIS</Typography>
+                  <div className="mt-2 space-y-1">
+                    {row.shelfLifeItems?.map((s:any, idx:number) => <p key={idx} className="text-[10px] font-bold text-gray-600">• Shelf Life: {s.itemNome} (Venc: {s.data})</p>)}
+                    {row.locationItems?.map((l:any, idx:number) => <p key={idx} className="text-[10px] font-bold text-gray-600">• Location: {l.itemNome} (Vol: {l.quantidade})</p>)}
+                  </div>
+                </Box>
+                
+                {/* Atividades */}
+                <Box>
+                  <Typography variant="caption" sx={{ fontWeight: 900, color: '#9ca3af', display: 'flex', alignItems: 'center', gap: 1 }}><Activity size={12}/> ATIVIDADES REALIZADAS</Typography>
+                  <div className="mt-2 space-y-1">
+                    {row.atividades?.map((a:any, idx:number) => (
+                      <p key={idx} className="text-[10px] font-bold text-gray-600">• {a.taskNome}: {formatHhMm(a.horas, a.minutos)}</p>
+                    ))}
+                  </div>
+                </Box>
+
+                {/* Obs */}
+                <Box>
+                  <Typography variant="caption" sx={{ fontWeight: 900, color: '#9ca3af', display: 'flex', alignItems: 'center', gap: 1 }}><ClipboardList size={12}/> OBSERVAÇÕES</Typography>
+                  <p className="mt-2 text-[10px] text-gray-500 italic font-medium leading-relaxed">
+                    {row.observacoes || 'Nenhuma observação registrada.'}
+                  </p>
+                </Box>
+              </div>
+            </Box>
+          </Collapse>
+        </TableCell>
+      </TableRow>
+    </>
+  );
+};
+
+// --- COMPONENTES AUXILIARES DE INTERFACE ---
+const ReportSection: React.FC<{title: string, subtitle: string, children: any, actions?: any}> = ({ title, subtitle, children, actions }) => (
+  <Box sx={{ mb: 4 }}>
+    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2.5, px: 1 }}>
+      <Box>
+        <Typography variant="h6" sx={{ fontWeight: 900, color: '#1f2937', mb: 0.2 }}>{title}</Typography>
+        <Typography variant="caption" sx={{ color: '#9ca3af', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{subtitle}</Typography>
+      </Box>
+      {actions}
+    </Box>
+    {children}
+  </Box>
+);
+
+const StatusBadge: React.FC<{status: string}> = ({ status }) => (
+  <Chip 
+    label={status} 
+    size="small" 
+    variant={status === 'OK' ? 'filled' : 'outlined'}
+    color={status === 'OK' ? 'success' : 'error'}
+    sx={{ fontWeight: 900, fontSize: '0.62rem', minWidth: 70, height: 22 }}
+  />
+);
+
+const NoDataRows: React.FC<{colSpan: number}> = ({ colSpan }) => (
+  <TableRow>
+    <TableCell colSpan={colSpan} align="center" sx={{ py: 12, color: '#d1d5db', fontStyle: 'italic', fontWeight: 800, fontSize: '0.75rem', letterSpacing: '0.1em' }}>
+      AGUARDANDO FINALIZAÇÃO DE TURNOS PARA EXIBIÇÃO DE DADOS
+    </TableCell>
+  </TableRow>
+);
 
 export default ReportsPage;

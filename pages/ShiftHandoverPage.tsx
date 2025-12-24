@@ -3,15 +3,16 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { 
   CheckCircle, Trash2, Info, Users, Clock, AlertTriangle, ClipboardList,
   X, TrendingUp, Timer, MapPin, Box, Truck, FlaskConical, AlertOctagon, Plane, Settings,
-  Calendar, UserCheck, Activity, BarChart3, MessageSquare, PlusCircle, ShieldCheck
+  Calendar, UserCheck, Activity, BarChart3, MessageSquare, PlusCircle
 } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
 import { 
   MeasureType, OutraAtividade, Control, 
   LocationRow, TransitRow, ShelfLifeRow, CriticalRow, AlertConfig, ManagedItem,
-  User, Task, Category, ConditionConfig
+  User, Task, Category, ConditionConfig, ShiftHandover
 } from '../types';
 import { DatePickerField, TimeInput, hhmmssToMinutes, minutesToHhmmss, ConfirmModal } from '../modals';
+import { validationService, migrationService } from '../services';
 
 // Utilitários de Data
 const parseDate = (str: any): Date | null => {
@@ -85,11 +86,12 @@ const atendeCriterioVermelho = (vermelho: any, dias: number): boolean => {
 };
 
 const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
+  const store = useStore();
   const { 
     getControlesCombinados, getDefaultLocations, getDefaultTransits, getDefaultCriticals, getDefaultShelfLifes,
     bases, users, tasks: allTasks, categories: allCats, controls: allControls, 
     initialized, refreshData 
-  } = useStore();
+  } = store;
   
   const currentBase = useMemo(() => bases.find(b => b.id === baseId), [bases, baseId]);
   const baseUsers = useMemo(() => users.filter(u => u.bases.includes(baseId || '') && u.status === 'Ativo'), [users, baseId]);
@@ -107,6 +109,9 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
   const [colaboradoresIds, setColaboradoresIds] = useState<(string | null)[]>([null, null, null, null, null, null]);
   const [tarefasValores, setTarefasValores] = useState<Record<string, string>>({}); 
   const [obs, setObs] = useState('');
+  
+  // Estado de Validação (Erros Visuais)
+  const [errosValidacao, setErrosValidacao] = useState<string[]>([]);
 
   // Tarefas Não Rotineiras (Inicia com 3 linhas em branco)
   const [nonRoutineTasks, setNonRoutineTasks] = useState([
@@ -173,9 +178,12 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
       const filtered = prev.filter(p => !p.isPadrao || activeStoreIds.includes(p.id));
       const toAdd = activeStoreItems.filter(i => !prev.some(p => p.id === i.id));
       let newList = [...filtered, ...toAdd.map(i => ({ id: i.id, partNumber: i.partNumber, lote: i.lote || '', dataVencimento: i.dataVencimento || '', isPadrao: true, config: i }))];
-      while (newList.length < 3) {
-        newList.push({ id: `manual-${Date.now()}-${newList.length}`, partNumber: '', lote: '', dataVencimento: '', isPadrao: false });
+      
+      // Ajustado: Apenas 1 linha pronta para preenchimento manual no início
+      if (newList.length === 0) {
+        newList.push({ id: `manual-${Date.now()}-0`, partNumber: '', lote: '', dataVencimento: '', isPadrao: false });
       }
+      
       return newList;
     });
   }, [baseId, initialized, getDefaultLocations, getDefaultTransits, getDefaultCriticals, getDefaultShelfLifes]);
@@ -281,17 +289,78 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
     setList(list.map(item => item.id === id ? { ...item, [field]: value } : item));
   };
 
+  /**
+   * LÓGICA DE FINALIZAÇÃO E MIGRAÇÃO
+   */
+  const handleFinalize = async () => {
+    const handoverData: ShiftHandover = {
+      id: `sh_${Date.now()}`,
+      baseId: baseId || '',
+      data: dataOperacional,
+      turnoId: turnoAtivo,
+      colaboradores: colaboradoresIds,
+      tarefasExecutadas: tarefasValores,
+      nonRoutineTasks: nonRoutineTasks,
+      locationsData: locations,
+      transitData: transit,
+      shelfLifeData: shelfLife,
+      criticalData: critical,
+      informacoesImportantes: obs,
+      status: 'Finalizado',
+      performance: performance,
+      CriadoEm: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    const validacao = validationService.validarPassagem(handoverData);
+
+    if (!validacao.valido) {
+      setErrosValidacao(validacao.camposPendentes);
+      setActiveAlert({
+        titulo: "Campos Pendentes",
+        mensagem: "Alguns campos obrigatórios não foram preenchidos:\n\n" + validacao.camposPendentes.join("\n"),
+        color: "bg-red-600"
+      });
+      return;
+    }
+
+    try {
+      await migrationService.processarMigracao(handoverData, store);
+      setStatus('Finalizado');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      setActiveAlert({
+        titulo: "Turno Finalizado!",
+        mensagem: "Os dados foram validados e migrados com sucesso para os relatórios e indicadores.",
+        color: "bg-green-600"
+      });
+    } catch (error) {
+      console.error("[ERRO NA MIGRAÇÃO]", error);
+      setActiveAlert({
+        titulo: "Erro Crítico",
+        mensagem: "Ocorreu um erro ao processar os dados para migração. Tente novamente ou contate o suporte.",
+        color: "bg-red-700"
+      });
+    }
+  };
+
   const isViewOnly = status === 'Finalizado';
+  
+  // Função auxiliar para checar erro visual
+  const hasError = (painel: string, itemNome: string) => {
+    return errosValidacao.some(err => err.includes(painel) && err.includes(itemNome));
+  };
 
   return (
     <div className="max-w-full mx-auto space-y-8 animate-in fade-in relative px-4 md:px-8">
       {activeAlert && (
         <div className="fixed inset-0 z-[200] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className={`${activeAlert.color} text-white p-8 rounded-[2.5rem] shadow-2xl max-sm w-full animate-in zoom-in-95 border-4 border-white/20 text-center`}>
+          <div className={`${activeAlert.color} text-white p-8 rounded-[2.5rem] shadow-2xl max-w-lg w-full animate-in zoom-in-95 border-4 border-white/20 text-center`}>
             <div className="flex justify-center mb-4"><AlertTriangle className="w-16 h-16 animate-pulse" /></div>
             <h4 className="text-2xl font-black uppercase tracking-tight mb-2">{activeAlert.titulo}</h4>
-            <p className="font-bold opacity-90 leading-relaxed">{activeAlert.mensagem}</p>
-            <button onClick={() => setActiveAlert(null)} className="mt-8 w-full bg-white text-gray-800 py-4 rounded-2xl font-black uppercase text-xs tracking-widest shadow-lg hover:bg-gray-50">Entendido</button>
+            <div className="max-h-60 overflow-y-auto mb-4 scrollbar-hide">
+               <p className="font-bold opacity-90 leading-relaxed whitespace-pre-wrap">{activeAlert.mensagem}</p>
+            </div>
+            <button onClick={() => setActiveAlert(null)} className="mt-4 w-full bg-white text-gray-800 py-4 rounded-2xl font-black uppercase text-xs tracking-widest shadow-lg hover:bg-gray-50">Entendido</button>
           </div>
         </div>
       )}
@@ -370,12 +439,17 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
         <div className="w-full lg:w-3/4 space-y-12">
            
            {/* 1. Configuração do Turno */}
-           <section className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-100">
+           <section className={`bg-white p-8 rounded-[2.5rem] shadow-sm border transition-all ${hasError('Configuração', '') ? 'border-red-500 bg-red-50' : 'border-gray-100'}`}>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-end">
                 <DatePickerField label="Data Operacional" value={dataOperacional} onChange={setDataOperacional} disabled={isViewOnly} />
                 <div className="space-y-1">
                     <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-1">Turno Ativo</label>
-                    <select disabled={isViewOnly} value={turnoAtivo} onChange={e => setTurnoAtivo(e.target.value)} className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-sm outline-none focus:ring-2 focus:ring-orange-100 transition-all">
+                    <select 
+                      disabled={isViewOnly} 
+                      value={turnoAtivo} 
+                      onChange={e => setTurnoAtivo(e.target.value)} 
+                      className={`w-full p-4 bg-gray-50 border rounded-2xl font-bold text-sm outline-none focus:ring-2 focus:ring-orange-100 transition-all ${hasError('Configuração', 'Turno') ? 'border-red-500 bg-red-100 text-red-900' : 'border-gray-100'}`}
+                    >
                        <option value="">Selecionar Turno...</option>
                        {currentBase?.turnos.map(t => <option key={t.id} value={t.id}>Turno {t.numero} ({t.horaInicio} - {t.horaFim})</option>)}
                     </select>
@@ -384,7 +458,7 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
            </section>
 
            {/* 2. Equipe no Turno */}
-           <section className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-100 space-y-8">
+           <section className={`bg-white p-8 rounded-[2.5rem] shadow-sm border transition-all space-y-8 ${hasError('Equipe', '') ? 'border-red-500 bg-red-50' : 'border-gray-100'}`}>
               <h3 className="font-black text-gray-800 uppercase tracking-widest flex items-center space-x-2 text-sm"><Users className="w-4 h-4 text-orange-500" /> <span>Equipe no Turno</span></h3>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                  {colaboradoresIds.map((colId, idx) => (
@@ -423,12 +497,17 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                       {locations.map(row => {
                         const days = row.dataMaisAntigo ? getDaysDiff(row.dataMaisAntigo) : 0;
                         const rowStyle = getRowStatusClasses(row, days, 'locations');
+                        const isErr = hasError('Locations', row.nomeLocation);
                         return (
-                          <tr key={row.id} className={`border-t border-gray-50 transition-colors ${rowStyle || 'hover:bg-gray-50/50'}`}>
+                          <tr key={row.id} className={`border-t border-gray-50 transition-colors ${rowStyle || 'hover:bg-gray-50/50'} ${isErr ? 'bg-red-50' : ''}`}>
                             <td className="px-8 py-4 font-bold"><input disabled={isViewOnly || row.isPadrao} className="bg-transparent w-full outline-none uppercase" value={row.nomeLocation} onChange={e => updateRow(locations, setLocations, row.id, 'nomeLocation', e.target.value)} /></td>
                             <td className="px-8 py-4"><input type="number" disabled={isViewOnly} className={`w-20 p-2 rounded-xl font-black text-center ${rowStyle ? 'bg-white/40' : 'bg-gray-50'}`} value={row.quantidade} onChange={e => updateRow(locations, setLocations, row.id, 'quantidade', e.target.value)} /></td>
                             <td className="px-8 py-4 flex items-center space-x-4">
-                              <DatePickerField value={row.dataMaisAntigo} onChange={v => { updateRow(locations, setLocations, row.id, 'dataMaisAntigo', v); evaluateAlert(row, getDaysDiff(v), 'locations'); }} />
+                              <DatePickerField 
+                                value={row.dataMaisAntigo} 
+                                onChange={v => { updateRow(locations, setLocations, row.id, 'dataMaisAntigo', v); evaluateAlert(row, getDaysDiff(v), 'locations'); }} 
+                                disabled={isViewOnly}
+                              />
                               {row.dataMaisAntigo && <span className="text-xs font-black">{days}d</span>}
                             </td>
                           </tr>
@@ -445,12 +524,17 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                       {transit.map(row => {
                         const days = row.dataSaida ? getDaysDiff(row.dataSaida) : 0;
                         const rowStyle = getRowStatusClasses(row, days, 'transito');
+                        const isErr = hasError('Trânsito', row.nomeTransito);
                         return (
-                          <tr key={row.id} className={`border-t border-gray-50 transition-colors ${rowStyle || 'hover:bg-gray-50/50'}`}>
+                          <tr key={row.id} className={`border-t border-gray-50 transition-colors ${rowStyle || 'hover:bg-gray-50/50'} ${isErr ? 'bg-red-50' : ''}`}>
                             <td className="px-8 py-4 font-bold"><input disabled={isViewOnly || row.isPadrao} className="bg-transparent w-full outline-none uppercase" value={row.nomeTransito} onChange={e => updateRow(transit, setTransit, row.id, 'nomeTransito', e.target.value)} /></td>
                             <td className="px-8 py-4"><input type="number" disabled={isViewOnly} className={`w-20 p-2 rounded-xl font-black text-center ${rowStyle ? 'bg-white/40' : 'bg-gray-50'}`} value={row.quantidade} onChange={e => updateRow(transit, setTransit, row.id, 'quantidade', e.target.value)} /></td>
                             <td className="px-8 py-4 flex items-center space-x-4">
-                              <DatePickerField value={row.dataSaida} onChange={v => { updateRow(transit, setTransit, row.id, 'dataSaida', v); evaluateAlert(row, getDaysDiff(v), 'transito'); }} />
+                              <DatePickerField 
+                                value={row.dataSaida} 
+                                onChange={v => { updateRow(transit, setTransit, row.id, 'dataSaida', v); evaluateAlert(row, getDaysDiff(v), 'transito'); }} 
+                                disabled={isViewOnly}
+                              />
                               {row.dataSaida && <span className="text-xs font-black">{days}d</span>}
                             </td>
                           </tr>
@@ -460,19 +544,24 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                   </table>
                 </PanelContainer>
 
-                <PanelContainer title="Shelf Life" icon={<FlaskConical className="w-4 h-4 text-orange-500" />} onAdd={() => setShelfLife([...shelfLife, { id: `manual-${Date.now()}`, partNumber: '', lote: '', dataVencimento: '', isPadrao: false }])} isViewOnly={isViewOnly}>
+                <PanelContainer title="Shelf Life" icon={<FlaskConical className="w-4 h-4 text-orange-500" />} onAdd={() => setShelfLife([...shelfLife, { id: `manual-${Date.now()}-${shelfLife.length}`, partNumber: '', lote: '', dataVencimento: '', isPadrao: false }])} isViewOnly={isViewOnly}>
                   <table className="w-full text-left">
                     <thead className="bg-gray-50 text-[10px] font-black text-gray-400 uppercase tracking-widest"><tr><th className="px-8 py-4">P/N</th><th className="px-8 py-4">Lote</th><th className="px-8 py-4">Vencimento (Auto)</th></tr></thead>
                     <tbody>
                       {shelfLife.map(row => {
                         const days = row.dataVencimento ? getDaysRemaining(row.dataVencimento) : 0;
                         const rowStyle = getRowStatusClasses(row, days, 'shelf_life');
+                        const isErr = hasError('Shelf Life', row.partNumber);
                         return (
-                          <tr key={row.id} className={`border-t border-gray-50 transition-colors ${rowStyle || 'hover:bg-gray-50/50'}`}>
+                          <tr key={row.id} className={`border-t border-gray-50 transition-colors ${rowStyle || 'hover:bg-gray-50/50'} ${isErr ? 'bg-red-50' : ''}`}>
                             <td className="px-8 py-4 font-bold"><input disabled={isViewOnly || row.isPadrao} className="bg-transparent w-full outline-none uppercase placeholder:text-gray-200" placeholder="P/N..." value={row.partNumber} onChange={e => updateRow(shelfLife, setShelfLife, row.id, 'partNumber', e.target.value)} /></td>
                             <td className="px-8 py-4"><input disabled={isViewOnly} className={`w-full p-2 rounded-xl font-black ${rowStyle ? 'bg-white/40' : 'bg-gray-50'}`} placeholder="Lote..." value={row.lote} onChange={e => updateRow(shelfLife, setShelfLife, row.id, 'lote', e.target.value)} /></td>
                             <td className="px-8 py-4 flex items-center space-x-4">
-                              <DatePickerField value={row.dataVencimento} onChange={v => { updateRow(shelfLife, setShelfLife, row.id, 'dataVencimento', v); evaluateAlert(row, getDaysRemaining(v), 'shelf_life'); }} />
+                              <DatePickerField 
+                                value={row.dataVencimento} 
+                                onChange={v => { updateRow(shelfLife, setShelfLife, row.id, 'dataVencimento', v); evaluateAlert(row, getDaysRemaining(v), 'shelf_life'); }} 
+                                disabled={isViewOnly}
+                              />
                               {(row.dataVencimento || row.partNumber) && <span className="text-xs font-black">{days}d</span>}
                             </td>
                           </tr>
@@ -490,12 +579,25 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                         const diff = (row.saldoSistema || 0) - (row.saldoFisico || 0);
                         const absDiff = Math.abs(diff);
                         const rowStyle = getRowStatusClasses(row, absDiff, 'itens_criticos');
+                        const isErr = hasError('Saldo', row.partNumber);
+                        
+                        // Lote bloqueado se saldo físico e sistema forem 0
+                        const isLoteBlocked = row.saldoSistema === 0 && row.saldoFisico === 0;
+
                         return (
-                          <tr key={row.id} className={`border-t border-gray-50 transition-colors ${rowStyle || 'hover:bg-gray-50/50'}`}>
+                          <tr key={row.id} className={`border-t border-gray-50 transition-colors ${rowStyle || 'hover:bg-gray-50/50'} ${isErr ? 'bg-red-50' : ''}`}>
                             <td className="px-8 py-4 font-bold"><input disabled={isViewOnly || row.isPadrao} className="bg-transparent w-full outline-none uppercase placeholder:text-gray-300" placeholder="P/N..." value={row.partNumber} onChange={e => updateRow(critical, setCritical, row.id, 'partNumber', e.target.value)} /></td>
-                            <td className="px-8 py-4"><input disabled={isViewOnly} className={`w-full p-2 rounded-xl font-bold bg-gray-50/50 outline-none ${rowStyle ? 'bg-white/40' : ''}`} placeholder="Lote..." value={row.lote} onChange={e => updateRow(critical, setCritical, row.id, 'lote', e.target.value)} /></td>
-                            <td className="px-8 py-4 text-center"><input type="number" disabled={isViewOnly} className={`w-16 p-2 rounded-xl font-black text-center ${rowStyle ? 'bg-white/40' : 'bg-gray-50'}`} value={row.saldoSistema} onChange={e => updateRow(critical, setCritical, row.id, 'saldoSistema', e.target.value)} /></td>
-                            <td className="px-8 py-4 text-center"><input type="number" disabled={isViewOnly} className={`w-16 p-2 rounded-xl font-black text-center ${rowStyle ? 'bg-white/40' : 'bg-gray-50'}`} value={row.saldoFisico} onChange={e => { updateRow(critical, setCritical, row.id, 'saldoFisico', e.target.value); evaluateAlert(row, Math.abs((row.saldoSistema || 0) - Number(e.target.value)), 'itens_criticos'); }} /></td>
+                            <td className="px-8 py-4">
+                                <input 
+                                    disabled={isViewOnly || isLoteBlocked} 
+                                    className={`w-full p-2 rounded-xl font-bold outline-none transition-all ${rowStyle ? 'bg-white/40' : 'bg-gray-50'} ${isLoteBlocked ? 'opacity-30 cursor-not-allowed bg-gray-200' : ''}`} 
+                                    placeholder={isLoteBlocked ? "Bloqueado (S:0 F:0)" : "Lote..."} 
+                                    value={isLoteBlocked ? "" : row.lote} 
+                                    onChange={e => updateRow(critical, setCritical, row.id, 'lote', e.target.value)} 
+                                />
+                            </td>
+                            <td className="px-8 py-4 text-center"><input type="number" disabled={isViewOnly} className={`w-16 p-2 rounded-xl font-black text-center ${rowStyle ? 'bg-white/40' : 'bg-gray-50'} ${isErr && (row.saldoSistema === 0) ? 'border-red-500' : ''}`} value={row.saldoSistema} onChange={e => updateRow(critical, setCritical, row.id, 'saldoSistema', Number(e.target.value))} /></td>
+                            <td className="px-8 py-4 text-center"><input type="number" disabled={isViewOnly} className={`w-16 p-2 rounded-xl font-black text-center ${rowStyle ? 'bg-white/40' : 'bg-gray-50'} ${isErr && (row.saldoFisico === 0) ? 'border-red-500' : ''}`} value={row.saldoFisico} onChange={e => { updateRow(critical, setCritical, row.id, 'saldoFisico', Number(e.target.value)); evaluateAlert(row, Math.abs((row.saldoSistema || 0) - Number(e.target.value)), 'itens_criticos'); }} /></td>
                             <td className="px-8 py-4 text-center font-black">{diff}</td>
                           </tr>
                         );
@@ -520,36 +622,39 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                          <span>{cat.nome}</span>
                        </h3>
                        <div className="bg-white rounded-[2.5rem] shadow-sm border border-gray-100 overflow-hidden divide-y divide-gray-50">
-                          {opTasks.filter(t => t.categoriaId === cat.id).map(task => (
-                             <div key={task.id} className="p-6 flex items-center justify-between hover:bg-orange-50/10 transition-colors group">
-                                <div className="flex flex-col">
-                                   <span className="text-sm font-black text-gray-700 uppercase tracking-tight group-hover:text-orange-600 transition-colors">{task.nome}</span>
-                                   <div className="flex items-center space-x-2">
-                                      <span className="text-[10px] font-bold text-gray-300 uppercase">{task.tipoMedida}</span>
-                                      {task.tipoMedida === MeasureType.QTD && (
-                                        <span className="text-[9px] font-black text-orange-400 uppercase tracking-tighter">Fator: {minutesToHhmmss(task.fatorMultiplicador)}</span>
-                                      )}
-                                   </div>
+                          {opTasks.filter(t => t.categoriaId === cat.id).map(task => {
+                             const isErr = hasError('Atividades', task.nome);
+                             return (
+                                <div key={task.id} className={`p-6 flex items-center justify-between hover:bg-orange-50/10 transition-colors group ${isErr ? 'bg-red-50' : ''}`}>
+                                  <div className="flex flex-col">
+                                     <span className="text-sm font-black text-gray-700 uppercase tracking-tight group-hover:text-orange-600 transition-colors">{task.nome}</span>
+                                     <div className="flex items-center space-x-2">
+                                        <span className="text-[10px] font-bold text-gray-300 uppercase">{task.tipoMedida}</span>
+                                        {task.tipoMedida === MeasureType.QTD && (
+                                          <span className="text-[9px] font-black text-orange-400 uppercase tracking-tighter">Fator: {minutesToHhmmss(task.fatorMultiplicador)}</span>
+                                        )}
+                                     </div>
+                                  </div>
+                                  {task.tipoMedida === MeasureType.TEMPO ? (
+                                    <TimeInput 
+                                      disabled={isViewOnly} 
+                                      value={tarefasValores[task.id] || ''} 
+                                      onChange={v => setTarefasValores({...tarefasValores, [task.id]: v})} 
+                                      className={`w-32 p-4 border rounded-2xl font-black text-center focus:bg-white focus:border-orange-200 outline-none transition-all text-orange-600 ${isErr ? 'bg-red-100 border-red-300' : 'bg-gray-50 border-transparent'}`} 
+                                    />
+                                  ) : (
+                                    <input 
+                                      type="number" 
+                                      disabled={isViewOnly} 
+                                      value={tarefasValores[task.id] || ''} 
+                                      onChange={e => setTarefasValores({...tarefasValores, [task.id]: e.target.value})} 
+                                      placeholder="0" 
+                                      className={`w-24 p-4 border rounded-2xl font-black text-center focus:bg-white focus:border-orange-200 outline-none transition-all ${isErr ? 'bg-red-100 border-red-300' : 'bg-gray-50 border-transparent'}`} 
+                                    />
+                                  )}
                                 </div>
-                                {task.tipoMedida === MeasureType.TEMPO ? (
-                                  <TimeInput 
-                                    disabled={isViewOnly} 
-                                    value={tarefasValores[task.id] || ''} 
-                                    onChange={v => setTarefasValores({...tarefasValores, [task.id]: v})} 
-                                    className="w-32 p-4 bg-gray-50 border border-transparent rounded-2xl font-black text-center focus:bg-white focus:border-orange-200 outline-none transition-all text-orange-600" 
-                                  />
-                                ) : (
-                                  <input 
-                                    type="number" 
-                                    disabled={isViewOnly} 
-                                    value={tarefasValores[task.id] || ''} 
-                                    onChange={e => setTarefasValores({...tarefasValores, [task.id]: e.target.value})} 
-                                    placeholder="0" 
-                                    className="w-24 p-4 bg-gray-50 border border-transparent rounded-2xl font-black text-center focus:bg-white focus:border-orange-200 outline-none transition-all" 
-                                  />
-                                )}
-                             </div>
-                          ))}
+                             );
+                          })}
                        </div>
                     </div>
                  ))}
@@ -630,8 +735,8 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
 
       {!isViewOnly && (
         <div className="fixed bottom-8 right-8 z-40">
-          <button onClick={() => setConfirmModal({ open: true, title: 'Finalizar Turno', message: 'Deseja finalizar esta passagem de serviço? Os dados serão arquivados.', type: 'warning', onConfirm: () => { setStatus('Finalizado'); window.scrollTo({ top: 0, behavior: 'smooth' }); } })} className="bg-orange-600 text-white px-12 py-5 rounded-2xl font-black text-sm uppercase tracking-widest shadow-2xl hover:scale-105 hover:bg-orange-700 transition-all flex items-center space-x-3 border-4 border-white">
-            <CheckCircle className="w-5 h-5" /><span>Finalizar Turno</span>
+          <button onClick={() => setConfirmModal({ open: true, title: 'Finalizar Turno', message: 'Deseja finalizar esta passagem de serviço? Todos os campos obrigatórios serão validados e os dados serão migrados para Indicadores e Relatórios.', type: 'warning', onConfirm: () => handleFinalize() })} className="bg-orange-600 text-white px-12 py-5 rounded-2xl font-black text-sm uppercase tracking-widest shadow-2xl hover:scale-105 hover:bg-orange-700 transition-all flex items-center space-x-3 border-4 border-white">
+            <CheckCircle className="w-5 h-5" /><span>Finalizar Passagem de Serviço</span>
           </button>
         </div>
       )}
@@ -656,6 +761,10 @@ const PanelContainer: React.FC<{title: string, icon: any, children: any, onAdd: 
     </div>
     <div className="bg-white rounded-[2.5rem] shadow-sm border border-gray-100 overflow-hidden">{children}</div>
   </div>
+);
+
+const ShieldCheck: React.FC<any> = (props) => (
+  <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg>
 );
 
 export default ShiftHandoverPage;

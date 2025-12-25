@@ -28,6 +28,7 @@ interface ModalProps {
 
 /**
  * Componente de Confirmação Customizado (Substitui window.confirm bloqueado)
+ * Ajustado para suportar botão único se cancelLabel for omitido.
  */
 export const ConfirmModal: React.FC<{
   isOpen: boolean;
@@ -38,7 +39,7 @@ export const ConfirmModal: React.FC<{
   confirmLabel?: string;
   cancelLabel?: string;
   type?: 'danger' | 'warning' | 'info';
-}> = ({ isOpen, onClose, onConfirm, title, message, confirmLabel = "Confirmar", cancelLabel = "Cancelar", type = 'warning' }) => {
+}> = ({ isOpen, onClose, onConfirm, title, message, confirmLabel = "Confirmar", cancelLabel, type = 'warning' }) => {
   if (!isOpen) return null;
 
   const colors = {
@@ -55,19 +56,21 @@ export const ConfirmModal: React.FC<{
 
   return (
     <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-[2.5rem] w-full max-sm shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+      <div className="bg-white rounded-[2.5rem] w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
         <div className={`p-8 flex flex-col items-center text-center ${colors[type]}`}>
           {icons[type]}
           <h3 className="text-xl font-black uppercase tracking-tight mb-2">{title}</h3>
           <p className="text-sm font-bold opacity-90 leading-relaxed">{message}</p>
         </div>
         <div className="p-6 flex space-x-3 bg-gray-50">
-          <button 
-            onClick={onClose} 
-            className="flex-1 py-4 bg-white border border-gray-200 text-gray-400 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-gray-100 transition-all"
-          >
-            {cancelLabel}
-          </button>
+          {cancelLabel && (
+            <button 
+              onClick={onClose} 
+              className="flex-1 py-4 bg-white border border-gray-200 text-gray-400 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-gray-100 transition-all"
+            >
+              {cancelLabel}
+            </button>
+          )}
           <button 
             onClick={() => { onConfirm(); onClose(); }} 
             className={`flex-1 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg transition-all hover:scale-105 ${colors[type]}`}

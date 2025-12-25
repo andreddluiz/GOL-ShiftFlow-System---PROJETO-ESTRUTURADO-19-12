@@ -102,7 +102,6 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
   const [obs, setObs] = useState('');
   const [errosValidacao, setErrosValidacao] = useState<string[]>([]);
   
-  // 3 Linhas iniciais para Outras Tarefas
   const [outrasTarefas, setOutrasTarefas] = useState<OutraAtividade[]>([
     { id: 'nr1', nome: '', tempo: '' }, 
     { id: 'nr2', nome: '', tempo: '' }, 
@@ -162,7 +161,7 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
     Object.entries(tarefasValores).forEach(([taskId, val]) => {
       const task = opTasks.find(t => t.id === taskId);
       if (!task) return;
-      prod += task.tipoMedida === MeasureType.TEMPO ? hhmmssToMinutes(val) / 60 : (parseFloat(val) || 0) * task.fatorMultiplicador / 60;
+      prod += task.tipoMedida === MeasureType.TEMPO ? hhmmssToMinutes(val as string) / 60 : (parseFloat(val as string) || 0) * task.fatorMultiplicador / 60;
     });
     outrasTarefas.forEach(nr => { if (nr.tempo) prod += hhmmssToMinutes(nr.tempo) / 60; });
     return { horasDisponiveis: disp, horasProduzidas: prod, performance: disp > 0 ? (prod / disp) * 100 : 0 };
@@ -229,24 +228,35 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
   };
 
   /**
-   * AJUSTE 3: Função para limpar apenas campos operacionais e reiniciar estado
+   * CORREÇÃO: Função de Limpeza Seletiva
+   * Limpa apenas dados de produção, preservando controles e observações.
    */
-  const resetCamposOperacionais = () => {
-    console.debug("[Limpeza] Reiniciando campos operacionais para próximo turno.");
+  const resetCamposProducao = () => {
+    console.debug("[Limpeza Seletiva] Iniciando limpeza de produtividade...");
+    
+    // 1. Limpar Equipe
     setColaboradoresIds([null, null, null, null, null, null]);
+    
+    // 2. Limpar Horas Produzidas
     setTarefasValores({});
+    
+    // 3. Reinicializar Outras Tarefas para 3 linhas vazias
     setOutrasTarefas([
       { id: 'nr1', nome: '', tempo: '' }, 
       { id: 'nr2', nome: '', tempo: '' }, 
       { id: 'nr3', nome: '', tempo: '' }
     ]);
-    setCritical(prev => prev.map(item => ({ ...item, saldoSistema: null, saldoFisico: null })));
+
+    // 4. Voltar status e limpar erros
     setStatus('Rascunho');
     setErrosValidacao([]);
+
+    // 5. Logs de Auditoria
+    console.debug("[Limpeza Seletiva] Equipe, Atividades e Outras Tarefas limpas.");
+    console.debug("[Limpeza Seletiva] PRESERVADOS: Observações e Controles Diários para continuidade operacional.");
   };
 
   const handleFinalize = async () => {
-    // Validação de Outras Tarefas (Ajuste 1)
     const errosOutras: string[] = [];
     outrasTarefas.forEach(t => {
        if (t.nome.trim() !== '' && (!t.tempo || t.tempo === '00:00:00')) {
@@ -304,7 +314,9 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
         title: 'ATENÇÃO - COLABORADOR DUPLICADO',
         message: `Os colaboradores '${duplicadosNoDia.join(', ')}' já estão registrados em outro turno do dia ${dataOperacional}. Tem certeza que quer considerar o mesmo colaborador em 2 turnos diferentes no mesmo dia?`,
         type: 'warning',
-        onConfirm: () => proceedToMigrate(handoverData)
+        onConfirm: () => proceedToMigrate(handoverData),
+        confirmLabel: 'Sim, Continuar',
+        cancelLabel: 'Não, Cancelar'
       });
       return;
     }
@@ -314,24 +326,28 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
 
   const proceedToMigrate = async (data: ShiftHandover) => {
     try {
+      console.debug("[Finalização] Iniciando finalização da passagem");
+      console.debug("[Finalização] Migrando dados para histórico...");
       await migrationService.processarMigracao(data, store);
-      console.debug("[Finalização] Dados migrados com sucesso.");
+      console.debug("[Finalização] Passagem salva com sucesso");
       
-      /**
-       * AJUSTE 2: Pop-up de sucesso com opções de navegação
-       */
       setConfirmModal({
         open: true,
         title: 'Passagem Finalizada com Sucesso!',
         message: 'Seus dados foram migrados para Relatórios com sucesso.',
         type: 'info',
-        confirmLabel: 'Ir para Relatórios',
-        cancelLabel: 'Ficar Aqui',
-        onConfirm: () => navigate('/reports'),
-        onCancel: () => resetCamposOperacionais()
+        confirmLabel: 'Retornar ao Início',
+        cancelLabel: undefined, // Remove o segundo botão conforme solicitado
+        onConfirm: () => {
+          console.debug("[Finalização] Usuário clicou 'Retornar ao Início'");
+          resetCamposProducao();
+          setConfirmModal(prev => ({ ...prev, open: false }));
+          console.debug("[Finalização] Passagem retornou ao status rascunho");
+        }
       });
     } catch (error) {
-      setActiveAlert({ titulo: "Erro", mensagem: "Falha na migração.", color: "bg-red-700" });
+      console.error("[Finalização] Erro ao finalizar:", error);
+      setActiveAlert({ titulo: "Erro ao Finalizar", mensagem: "Ocorreu um erro ao finalizar a passagem. Tente novamente.", color: "bg-red-700" });
     }
   };
 
@@ -419,9 +435,6 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
            </section>
 
            <section className="space-y-12">
-              {/** 
-               * AJUSTE 4: Título Agrupador de Controles Diários
-               */}
               <div className="px-4">
                 <h2 className="text-2xl font-black text-gray-800 uppercase tracking-tighter">Controles Diários</h2>
                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.2em] mt-1">Gestão de itens críticos e conformidade técnica.</p>
@@ -522,9 +535,8 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                     </div>
                  ))}
 
-                 {/* AJUSTE 1: Painel Outras Tarefas com Campo Tempo Condicional */}
                  <div className="space-y-6 lg:col-span-2">
-                    <h3 className="px-4 text-xl font-black text-gray-800 uppercase tracking-tight flex items-center space-x-3"><div className="w-1.5 h-6 bg-gray-600 rounded-full" /><span>Outras Tarefas</span></h3>
+                    <h3 className="px-4 text-xl font-black text-gray-800 uppercase tracking-tight flex items-center space-x-3"><div className="w-1.5 h-6 bg-orange-600 rounded-full" /><span>Outras Tarefas</span></h3>
                     <div className="bg-white rounded-[2.5rem] shadow-sm border border-gray-100 overflow-hidden divide-y divide-gray-50">
                         {outrasTarefas.map((nr, idx) => {
                            const isTempoVisivel = nr.nome.trim() !== '';

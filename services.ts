@@ -417,80 +417,73 @@ export const validationService = {
 };
 
 export const migrationService = {
-  async processarMigracao(handover: ShiftHandover, store: any): Promise<void> {
-    console.debug("[Migração] Iniciando processamento para base:", handover.baseId);
-
-    const repAcompanhamento = getFromStorage<any[]>(STORAGE_KEYS.REP_ACOMPANHAMENTO, []);
-    const repResumo = getFromStorage<any>(STORAGE_KEYS.REP_RESUMO, { categorias: [], totalHoras: 0, totalMinutos: 0 });
+  /**
+   * REPROCESSAR RESUMO APÓS EDIÇÃO
+   */
+  async reprocessarResumo(store: any): Promise<void> {
     const repDetalhamento = getFromStorage<any[]>(STORAGE_KEYS.REP_DETALHAMENTO, []);
+    const repResumo: any = { categorias: [], totalHoras: 0, totalMinutos: 0 };
+    
+    repDetalhamento.forEach(handover => {
+      Object.entries(handover.tarefasExecutadas).forEach(([taskId, val]: [string, any]) => {
+        const task = store.tasks.find((t: any) => t.id === taskId);
+        if (!task) return;
+        const cat = store.categories.find((c: any) => c.id === task.categoriaId);
+        if (!cat) return;
 
-    let dataEntry = repAcompanhamento.find((r: any) => r.data === handover.data);
-    if (!dataEntry) {
-      dataEntry = { data: handover.data, turno1: 'Pendente', turno2: 'Pendente', turno3: 'Pendente', turno4: 'Pendente' };
-      repAcompanhamento.push(dataEntry);
-    }
-    const turnoKey = `turno${handover.turnoId}` as keyof typeof dataEntry;
-    dataEntry[turnoKey] = 'OK';
+        let catResumo = repResumo.categorias.find((r: any) => r.categoryId === cat.id);
+        if (!catResumo) {
+          catResumo = { categoryId: cat.id, categoryNome: cat.nome, atividades: [], totalCategoryHoras: 0, totalCategoryMinutos: 0 };
+          repResumo.categorias.push(catResumo);
+        }
 
-    // Processar tarefas rotineiras
-    Object.entries(handover.tarefasExecutadas).forEach(([taskId, val]) => {
-      const task = store.tasks.find((t: any) => t.id === taskId);
-      if (!task) return;
-      const cat = store.categories.find((c: any) => c.id === task.categoriaId);
-      if (!cat) return;
+        let taskResumo = catResumo.atividades.find((a: any) => a.nome === task.nome);
+        if (!taskResumo) {
+          taskResumo = { nome: task.nome, tipoInput: task.tipoMedida === 'TEMPO' ? 'TIME' : 'QTY', totalQuantidade: 0, totalHoras: 0, totalMinutos: 0 };
+          catResumo.atividades.push(taskResumo);
+        }
 
-      let catResumo = repResumo.categorias.find((r: any) => r.categoryId === cat.id);
-      if (!catResumo) {
-        catResumo = { categoryId: cat.id, categoryNome: cat.nome, atividades: [], totalCategoryHoras: 0, totalCategoryMinutos: 0 };
-        repResumo.categorias.push(catResumo);
-      }
+        if (task.tipoMedida === 'TEMPO') {
+          const parts = val.split(':').map(Number);
+          const newMins = (parts[0] * 60) + parts[1];
+          const updated = timeUtils.somarMinutos(taskResumo.totalHoras, taskResumo.totalMinutos, 0, newMins);
+          taskResumo.totalHoras = updated.horas;
+          taskResumo.totalMinutos = updated.minutos;
+        } else {
+          const qty = parseFloat(val) || 0;
+          taskResumo.totalQuantidade += qty;
+          const newMins = qty * task.fatorMultiplicador;
+          const updated = timeUtils.somarMinutos(taskResumo.totalHoras, taskResumo.totalMinutos, 0, newMins);
+          taskResumo.totalHoras = updated.horas;
+          taskResumo.totalMinutos = updated.minutos;
+        }
+      });
+      
+      // Reprocessar Outras Tarefas
+      if (handover.nonRoutineTasks) {
+        let catOutras = repResumo.categorias.find((r: any) => r.categoryId === 'cat_outras');
+        if (!catOutras) {
+          catOutras = { categoryId: 'cat_outras', categoryNome: 'OUTRAS TAREFAS', atividades: [], totalCategoryHoras: 0, totalCategoryMinutos: 0 };
+          repResumo.categorias.push(catOutras);
+        }
 
-      let taskResumo = catResumo.atividades.find((a: any) => a.nome === task.nome);
-      if (!taskResumo) {
-        taskResumo = { nome: task.nome, tipoInput: task.tipoMedida === 'TEMPO' ? 'TIME' : 'QTY', totalQuantidade: 0, totalHoras: 0, totalMinutos: 0 };
-        catResumo.atividades.push(taskResumo);
-      }
-
-      if (task.tipoMedida === 'TEMPO') {
-        const parts = val.split(':').map(Number);
-        const newMins = (parts[0] * 60) + parts[1];
-        const updated = timeUtils.somarMinutos(taskResumo.totalHoras, taskResumo.totalMinutos, 0, newMins);
-        taskResumo.totalHoras = updated.horas;
-        taskResumo.totalMinutos = updated.minutos;
-      } else {
-        const qty = parseFloat(val) || 0;
-        taskResumo.totalQuantidade += qty;
-        const newMins = qty * task.fatorMultiplicador;
-        const updated = timeUtils.somarMinutos(taskResumo.totalHoras, taskResumo.totalMinutos, 0, newMins);
-        taskResumo.totalHoras = updated.horas;
-        taskResumo.totalMinutos = updated.minutos;
+        handover.nonRoutineTasks.forEach((nr: any) => {
+          if (!nr.nome || !nr.tempo) return;
+          const [h, m] = nr.tempo.split(':').map(Number);
+          const mins = (h * 60) + m;
+          
+          let taskResumo = catOutras.atividades.find((a: any) => a.nome === nr.nome);
+          if (!taskResumo) {
+            taskResumo = { nome: nr.nome, tipoInput: 'TIME', totalQuantidade: 0, totalHoras: 0, totalMinutos: 0 };
+            catOutras.atividades.push(taskResumo);
+          }
+          
+          const updated = timeUtils.somarMinutos(taskResumo.totalHoras, taskResumo.totalMinutos, 0, mins);
+          taskResumo.totalHoras = updated.horas;
+          taskResumo.totalMinutos = updated.minutos;
+        });
       }
     });
-
-    // Processar OUTRAS TAREFAS (NonRoutine)
-    if (handover.nonRoutineTasks && handover.nonRoutineTasks.length > 0) {
-      let catOutras = repResumo.categorias.find((r: any) => r.categoryId === 'cat_outras');
-      if (!catOutras) {
-        catOutras = { categoryId: 'cat_outras', categoryNome: 'OUTRAS TAREFAS', atividades: [], totalCategoryHoras: 0, totalCategoryMinutos: 0 };
-        repResumo.categorias.push(catOutras);
-      }
-
-      handover.nonRoutineTasks.forEach(nr => {
-        if (!nr.nome || !nr.tempo) return;
-        const [h, m] = nr.tempo.split(':').map(Number);
-        const mins = (h * 60) + m;
-        
-        let taskResumo = catOutras.atividades.find((a: any) => a.nome === nr.nome);
-        if (!taskResumo) {
-          taskResumo = { nome: nr.nome, tipoInput: 'TIME', totalQuantidade: 0, totalHoras: 0, totalMinutos: 0 };
-          catOutras.atividades.push(taskResumo);
-        }
-        
-        const updated = timeUtils.somarMinutos(taskResumo.totalHoras, taskResumo.totalMinutos, 0, mins);
-        taskResumo.totalHoras = updated.horas;
-        taskResumo.totalMinutos = updated.minutos;
-      });
-    }
 
     let totalGeralMins = 0;
     repResumo.categorias.forEach((cat: any) => {
@@ -502,6 +495,23 @@ export const migrationService = {
     });
     const { horas: gH, minutos: gM } = timeUtils.converterMinutosParaHoras(totalGeralMins);
     repResumo.totalHoras = gH; repResumo.totalMinutos = gM;
+    
+    saveToStorage(STORAGE_KEYS.REP_RESUMO, repResumo);
+  },
+
+  async processarMigracao(handover: ShiftHandover, store: any, replaceId?: string): Promise<void> {
+    console.debug("[Migração] Iniciando processamento para base:", handover.baseId, replaceId ? "(Substituição)" : "(Novo)");
+
+    const repAcompanhamento = getFromStorage<any[]>(STORAGE_KEYS.REP_ACOMPANHAMENTO, []);
+    const repDetalhamento = getFromStorage<any[]>(STORAGE_KEYS.REP_DETALHAMENTO, []);
+
+    let dataEntry = repAcompanhamento.find((r: any) => r.data === handover.data);
+    if (!dataEntry) {
+      dataEntry = { data: handover.data, turno1: 'Pendente', turno2: 'Pendente', turno3: 'Pendente', turno4: 'Pendente' };
+      repAcompanhamento.push(dataEntry);
+    }
+    const turnoKey = `turno${handover.turnoId}` as keyof typeof dataEntry;
+    dataEntry[turnoKey] = 'OK';
 
     const colaboradoresNomes = handover.colaboradores
       .map(id => store.users.find((u:any) => u.id === id)?.nome)
@@ -522,7 +532,6 @@ export const migrationService = {
       return { taskNome: task?.nome || 'Desc.', categoryNome: cat?.nome || 'Geral', horas: h, minutos: m };
     });
 
-    // Adicionar as outras tarefas ao detalhamento
     if (handover.nonRoutineTasks) {
        handover.nonRoutineTasks.forEach(nr => {
          if (!nr.nome || !nr.tempo) return;
@@ -531,9 +540,10 @@ export const migrationService = {
        });
     }
 
-    repDetalhamento.push({
+    const record = {
       ...handover,
-      colaboradoresIds: handover.colaboradores, // Salvando explicitamente para validação futura
+      id: replaceId || handover.id,
+      colaboradoresIds: handover.colaboradores,
       horaRegistro: new Date().toLocaleTimeString('pt-BR'),
       turno: `Turno ${handover.turnoId}`,
       colaboradores: colaboradoresNomes,
@@ -546,11 +556,22 @@ export const migrationService = {
       locationItems: handover.locationsData.map(i => ({ itemNome: i.nomeLocation, data: i.dataMaisAntigo, quantidade: i.quantidade })),
       transitItems: handover.transitData.map(i => ({ itemNome: i.nomeTransito, data: i.dataSaida, quantidade: i.quantidade })),
       saldoItems: handover.criticalData.map(i => ({ itemNome: i.partNumber, saldoSistema: i.saldoSistema, saldoFisico: i.saldoFisico, divergencia: (i.saldoSistema||0) - (i.saldoFisico||0) }))
-    });
+    };
+
+    if (replaceId) {
+      const idx = repDetalhamento.findIndex(d => d.id === replaceId);
+      if (idx > -1) repDetalhamento[idx] = record;
+      else repDetalhamento.push(record);
+    } else {
+      repDetalhamento.push(record);
+    }
 
     saveToStorage(STORAGE_KEYS.REP_ACOMPANHAMENTO, repAcompanhamento);
-    saveToStorage(STORAGE_KEYS.REP_RESUMO, repResumo);
     saveToStorage(STORAGE_KEYS.REP_DETALHAMENTO, repDetalhamento);
+    
+    // Recalcular resumo total para garantir que edições reflitam no dashboard de resumo
+    await this.reprocessarResumo(store);
+    
     console.debug("[Migração] Sucesso.");
   }
 };

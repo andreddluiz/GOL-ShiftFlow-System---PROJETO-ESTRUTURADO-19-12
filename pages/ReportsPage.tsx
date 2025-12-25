@@ -1,15 +1,16 @@
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { 
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, 
   Paper, Chip, TextField, Box, Typography, Container, CircularProgress, 
-  Button, IconButton, Tooltip, Divider, Collapse, TablePagination
+  Button, IconButton, Tooltip, Divider, Collapse
 } from '@mui/material';
 import { 
   Download, FileText, ClipboardList, Calendar, 
   BarChart, Activity, CheckCircle, Clock, Copy,
-  ChevronDown, ChevronUp, FileSearch, Filter
+  ChevronDown, ChevronUp, FileSearch, Filter, Edit2
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useStore } from '../hooks/useStore';
 
 // --- UTILITÁRIOS DE FORMATAÇÃO ---
@@ -17,8 +18,17 @@ const formatHhMm = (h: number, m: number = 0) => {
   return `${String(Math.floor(h)).padStart(2, '0')}:${String(Math.round(m)).padStart(2, '0')}`;
 };
 
-// Fixed: Added baseId prop to component definition to match Route usage in App.tsx
+const formatToHms = (h: number, m: number) => {
+    // Retorna HH:MM:SS para a tabela detalhada conforme solicitado
+    const totalSec = Math.round((h * 3600) + (m * 60));
+    const hours = Math.floor(totalSec / 3600);
+    const minutes = Math.floor((totalSec % 3600) / 60);
+    const seconds = totalSec % 60;
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+};
+
 export const ReportsPage: React.FC<{ baseId?: string }> = ({ baseId }) => {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [acompanhamento, setAcompanhamento] = useState<any[]>([]);
   const [resumo, setResumo] = useState<any>({ categorias: [], totalHoras: 0, totalMinutos: 0 });
@@ -27,6 +37,15 @@ export const ReportsPage: React.FC<{ baseId?: string }> = ({ baseId }) => {
   
   const [dataInicio, setDataInicio] = useState('');
   const [dataFim, setDataFim] = useState('');
+
+  // Identificar todas as tarefas únicas para as colunas da tabela de detalhamento
+  const uniqueTaskNames = useMemo(() => {
+    const names = new Set<string>();
+    detalhamento.forEach(row => {
+      row.atividades?.forEach((at: any) => names.add(at.taskNome));
+    });
+    return Array.from(names).sort();
+  }, [detalhamento]);
 
   useEffect(() => {
     const loadData = () => {
@@ -61,6 +80,10 @@ export const ReportsPage: React.FC<{ baseId?: string }> = ({ baseId }) => {
     const text = detalhamento.map(d => `${d.data}\t${d.turno}\t${d.horasProduzida.toFixed(1)}h\t${d.percentualPerformance.toFixed(1)}%`).join('\n');
     navigator.clipboard.writeText(`DATA\tTURNO\tPROD\tPERF\n${text}`);
     alert('Resumo copiado para a área de transferência!');
+  };
+
+  const handleEdit = (id: string) => {
+    navigate(`/shift-handover?editId=${id}`);
   };
 
   if (loading) {
@@ -225,12 +248,17 @@ export const ReportsPage: React.FC<{ baseId?: string }> = ({ baseId }) => {
                 <TableCell align="right" sx={{ fontWeight: 900, fontSize: '0.65rem' }}>H.DISP.</TableCell>
                 <TableCell align="right" sx={{ fontWeight: 900, fontSize: '0.65rem' }}>H.PROD.</TableCell>
                 <TableCell align="right" sx={{ fontWeight: 900, fontSize: '0.65rem' }}>% PERF.</TableCell>
-                <TableCell align="center" sx={{ fontWeight: 900, fontSize: '0.65rem' }}>REGISTRO</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 900, fontSize: '0.65rem' }}>AÇÕES</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {detalhamento.map((row, i) => (
-                <CollapsibleDetailRow key={row.id} row={row} />
+              {detalhamento.map((row) => (
+                <CollapsibleDetailRow 
+                    key={row.id} 
+                    row={row} 
+                    taskColumns={uniqueTaskNames} 
+                    onEdit={() => handleEdit(row.id)} 
+                />
               ))}
               {detalhamento.length === 0 && <NoDataRows colSpan={8} />}
             </TableBody>
@@ -243,7 +271,7 @@ export const ReportsPage: React.FC<{ baseId?: string }> = ({ baseId }) => {
 };
 
 // --- COMPONENTE DE LINHA EXPANSÍVEL PARA DETALHAMENTO ---
-const CollapsibleDetailRow: React.FC<{ row: any }> = ({ row }) => {
+const CollapsibleDetailRow: React.FC<{ row: any, taskColumns: string[], onEdit: () => void }> = ({ row, taskColumns, onEdit }) => {
   const [open, setOpen] = useState(false);
 
   return (
@@ -264,38 +292,64 @@ const CollapsibleDetailRow: React.FC<{ row: any }> = ({ row }) => {
             {row.percentualPerformance.toFixed(1)}%
           </Typography>
         </TableCell>
-        <TableCell align="center" sx={{ fontSize: '0.7rem', color: '#9ca3af' }}>{row.horaRegistro}</TableCell>
+        <TableCell align="center">
+            <Tooltip title="Editar Passagem de Serviço">
+                <IconButton size="small" color="primary" onClick={onEdit} sx={{ bgcolor: '#eff6ff', '&:hover': { bgcolor: '#dbeafe' } }}>
+                    <Edit2 size={14} />
+                </IconButton>
+            </Tooltip>
+        </TableCell>
       </TableRow>
       <TableRow>
         <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={8}>
           <Collapse in={open} timeout="auto" unmountOnExit>
             <Box sx={{ p: 4, bgcolor: '#fcfcfc', border: '1px solid #f3f4f6', borderRadius: '1rem', m: 2 }}>
-              <Typography variant="overline" sx={{ fontWeight: 900, color: '#FF5A00' }}>Dados Detalhados do Turno</Typography>
               
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mt-4">
-                {/* Processos */}
+              {/* TABELA DE ATIVIDADES CONFORME SOLICITADO */}
+              <Box sx={{ mb: 4 }}>
+                <Typography variant="overline" sx={{ fontWeight: 900, color: '#FF5A00', mb: 2, display: 'block' }}>Detalhamento das Atividades (HH:MM:SS)</Typography>
+                <TableContainer component={Paper} sx={{ borderRadius: '0.75rem', border: '1px solid #e5e7eb', boxShadow: 'none' }}>
+                    <Table size="small">
+                        <TableHead sx={{ bgcolor: '#f9fafb' }}>
+                            <TableRow>
+                                {taskColumns.map(col => (
+                                    <TableCell key={col} sx={{ fontWeight: 900, fontSize: '0.6rem', color: '#6b7280', textTransform: 'uppercase' }}>
+                                        {col}
+                                    </TableCell>
+                                ))}
+                            </TableRow>
+                        </TableHead>
+                        <TableBody>
+                            <TableRow>
+                                {taskColumns.map(col => {
+                                    const activity = row.atividades?.find((a: any) => a.taskNome === col);
+                                    return (
+                                        <TableCell key={col} sx={{ fontWeight: 700, fontSize: '0.75rem', color: activity ? '#111827' : '#d1d5db' }}>
+                                            {activity ? formatToHms(activity.horas, activity.minutos) : '00:00:00'}
+                                        </TableCell>
+                                    );
+                                })}
+                            </TableRow>
+                        </TableBody>
+                    </Table>
+                </TableContainer>
+              </Box>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-4">
+                {/* Controles Diários */}
                 <Box>
-                  <Typography variant="caption" sx={{ fontWeight: 900, color: '#9ca3af', display: 'flex', alignItems: 'center', gap: 1 }}><FileSearch size={12}/> PROCESSOS OPERACIONAIS</Typography>
+                  <Typography variant="caption" sx={{ fontWeight: 900, color: '#9ca3af', display: 'flex', alignItems: 'center', gap: 1 }}><FileSearch size={12}/> CONTROLES DIÁRIOS</Typography>
                   <div className="mt-2 space-y-1">
                     {row.shelfLifeItems?.map((s:any, idx:number) => <p key={idx} className="text-[10px] font-bold text-gray-600">• Shelf Life: {s.itemNome} (Venc: {s.data})</p>)}
                     {row.locationItems?.map((l:any, idx:number) => <p key={idx} className="text-[10px] font-bold text-gray-600">• Location: {l.itemNome} (Vol: {l.quantidade})</p>)}
-                  </div>
-                </Box>
-                
-                {/* Atividades */}
-                <Box>
-                  <Typography variant="caption" sx={{ fontWeight: 900, color: '#9ca3af', display: 'flex', alignItems: 'center', gap: 1 }}><Activity size={12}/> ATIVIDADES REALIZADAS</Typography>
-                  <div className="mt-2 space-y-1">
-                    {row.atividades?.map((a:any, idx:number) => (
-                      <p key={idx} className="text-[10px] font-bold text-gray-600">• {a.taskNome}: {formatHhMm(a.horas, a.minutos)}</p>
-                    ))}
+                    {row.transitItems?.map((t:any, idx:number) => <p key={idx} className="text-[10px] font-bold text-gray-600">• Trânsito: {t.itemNome} (Vol: {t.quantidade})</p>)}
                   </div>
                 </Box>
 
                 {/* Obs */}
                 <Box>
-                  <Typography variant="caption" sx={{ fontWeight: 900, color: '#9ca3af', display: 'flex', alignItems: 'center', gap: 1 }}><ClipboardList size={12}/> OBSERVAÇÕES</Typography>
-                  <p className="mt-2 text-[10px] text-gray-500 italic font-medium leading-relaxed">
+                  <Typography variant="caption" sx={{ fontWeight: 900, color: '#9ca3af', display: 'flex', alignItems: 'center', gap: 1 }}><ClipboardList size={12}/> INFORMAÇÕES IMPORTANTES</Typography>
+                  <p className="mt-2 text-[10px] text-gray-500 italic font-medium leading-relaxed bg-white p-3 rounded-lg border border-gray-100">
                     {row.observacoes || 'Nenhuma observação registrada.'}
                   </p>
                 </Box>
@@ -308,7 +362,7 @@ const CollapsibleDetailRow: React.FC<{ row: any }> = ({ row }) => {
   );
 };
 
-// --- COMPONENTE DE LINHA EXPANSÍVEL PARA DETALHAMENTO ---
+// --- COMPONENTE DE SEÇÃO ---
 const ReportSection: React.FC<{title: string, subtitle: string, children: any, actions?: any}> = ({ title, subtitle, children, actions }) => (
   <Box sx={{ mb: 4 }}>
     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2.5, px: 1 }}>

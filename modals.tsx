@@ -38,20 +38,22 @@ export const ConfirmModal: React.FC<{
   message: string;
   confirmLabel?: string;
   cancelLabel?: string;
-  type?: 'danger' | 'warning' | 'info';
+  type?: 'danger' | 'warning' | 'info' | 'success';
 }> = ({ isOpen, onClose, onConfirm, title, message, confirmLabel = "Confirmar", cancelLabel, type = 'warning' }) => {
   if (!isOpen) return null;
 
   const colors = {
     danger: 'bg-red-600 text-white',
     warning: 'bg-orange-600 text-white',
-    info: 'bg-blue-600 text-white'
+    info: 'bg-blue-600 text-white',
+    success: 'bg-green-600 text-white'
   };
 
   const icons = {
     danger: <AlertOctagon className="w-12 h-12 mb-4" />,
     warning: <AlertTriangle className="w-12 h-12 mb-4" />,
-    info: <Info className="w-12 h-12 mb-4" />
+    info: <Info className="w-12 h-12 mb-4" />,
+    success: <CheckCircle2 className="w-12 h-12 mb-4" />
   };
 
   return (

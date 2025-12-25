@@ -1,11 +1,12 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   CheckCircle, Trash2, Info, Users, Clock, AlertTriangle, ClipboardList,
   X, TrendingUp, Timer, MapPin, Box, Truck, FlaskConical, AlertOctagon, Plane, Settings,
-  Calendar, UserCheck, Activity, BarChart3, MessageSquare, PlusCircle
+  Calendar, UserCheck, Activity, BarChart3, MessageSquare, PlusCircle,
+  Edit2
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useStore } from '../hooks/useStore';
 import { 
   MeasureType, OutraAtividade, Control, 
@@ -80,6 +81,9 @@ const atendeCriterioVermelho = (vermelho: any, dias: number): boolean => {
 const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
   const store = useStore();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const editId = searchParams.get('editId');
+
   const { 
     getControlesCombinados, getDefaultLocations, getDefaultTransits, getDefaultCriticals, getDefaultShelfLifes,
     bases, users, tasks: allTasks, categories: allCats, controls: allControls, 
@@ -114,7 +118,87 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
   const [critical, setCritical] = useState<CriticalRow[]>([]);
   
   const [activeAlert, setActiveAlert] = useState<{titulo: string, mensagem: string, color: string} | null>(null);
-  const [confirmModal, setConfirmModal] = useState<{ open: boolean, title: string, message: string, onConfirm: () => void, onCancel?: () => void, type?: 'danger' | 'warning' | 'info', confirmLabel?: string, cancelLabel?: string }>({ open: false, title: '', message: '', onConfirm: () => {} });
+  const [confirmModal, setConfirmModal] = useState<{ open: boolean, title: string, message: string, onConfirm: () => void, onCancel?: () => void, type?: 'danger' | 'warning' | 'info' | 'success', confirmLabel?: string, cancelLabel?: string }>({ open: false, title: '', message: '', onConfirm: () => {} });
+
+  // --- Lógica de Persistência Local ---
+  const storageKey = useMemo(() => `gol_handover_draft_${baseId || 'null'}`, [baseId]);
+  const hasLoadedDraft = useRef<string | null>(null);
+
+  // Carregar do LocalStorage ou do modo EDIÇÃO
+  useEffect(() => {
+    if (!baseId || hasLoadedDraft.current === baseId) return;
+
+    if (editId) {
+      // Modo Edição: Carregar do relatório
+      const reportsRaw = localStorage.getItem('gol_rep_detalhamento');
+      if (reportsRaw) {
+        const reports = JSON.parse(reportsRaw);
+        const record = reports.find((r: any) => r.id === editId);
+        if (record) {
+          setDataOperacional(record.data);
+          setTurnoAtivo(record.turnoId);
+          setColaboradoresIds(record.colaboradoresIds || [null, null, null, null, null, null]);
+          setTarefasValores(record.tarefasExecutadas);
+          setObs(record.informacoesImportantes || record.observacoes || '');
+          setOutrasTarefas(record.nonRoutineTasks || []);
+          setLocations(record.locationsData || []);
+          setTransit(record.transitData || []);
+          setShelfLife(record.shelfLifeData || []);
+          setCritical(record.criticalData || []);
+          setStatus('Rascunho'); // Permitir editar
+          console.debug("[Persistência] Modo Edição Carregado:", editId);
+          hasLoadedDraft.current = baseId;
+          return;
+        }
+      }
+    }
+    
+    // Modo Draft Normal
+    const saved = localStorage.getItem(storageKey);
+    if (saved) {
+      try {
+        const data = JSON.parse(saved);
+        if (data.dataOperacional) setDataOperacional(data.dataOperacional);
+        if (data.turnoAtivo) setTurnoAtivo(data.turnoAtivo);
+        if (data.colaboradoresIds) setColaboradoresIds(data.colaboradoresIds);
+        if (data.tarefasValores) setTarefasValores(data.tarefasValores);
+        if (data.obs !== undefined) setObs(data.obs);
+        if (data.outrasTarefas) setOutrasTarefas(data.outrasTarefas);
+        if (data.locations) setLocations(data.locations);
+        if (data.transit) setTransit(data.transit);
+        if (data.shelfLife) setShelfLife(data.shelfLife);
+        if (data.critical) setCritical(data.critical);
+        if (data.status) setStatus(data.status);
+        console.debug("[Persistência] Draft carregado integralmente.");
+      } catch (e) {
+        console.error("[Persistência] Erro ao carregar draft:", e);
+      }
+    }
+    hasLoadedDraft.current = baseId;
+  }, [baseId, storageKey, editId]);
+
+  // Salvar no LocalStorage sempre que houver alteração
+  useEffect(() => {
+    if (!baseId || hasLoadedDraft.current !== baseId || editId) return;
+
+    const draft = {
+      dataOperacional,
+      turnoAtivo,
+      colaboradoresIds,
+      tarefasValores,
+      obs,
+      outrasTarefas,
+      locations,
+      transit,
+      shelfLife,
+      critical,
+      status
+    };
+    localStorage.setItem(storageKey, JSON.stringify(draft));
+  }, [
+    baseId, storageKey, dataOperacional, turnoAtivo, colaboradoresIds, 
+    tarefasValores, obs, outrasTarefas, locations, transit, shelfLife, critical, status, editId
+  ]);
 
   // Sincronização de Itens Padrão
   useEffect(() => {
@@ -143,9 +227,21 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
 
     setShelfLife(prev => {
       const activeStoreItems = getDefaultShelfLifes(baseId);
+      // Garantir 2 linhas disponíveis se não existirem
       const filtered = prev.filter(p => !p.isPadrao || activeStoreItems.some(i => i.id === p.id));
       const toAdd = activeStoreItems.filter(i => !prev.some(p => p.id === i.id));
-      return [...filtered, ...toAdd.map(i => ({ id: i.id, partNumber: i.partNumber, lote: '', dataVencimento: '', isPadrao: true, config: i }))];
+      const result = [...filtered, ...toAdd.map(i => ({ id: i.id, partNumber: i.partNumber, lote: '', dataVencimento: '', isPadrao: true, config: i }))];
+      
+      // Se não houver pelo menos 2 linhas manuais, adicionar
+      const manualRows = result.filter(r => !r.isPadrao);
+      if (manualRows.length < 2) {
+        const needed = 2 - manualRows.length;
+        for (let j = 0; j < needed; j++) {
+          result.push({ id: `manual-init-${Date.now()}-${j}`, partNumber: '', lote: '', dataVencimento: '', isPadrao: false });
+        }
+      }
+      
+      return result;
     });
   }, [baseId, initialized, getDefaultLocations, getDefaultTransits, getDefaultCriticals, getDefaultShelfLifes]);
 
@@ -228,8 +324,9 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
   };
 
   /**
-   * CORREÇÃO: Função de Limpeza Seletiva
-   * Limpa apenas dados de produção, preservando controles e observações.
+   * CORREÇÃO: Função de Limpeza Seletiva (Pós-Finalização)
+   * Limpa estritamente apenas dados de produção e equipe.
+   * PRESERVA: Observações, Shelf-Life, Locations, Trânsito e Saldo Crítico.
    */
   const resetCamposProducao = () => {
     console.debug("[Limpeza Seletiva] Iniciando limpeza de produtividade...");
@@ -240,7 +337,7 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
     // 2. Limpar Horas Produzidas
     setTarefasValores({});
     
-    // 3. Reinicializar Outras Tarefas para 3 linhas vazias
+    // 3. Reinicializar Outras Tarefas para o padrão inicial
     setOutrasTarefas([
       { id: 'nr1', nome: '', tempo: '' }, 
       { id: 'nr2', nome: '', tempo: '' }, 
@@ -251,9 +348,8 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
     setStatus('Rascunho');
     setErrosValidacao([]);
 
-    // 5. Logs de Auditoria
-    console.debug("[Limpeza Seletiva] Equipe, Atividades e Outras Tarefas limpas.");
-    console.debug("[Limpeza Seletiva] PRESERVADOS: Observações e Controles Diários para continuidade operacional.");
+    //Logs para auditoria
+    console.debug("[Limpeza Seletiva] Produtividade limpa. Dados de Continuidade (Obs e Controles) PRESERVADOS.");
   };
 
   const handleFinalize = async () => {
@@ -265,7 +361,7 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
     });
 
     const handoverData: ShiftHandover = {
-      id: `sh_${Date.now()}`,
+      id: editId || `sh_${Date.now()}`,
       baseId: baseId || '',
       data: dataOperacional,
       turnoId: turnoAtivo,
@@ -296,15 +392,17 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
       return;
     }
 
-    const jaFinalizada = validationService.validarPassagemDuplicada(dataOperacional, turnoAtivo, baseId || '');
-    if (jaFinalizada) {
-      const turnoNum = currentBase?.turnos.find(t => t.id === turnoAtivo)?.numero || turnoAtivo;
-      setActiveAlert({
-        titulo: "PASSAGEM JÁ FINALIZADA",
-        mensagem: `Já existe uma Passagem de Serviço finalizada para o dia ${dataOperacional} no Turno ${turnoNum}. Não é possível finalizar 2 vezes a mesma passagem.`,
-        color: "bg-red-600"
-      });
-      return;
+    if (!editId) {
+      const jaFinalizada = validationService.validarPassagemDuplicada(dataOperacional, turnoAtivo, baseId || '');
+      if (jaFinalizada) {
+        const turnoNum = currentBase?.turnos.find(t => t.id === turnoAtivo)?.numero || turnoAtivo;
+        setActiveAlert({
+          titulo: "PASSAGEM JÁ FINALIZADA",
+          mensagem: `Já existe uma Passagem de Serviço finalizada para o dia ${dataOperacional} no Turno ${turnoNum}. Não é possível finalizar 2 vezes a mesma passagem.`,
+          color: "bg-red-600"
+        });
+        return;
+      }
     }
 
     const duplicadosNoDia = validationService.verificarColaboradoresEmOutrosTurnos(dataOperacional, turnoAtivo, baseId || '', colaboradoresIds, baseUsers);
@@ -321,6 +419,19 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
       return;
     }
 
+    if (editId) {
+      setConfirmModal({
+        open: true,
+        title: 'CONFIRMAR ALTERAÇÃO',
+        message: 'Tem certeza que quer alterar os dados desta passagem de serviço no histórico de relatórios?',
+        type: 'warning',
+        onConfirm: () => proceedToMigrate(handoverData),
+        confirmLabel: 'Sim, Salvar Alterações',
+        cancelLabel: 'Não, Cancelar'
+      });
+      return;
+    }
+
     proceedToMigrate(handoverData);
   };
 
@@ -328,21 +439,26 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
     try {
       console.debug("[Finalização] Iniciando finalização da passagem");
       console.debug("[Finalização] Migrando dados para histórico...");
-      await migrationService.processarMigracao(data, store);
+      await migrationService.processarMigracao(data, store, editId || undefined);
       console.debug("[Finalização] Passagem salva com sucesso");
       
       setConfirmModal({
         open: true,
-        title: 'Passagem Finalizada com Sucesso!',
-        message: 'Seus dados foram migrados para Relatórios com sucesso.',
-        type: 'info',
-        confirmLabel: 'Retornar ao Início',
-        cancelLabel: undefined, // Remove o segundo botão conforme solicitado
+        title: editId ? 'Alteração Salva com Sucesso!' : 'Passagem Finalizada com Sucesso!',
+        message: editId ? 'As informações originais foram substituídas pelas novas no histórico.' : 'Seus dados foram migrados para Relatórios com sucesso.',
+        type: 'success',
+        confirmLabel: 'OK',
+        cancelLabel: undefined, 
         onConfirm: () => {
-          console.debug("[Finalização] Usuário clicou 'Retornar ao Início'");
-          resetCamposProducao();
-          setConfirmModal(prev => ({ ...prev, open: false }));
-          console.debug("[Finalização] Passagem retornou ao status rascunho");
+          console.debug("[Finalização] Usuário clicou 'OK'");
+          if (editId) {
+             navigate('/reports');
+          } else {
+             resetCamposProducao();
+             setConfirmModal(prev => ({ ...prev, open: false }));
+             window.scrollTo({ top: 0, behavior: 'smooth' });
+          }
+          console.debug("[Finalização] Fluxo concluído.");
         }
       });
     } catch (error) {
@@ -355,6 +471,16 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
 
   return (
     <div className="max-w-full mx-auto space-y-8 animate-in fade-in relative px-4 md:px-8">
+      {editId && (
+        <div className="bg-amber-50 border-l-4 border-amber-500 p-4 rounded-xl flex items-center justify-between">
+           <div className="flex items-center space-x-3">
+             <Edit2 className="text-amber-600 w-5 h-5" />
+             <p className="text-sm font-bold text-amber-800 uppercase tracking-tight">MODO EDIÇÃO: Você está alterando um registro histórico existente.</p>
+           </div>
+           <button onClick={() => navigate('/reports')} className="text-xs font-black text-amber-600 uppercase hover:underline">Cancelar Edição</button>
+        </div>
+      )}
+
       {activeAlert && (
         <div className="fixed inset-0 z-[200] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
           <div className={`${activeAlert.color} text-white p-8 rounded-[2.5rem] shadow-2xl max-w-lg w-full border-4 border-white/20 text-center`}>
@@ -440,7 +566,7 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.2em] mt-1">Gestão de itens críticos e conformidade técnica.</p>
               </div>
 
-              <PanelContainer title="Shelf Life" icon={<FlaskConical size={16} className="text-orange-500" />} onAdd={() => setShelfLife([...shelfLife, { id: `m-${Date.now()}`, partNumber: '', lote: '', dataVencimento: '' }])} isViewOnly={isViewOnly}>
+              <PanelContainer title="Shelf Life" icon={<FlaskConical size={16} className="text-orange-500" />} onAdd={() => setShelfLife([...shelfLife, { id: `m-${Date.now()}`, partNumber: '', lote: '', dataVencimento: '', isPadrao: false }])} isViewOnly={isViewOnly}>
                 <table className="w-full text-left">
                   <thead className="bg-gray-50 text-[10px] font-black text-gray-400 uppercase tracking-widest"><tr><th className="px-6 py-4">Part Number</th><th className="px-6 py-4">Lote</th><th className="px-6 py-4">Vencimento</th></tr></thead>
                   <tbody>
@@ -594,7 +720,7 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
 
       {!isViewOnly && (
         <div className="fixed bottom-8 right-8 z-40">
-          <button onClick={handleFinalize} className="bg-orange-600 text-white px-12 py-5 rounded-2xl font-black text-sm uppercase tracking-widest shadow-2xl hover:scale-105 transition-all flex items-center space-x-3 border-4 border-white"><CheckCircle size={20} /><span>Finalizar Passagem de Serviço</span></button>
+          <button onClick={handleFinalize} className="bg-orange-600 text-white px-12 py-5 rounded-2xl font-black text-sm uppercase tracking-widest shadow-2xl hover:scale-105 transition-all flex items-center space-x-3 border-4 border-white"><CheckCircle size={20} /><span>{editId ? 'Salvar Alterações no Histórico' : 'Finalizar Passagem de Serviço'}</span></button>
         </div>
       )}
     </div>

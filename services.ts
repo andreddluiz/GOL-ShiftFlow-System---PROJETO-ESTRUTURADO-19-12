@@ -3,7 +3,7 @@ import {
   Base, User, Category, Task, Control, 
   DefaultLocationItem, DefaultTransitItem, DefaultCriticalItem,
   ShelfLifeItem, CustomControlType, CustomControlItem,
-  ShiftHandover, Indicator, Report, OutraAtividade
+  ShiftHandover, Indicator, Report, OutraAtividade, MonthlyCollection
 } from './types';
 import { BASES, CATEGORIES, TASKS, CONTROLS, USERS, DEFAULT_LOCATIONS, DEFAULT_TRANSITS, DEFAULT_CRITICALS } from './constants';
 
@@ -25,7 +25,8 @@ const STORAGE_KEYS = {
   REP_ACOMPANHAMENTO: 'gol_rep_acompanhamento',
   REP_RESUMO: 'gol_rep_resumo',
   REP_MENSAL: 'gol_rep_mensal',
-  REP_DETALHAMENTO: 'gol_rep_detalhamento'
+  REP_DETALHAMENTO: 'gol_rep_detalhamento',
+  MONTHLY_COLLECTIONS: 'gol_shiftflow_monthly_collections'
 };
 
 const getFromStorage = <T>(key: string, defaultVal: T): T => {
@@ -343,6 +344,62 @@ export const userService = {
     const users = await this.getAll();
     const updated = users.map(u => u.id === id ? { ...u, deletada: true, status: 'Inativo' } : u) as User[];
     saveToStorage(STORAGE_KEYS.USERS, updated);
+  }
+};
+
+export const monthlyService = {
+  async getAll(): Promise<MonthlyCollection[]> {
+    return getFromStorage<MonthlyCollection[]>(STORAGE_KEYS.MONTHLY_COLLECTIONS, []);
+  },
+
+  async save(data: MonthlyCollection): Promise<void> {
+    const collections = await this.getAll();
+    const idx = collections.findIndex(c => c.id === data.id);
+    if (idx > -1) collections[idx] = data;
+    else collections.push(data);
+    saveToStorage(STORAGE_KEYS.MONTHLY_COLLECTIONS, collections);
+    await this.syncWithReports(collections);
+  },
+
+  async syncWithReports(collections: MonthlyCollection[]): Promise<void> {
+    // Sincroniza coletas FINALIZADAS com a chave gol_rep_mensal esperada pelo ReportsPage
+    const storeTasks = getFromStorage<Task[]>(STORAGE_KEYS.TASKS, []);
+    
+    const monthlyReports = collections
+      .filter(c => c.status === 'FINALIZADO')
+      .map(c => {
+        let totalHoras = 0;
+        let totalMinutos = 0;
+
+        Object.entries(c.tarefasValores).forEach(([taskId, val]) => {
+          const task = storeTasks.find(t => t.id === taskId);
+          if (!task) return;
+
+          if (task.tipoMedida === 'TEMPO') {
+            const p = val.split(':').map(Number);
+            totalHoras += (p[0] || 0);
+            totalMinutos += (p[1] || 0);
+          } else {
+            const qty = parseFloat(val) || 0;
+            const mins = qty * task.fatorMultiplicador;
+            totalHoras += Math.floor(mins / 60);
+            totalMinutos += Math.round(mins % 60);
+          }
+        });
+
+        const conv = timeUtils.converterMinutosParaHoras(totalHoras * 60 + totalMinutos);
+
+        return {
+          id: c.id,
+          mesReferencia: `${String(c.mes).padStart(2, '0')}/${c.ano}`,
+          status: 'OK',
+          totalGeral: { horas: conv.horas, minutos: conv.minutos },
+          dataFinalizacao: c.dataFinalizacao
+        };
+      })
+      .sort((a, b) => b.mesReferencia.localeCompare(a.mesReferencia));
+
+    saveToStorage(STORAGE_KEYS.REP_MENSAL, monthlyReports);
   }
 };
 

@@ -103,7 +103,7 @@ const ReportsPage: React.FC<{ baseId?: string }> = ({ baseId }) => {
       const d = localStorage.getItem('gol_rep_detalhamento');
       if (a) setAcompanhamento(JSON.parse(a).reverse());
       if (r) setResumo(JSON.parse(r));
-      if (m) setMensal(JSON.parse(m).reverse());
+      if (m) setMensal(JSON.parse(m));
       if (d) setDetalhamento(JSON.parse(d).reverse());
       setLoading(false);
     };
@@ -188,6 +188,8 @@ const ReportsPage: React.FC<{ baseId?: string }> = ({ baseId }) => {
   };
 
   const handleEdit = (id: string) => navigate(`/shift-handover?editId=${id}`);
+  
+  const handleEditMonthly = (id: string) => navigate(`/monthly-collection?editId=${id}`);
 
   if (loading) {
     return (
@@ -295,6 +297,7 @@ const ReportsPage: React.FC<{ baseId?: string }> = ({ baseId }) => {
                 <TableCell sx={{ fontWeight: 900, fontSize: '0.7rem' }}>MÊS REFERÊNCIA</TableCell>
                 <TableCell align="right" sx={{ fontWeight: 900, fontSize: '0.7rem' }}>TOTAL HORAS</TableCell>
                 <TableCell align="center" sx={{ fontWeight: 900, fontSize: '0.7rem' }}>STATUS</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 900, fontSize: '0.7rem' }}>AÇÕES</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -303,9 +306,16 @@ const ReportsPage: React.FC<{ baseId?: string }> = ({ baseId }) => {
                   <TableCell sx={{ fontWeight: 900, color: '#4b5563' }}>{row.mesReferencia}</TableCell>
                   <TableCell align="right">{formatHhMm(row.totalGeral.horas, row.totalGeral.minutos)}</TableCell>
                   <TableCell align="center"><StatusBadge status="OK" /></TableCell>
+                  <TableCell align="center">
+                    <Tooltip title="Editar Coleta">
+                       <IconButton size="small" onClick={() => handleEditMonthly(row.id)} sx={{ bgcolor: '#f0fdf4', '&:hover': { bgcolor: '#dcfce7' } }}>
+                         <Edit2 size={12} color="#166534" />
+                       </IconButton>
+                    </Tooltip>
+                  </TableCell>
                 </TableRow>
               ))}
-              {mensal.length === 0 && <NoDataRows colSpan={3} />}
+              {mensal.length === 0 && <NoDataRows colSpan={4} />}
             </TableBody>
           </Table>
         </TableContainer>

@@ -3,11 +3,12 @@ import { create } from 'zustand';
 import { 
   Base, User, Category, Task, Control, ControlType,
   DefaultLocationItem, DefaultTransitItem, DefaultCriticalItem,
-  ShelfLifeItem, CustomControlType, CustomControlItem, ConditionConfig, PopupConfig
+  ShelfLifeItem, CustomControlType, CustomControlItem, ConditionConfig, PopupConfig,
+  MonthlyCollection
 } from '../types';
 import { 
   baseService, userService, taskService, categoryService, 
-  controlService, defaultItemsService 
+  controlService, defaultItemsService, monthlyService
 } from '../services';
 
 interface AppState {
@@ -22,6 +23,7 @@ interface AppState {
   defaultShelfLifes: ShelfLifeItem[];
   customControlTypes: CustomControlType[];
   customControlItems: CustomControlItem[];
+  monthlyCollections: MonthlyCollection[];
   loading: boolean;
   initialized: boolean;
   
@@ -33,8 +35,12 @@ interface AppState {
   saveCustomControlType: (data: CustomControlType) => Promise<void>;
   deleteCustomControlType: (id: string) => Promise<void>;
 
+  saveMonthlyCollection: (data: MonthlyCollection) => Promise<void>;
+
   getOpCategoriesCombinadas: (baseId?: string | null) => Category[];
   getOpTasksCombinadas: (baseId?: string | null) => Task[];
+  getMonthlyCategoriesCombinadas: (baseId?: string | null) => Category[];
+  getMonthlyTasksCombinadas: (baseId?: string | null) => Task[];
   getControlesCombinados: (baseId: string) => Control[];
   
   getDefaultLocations: (baseId: string) => DefaultLocationItem[];
@@ -56,13 +62,14 @@ export const useStore = create<AppState>((set, get) => ({
   defaultShelfLifes: [],
   customControlTypes: [],
   customControlItems: [],
+  monthlyCollections: [],
   loading: false,
   initialized: false,
 
   refreshData: async (showFullLoading = false) => {
     if (showFullLoading) set({ loading: true });
     try {
-      const [bases, users, tasks, cats, controls, defLocs, defTrans, defCrit, defShelf, custTypes, custItems] = await Promise.all([
+      const [bases, users, tasks, cats, controls, defLocs, defTrans, defCrit, defShelf, custTypes, custItems, monthly] = await Promise.all([
         baseService.getAll(),
         userService.getAll(),
         taskService.getAll(),
@@ -73,7 +80,8 @@ export const useStore = create<AppState>((set, get) => ({
         defaultItemsService.getCriticals(),
         defaultItemsService.getShelfLifes(),
         defaultItemsService.getCustomTypes(),
-        defaultItemsService.getCustomItems()
+        defaultItemsService.getCustomItems(),
+        monthlyService.getAll()
       ]);
       set({ 
         bases: bases.filter(b => !b.deletada), 
@@ -87,6 +95,7 @@ export const useStore = create<AppState>((set, get) => ({
         defaultShelfLifes: defShelf.filter(i => !i.deletada),
         customControlTypes: custTypes.filter(t => !t.deletada),
         customControlItems: custItems.filter(i => !i.deletada),
+        monthlyCollections: monthly,
         initialized: true 
       });
     } finally {
@@ -122,6 +131,11 @@ export const useStore = create<AppState>((set, get) => ({
     await get().refreshData();
   },
 
+  saveMonthlyCollection: async (data) => {
+    await monthlyService.save(data);
+    await get().refreshData();
+  },
+
   getOpCategoriesCombinadas: (baseId) => {
     return get().categories.filter(c => 
       !c.deletada &&
@@ -138,6 +152,27 @@ export const useStore = create<AppState>((set, get) => ({
       t.status === 'Ativa' && 
       (t.visivel !== false) && 
       (!t.baseId || t.baseId === baseId)
+    );
+  },
+
+  getMonthlyCategoriesCombinadas: (baseId) => {
+    return get().categories.filter(c => 
+      !c.deletada &&
+      c.tipo === 'mensal' && 
+      c.status === 'Ativa' && 
+      (c.visivel !== false) && 
+      (!c.baseId || c.baseId === baseId)
+    ).sort((a,b) => a.ordem - b.ordem);
+  },
+
+  getMonthlyTasksCombinadas: (baseId) => {
+    const monthlyCats = get().getMonthlyCategoriesCombinadas(baseId);
+    const catIds = new Set(monthlyCats.map(c => c.id));
+    return get().tasks.filter(t => 
+      !t.deletada &&
+      t.status === 'Ativa' && 
+      (t.visivel !== false) && 
+      catIds.has(t.categoriaId)
     );
   },
 

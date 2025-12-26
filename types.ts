@@ -72,6 +72,18 @@ export interface Task {
   dataExclusao?: string; 
 }
 
+export interface MonthlyCollection {
+  id: string;
+  baseId: string;
+  mes: number; // 1-12
+  ano: number;
+  status: 'ABERTO' | 'FINALIZADO';
+  tarefasValores: Record<string, string>; // ID da tarefa -> Valor string (qty ou tempo)
+  dataCriacao: string;
+  dataFinalizacao?: string;
+  updatedAt: string;
+}
+
 export interface ConditionConfig {
   condicao: string; 
   operador: '>' | '<' | '=' | '>=' | '<=' | 'entre' | '!=';

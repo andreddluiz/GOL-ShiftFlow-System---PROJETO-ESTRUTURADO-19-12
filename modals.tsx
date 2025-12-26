@@ -7,9 +7,21 @@ import {
 } from './types';
 
 // MUI Imports
-import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { 
+  LocalizationProvider 
+} from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
+import { 
+  Box as MuiBox, 
+  TextField, 
+  Button, 
+  FormControl, 
+  InputLabel, 
+  Select, 
+  MenuItem,
+  Typography as MuiTypography
+} from '@mui/material';
 import dayjs from 'dayjs';
 import customParseFormat from 'dayjs/plugin/customParseFormat';
 import 'dayjs/locale/pt-br';
@@ -27,8 +39,7 @@ interface ModalProps {
 }
 
 /**
- * Componente de Confirmação Customizado (Substitui window.confirm bloqueado)
- * Ajustado para suportar botão único se cancelLabel for omitido.
+ * Componente de Confirmação Customizado
  */
 export const ConfirmModal: React.FC<{
   isOpen: boolean;
@@ -86,7 +97,7 @@ export const ConfirmModal: React.FC<{
 };
 
 /**
- * Utilitários de Conversão de Tempo
+ * Utilitários de Tempo
  */
 export const hhmmssToMinutes = (hms: string): number => {
   if (!hms || hms === '00:00:00' || hms === '__:__:__') return 0;
@@ -108,7 +119,7 @@ export const minutesToHhmmss = (totalMinutes: number): string => {
 };
 
 /**
- * Componente TimeInput com máscara HH:MM:SS
+ * TimeInput
  */
 export const TimeInput: React.FC<{
   value: string;
@@ -236,7 +247,7 @@ export const DatePickerField: React.FC<{
 };
 
 /**
- * Modal para Cadastrar/Editar Itens de Controle (Standard & Custom)
+ * Modal para Itens de Controle
  */
 export const ControlItemModal: React.FC<ModalProps & { activeTab: string, customControlTypes: CustomControlType[] }> = ({ isOpen, onClose, onSave, title, initialData, activeTab, customControlTypes }) => {
   const [formData, setFormData] = useState<any>({});
@@ -245,14 +256,12 @@ export const ControlItemModal: React.FC<ModalProps & { activeTab: string, custom
     if (initialData) {
       setFormData(initialData);
     } else {
-      // Setup de valores iniciais por tipo
       const base = { id: Math.random().toString(36).substr(2, 9), status: 'ativo', visivel: true };
       if (activeTab === 'shelf') setFormData({ ...base, partNumber: '', lote: '', dataVencimento: '' });
       else if (activeTab === 'loc') setFormData({ ...base, nomeLocation: '' });
       else if (activeTab === 'trans') setFormData({ ...base, nomeTransito: '', diasPadrao: 0 });
       else if (activeTab === 'crit') setFormData({ ...base, partNumber: '' });
       else {
-        // Custom
         const type = customControlTypes.find(t => t.id === activeTab);
         const valores: any = {};
         type?.campos.forEach(c => valores[c] = '');
@@ -288,22 +297,18 @@ export const ControlItemModal: React.FC<ModalProps & { activeTab: string, custom
               <DatePickerField label="Data de Vencimento" value={formData.dataVencimento} onChange={v => setFormData({...formData, dataVencimento: v})} />
             </>
           )}
-
           {activeTab === 'loc' && (
             <Input label="Nome da Location" value={formData.nomeLocation} onChange={v => setFormData({...formData, nomeLocation: v.toUpperCase()})} />
           )}
-
           {activeTab === 'trans' && (
             <>
               <Input label="Nome do Trânsito" value={formData.nomeTransito} onChange={v => setFormData({...formData, nomeTransito: v.toUpperCase()})} />
               <Input label="TAT Padrão (Dias)" type="number" value={formData.diasPadrao} onChange={v => setFormData({...formData, diasPadrao: parseInt(v) || 0})} />
             </>
           )}
-
           {activeTab === 'crit' && (
             <Input label="Part Number" value={formData.partNumber} onChange={v => setFormData({...formData, partNumber: v})} />
           )}
-
           {currentCustomType && (
             currentCustomType.campos.map(campo => (
               <Input key={campo} label={campo} value={formData.valores?.[campo] || ''} onChange={v => handleCustomFieldChange(campo, v)} />
@@ -486,22 +491,210 @@ export const BaseModal: React.FC<ModalProps> = ({ isOpen, onClose, onSave, title
   );
 };
 
-export const UserModal: React.FC<ModalProps> = ({ isOpen, onClose, onSave, title, initialData }) => {
-  const [formData, setFormData] = useState<Partial<User>>({ nome: '', email: '', status: 'Ativo', bases: [] });
-  useEffect(() => { if (initialData) setFormData(initialData); }, [initialData, isOpen]);
+/**
+ * UserModal Atualizado (Solicitação 56.0)
+ * Inclui campo Base, opções de Jornada e opção de Status (ATIVO/INATIVO).
+ */
+export const UserModal: React.FC<ModalProps & { availableBases?: Base[] }> = ({ isOpen, onClose, onSave, title, initialData, availableBases = [] }) => {
+  const [formData, setFormData] = useState<any>({ 
+    nome: '', 
+    email: '', 
+    status: 'Ativo', 
+    bases: [], 
+    permissao: PermissionLevel.OPERACAO,
+    jornadaPadrao: 6,
+    tipoJornada: 'predefinida'
+  });
+
+  useEffect(() => { 
+    if (initialData) {
+      console.debug(`[UserModal] Carregando dados iniciais:`, initialData);
+      const isPredefined = [6, 7.2, 8].includes(Number(initialData.jornadaPadrao));
+      setFormData({
+        ...initialData,
+        tipoJornada: isPredefined ? 'predefinida' : 'customizada',
+        status: initialData.status || 'Ativo'
+      });
+    } else {
+      setFormData({ 
+        nome: '', email: '', status: 'Ativo', bases: [], 
+        permissao: PermissionLevel.OPERACAO, jornadaPadrao: 6, tipoJornada: 'predefinida' 
+      });
+    }
+  }, [initialData, isOpen]);
+
   if (!isOpen) return null;
+
+  const handleFieldChange = (campo: string, valor: any) => {
+    console.debug(`[UserModal] Campo alterado: ${campo} = ${valor}`);
+    if (campo === 'tipoJornada') {
+      setFormData({
+        ...formData,
+        tipoJornada: valor,
+        jornadaPadrao: valor === 'predefinida' ? 6 : formData.jornadaPadrao
+      });
+    } else if (campo === 'selectedBase') {
+      // Mapeia a base única selecionada para o array de bases do objeto User
+      setFormData({ ...formData, bases: valor ? [valor] : [] });
+    } else {
+      setFormData({ ...formData, [campo]: valor });
+    }
+  };
+
+  const handleLocalSave = () => {
+    console.debug(`[UserModal] Tentando salvar usuário:`, formData);
+    
+    if (!formData.nome?.trim()) { alert('Nome é obrigatório'); return; }
+    if (!formData.email?.trim()) { alert('Email é obrigatório'); return; }
+    if (formData.bases.length === 0) { alert('Base é obrigatória'); return; }
+    if (!formData.jornadaPadrao) { alert('Jornada é obrigatória'); return; }
+    if (!formData.status) { alert('Status é obrigatório'); return; }
+
+    onSave({
+      ...formData, 
+      id: formData.id || Math.random().toString(36).substr(2, 9),
+      jornadaPadrao: Number(String(formData.jornadaPadrao).replace(',', '.'))
+    });
+  };
+
+  const selectedBaseId = formData.bases?.[0] || '';
+
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl p-8 animate-in zoom-in-95">
-        <h3 className="text-xl font-bold mb-4">{title}</h3>
-        <div className="space-y-4">
-          <input className="w-full p-3 border rounded-xl font-bold" placeholder="Nome Completo" value={formData.nome} onChange={e => setFormData({...formData, nome: e.target.value})} />
-          <input className="w-full p-3 border rounded-xl" placeholder="E-mail Corporativo" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} />
-          <input className="w-full p-3 border rounded-xl" type="number" placeholder="Horas de Trabalho (Jornada)" value={formData.jornadaPadrao} onChange={e => setFormData({...formData, jornadaPadrao: parseInt(e.target.value) || 0})} />
-        </div>
-        <div className="flex space-x-2 mt-6">
-          <button onClick={onClose} className="flex-1 py-3 bg-gray-100 rounded-xl font-bold text-gray-500">Cancelar</button>
-          <button onClick={() => onSave({...formData, id: formData.id || Math.random().toString(36).substr(2, 9)})} className="flex-1 py-3 bg-orange-600 text-white rounded-xl font-bold shadow-lg">Salvar</button>
+      <div className="bg-white rounded-[2.5rem] w-full max-w-md shadow-2xl p-8 animate-in zoom-in-95 flex flex-col gap-6 max-h-[95vh] overflow-y-auto">
+        <h3 className="text-2xl font-black text-gray-800 uppercase tracking-tight">{title}</h3>
+        
+        <MuiBox sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+          <TextField
+            label="Nome Completo"
+            placeholder="Nome e Sobrenome"
+            value={formData.nome}
+            onChange={(e) => handleFieldChange('nome', e.target.value)}
+            fullWidth
+            required
+            variant="outlined"
+            slotProps={{ input: { sx: { borderRadius: '1rem' } } }}
+          />
+
+          <TextField
+            label="Email Corporativo"
+            type="email"
+            placeholder="usuario@gol.com.br"
+            value={formData.email}
+            onChange={(e) => handleFieldChange('email', e.target.value)}
+            fullWidth
+            required
+            variant="outlined"
+            slotProps={{ input: { sx: { borderRadius: '1rem' } } }}
+          />
+
+          <FormControl fullWidth required>
+            <InputLabel>Base Operacional</InputLabel>
+            <Select
+              value={selectedBaseId}
+              onChange={(e) => handleFieldChange('selectedBase', e.target.value)}
+              label="Base Operacional"
+              sx={{ borderRadius: '1rem' }}
+            >
+              <MenuItem value=""><em>Selecione uma base</em></MenuItem>
+              {availableBases.map((base) => (
+                <MenuItem key={base.id} value={base.id}>{base.sigla} - {base.nome}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          <FormControl fullWidth>
+            <InputLabel>Nível de Permissão</InputLabel>
+            <Select
+              value={formData.permissao}
+              onChange={(e) => handleFieldChange('permissao', e.target.value)}
+              label="Nível de Permissão"
+              sx={{ borderRadius: '1rem' }}
+            >
+              <MenuItem value={PermissionLevel.OPERACAO}>Operação</MenuItem>
+              <MenuItem value={PermissionLevel.LIDER}>Líder</MenuItem>
+              <MenuItem value={PermissionLevel.GESTOR}>Gestor</MenuItem>
+              <MenuItem value={PermissionLevel.ADMIN}>Administrador</MenuItem>
+            </Select>
+          </FormControl>
+
+          <MuiBox sx={{ bgcolor: '#f9fafb', p: 3, borderRadius: '1.5rem', border: '1px solid #f3f4f6' }}>
+            <MuiTypography sx={{ fontSize: '10px', fontWeight: 900, color: '#9ca3af', mb: 1.5, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+              Configuração de Jornada
+            </MuiTypography>
+            
+            <div className="space-y-4">
+              <FormControl fullWidth size="small">
+                <InputLabel>Tipo de Jornada</InputLabel>
+                <Select
+                  value={formData.tipoJornada}
+                  onChange={(e) => handleFieldChange('tipoJornada', e.target.value)}
+                  label="Tipo de Jornada"
+                  sx={{ borderRadius: '0.75rem', bgcolor: 'white' }}
+                >
+                  <MenuItem value="predefinida">Predefinida</MenuItem>
+                  <MenuItem value="customizada">Customizada</MenuItem>
+                </Select>
+              </FormControl>
+
+              {formData.tipoJornada === 'predefinida' ? (
+                <FormControl fullWidth size="small">
+                  <InputLabel>Jornada</InputLabel>
+                  <Select
+                    value={formData.jornadaPadrao}
+                    onChange={(e) => handleFieldChange('jornadaPadrao', e.target.value)}
+                    label="Jornada"
+                    sx={{ borderRadius: '0.75rem', bgcolor: 'white' }}
+                  >
+                    <MenuItem value={6}>6h</MenuItem>
+                    <MenuItem value={7.2}>7,12h</MenuItem>
+                    <MenuItem value={8}>8h</MenuItem>
+                  </Select>
+                </FormControl>
+              ) : (
+                <TextField
+                  label="Jornada (Horas decimais)"
+                  placeholder="Ex: 9.5 ou 10"
+                  type="text"
+                  value={formData.jornadaPadrao}
+                  onChange={(e) => handleFieldChange('jornadaPadrao', e.target.value)}
+                  fullWidth
+                  size="small"
+                  variant="outlined"
+                  required
+                  slotProps={{ input: { sx: { borderRadius: '0.75rem', bgcolor: 'white' } } }}
+                />
+              )}
+            </div>
+          </MuiBox>
+
+          <FormControl fullWidth required>
+            <InputLabel>Status do Usuário</InputLabel>
+            <Select
+              value={formData.status}
+              onChange={(e) => handleFieldChange('status', e.target.value)}
+              label="Status do Usuário"
+              sx={{ borderRadius: '1rem' }}
+            >
+              <MenuItem value="Ativo">
+                <MuiBox sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                  <MuiBox sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: '#4caf50' }} />
+                  <MuiTypography sx={{ fontWeight: 800, fontSize: '0.8rem' }}>ATIVO</MuiTypography>
+                </MuiBox>
+              </MenuItem>
+              <MenuItem value="Inativo">
+                <MuiBox sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                  <MuiBox sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: '#9e9e9e' }} />
+                  <MuiTypography sx={{ fontWeight: 800, fontSize: '0.8rem' }}>INATIVO</MuiTypography>
+                </MuiBox>
+              </MenuItem>
+            </Select>
+          </FormControl>
+        </MuiBox>
+
+        <div className="flex space-x-2 mt-4">
+          <button onClick={onClose} className="flex-1 py-4 bg-gray-100 rounded-2xl font-black uppercase text-[10px] tracking-widest text-gray-400 hover:bg-gray-200 transition-all">Cancelar</button>
+          <button onClick={handleLocalSave} className="flex-1 py-4 bg-orange-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-orange-100 hover:bg-orange-700 transition-all">Salvar Usuário</button>
         </div>
       </div>
     </div>
@@ -511,9 +704,7 @@ export const UserModal: React.FC<ModalProps> = ({ isOpen, onClose, onSave, title
 export const CustomControlTypeModal: React.FC<ModalProps> = ({ isOpen, onClose, onSave, title }) => {
   const [nome, setNome] = useState('');
   const [campos, setCampos] = useState<string[]>(['']);
-  
   if (!isOpen) return null;
-
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
       <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl p-8 animate-in zoom-in-95">
@@ -546,13 +737,11 @@ export const CustomControlTypeModal: React.FC<ModalProps> = ({ isOpen, onClose, 
 
 export const ControlItemSettingsModal: React.FC<{ isOpen: boolean; onClose: () => void; item: any; onSave: (updatedItem: any) => void }> = ({ isOpen, onClose, item, onSave }) => {
   const [activeLevel, setActiveLevel] = useState<'verde' | 'amarelo' | 'vermelho'>('verde');
-  
   const [cores, setCores] = useState<any>(item?.cores || {
     verde: { condicao: 'Valor', operador: '>', valor: 0, habilitado: true },
     amarelo: { condicao: 'Valor', operador: '=', valor: 0, habilitado: true },
     vermelho: { condicao: 'Valor', operador: '<', valor: 0, habilitado: true }
   });
-  
   const [popups, setPopups] = useState<any>(item?.popups || {
     verde: { titulo: 'Tudo OK', mensagem: 'Item dentro dos parâmetros.', habilitado: true },
     amarelo: { titulo: 'Atenção', mensagem: 'Item requer atenção imediata.', habilitado: true },
@@ -578,26 +767,18 @@ export const ControlItemSettingsModal: React.FC<{ isOpen: boolean; onClose: () =
           <div className="flex items-center space-x-3">
             <label className="flex items-center space-x-2 cursor-pointer bg-white px-2.5 py-1 rounded-lg shadow-sm border border-gray-100">
                <span className="text-[8px] font-black text-gray-400 uppercase tracking-widest">{cores[level].habilitado ? 'Cor Ativa' : 'Cor Off'}</span>
-               <div 
-                 onClick={() => setCores({...cores, [level]: {...cores[level], habilitado: !cores[level].habilitado}})}
-                 className={`w-8 h-4 rounded-full transition-all relative ${cores[level].habilitado ? 'bg-green-500' : 'bg-gray-300'}`}
-               >
+               <div onClick={() => setCores({...cores, [level]: {...cores[level], habilitado: !cores[level].habilitado}})} className={`w-8 h-4 rounded-full transition-all relative ${cores[level].habilitado ? 'bg-green-500' : 'bg-gray-300'}`}>
                  <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${cores[level].habilitado ? 'right-0.5' : 'left-0.5'}`} />
                </div>
             </label>
-
             <label className="flex items-center space-x-2 cursor-pointer bg-white px-2.5 py-1 rounded-lg shadow-sm border border-gray-100">
                <span className="text-[8px] font-black text-gray-400 uppercase tracking-widest">{popups[level].habilitado ? 'Pop-up ON' : 'Pop-up OFF'}</span>
-               <div 
-                 onClick={() => setPopups({...popups, [level]: {...popups[level], habilitado: !popups[level].habilitado}})}
-                 className={`w-8 h-4 rounded-full transition-all relative ${popups[level].habilitado ? 'bg-orange-600' : 'bg-gray-300'}`}
-               >
+               <div onClick={() => setPopups({...popups, [level]: {...popups[level], habilitado: !popups[level].habilitado}})} className={`w-8 h-4 rounded-full transition-all relative ${popups[level].habilitado ? 'bg-orange-600' : 'bg-gray-300'}`}>
                  <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${popups[level].habilitado ? 'right-0.5' : 'left-0.5'}`} />
                </div>
             </label>
           </div>
        </div>
-       
        <div className={`bg-gray-50 p-6 rounded-2xl border border-gray-100 grid grid-cols-12 gap-4 transition-opacity ${!cores[level].habilitado && 'opacity-40 pointer-events-none'}`}>
           <div className="col-span-12 mb-2"><h4 className="text-[10px] font-black uppercase text-gray-400 tracking-widest flex items-center space-x-2"><Settings className="w-3 h-3" /> <span>Condição Lógica</span></h4></div>
           <div className="col-span-5">
@@ -623,7 +804,6 @@ export const ControlItemSettingsModal: React.FC<{ isOpen: boolean; onClose: () =
             </div>
           )}
        </div>
-
        <div className={`space-y-3 bg-white p-6 rounded-2xl border border-gray-100 transition-opacity ${!popups[level].habilitado && 'opacity-40 pointer-events-none'}`}>
           <div className="flex items-center space-x-2 text-orange-600 mb-2">
              <AlertTriangle className="w-4 h-4" />
@@ -641,14 +821,9 @@ export const ControlItemSettingsModal: React.FC<{ isOpen: boolean; onClose: () =
     </div>
   );
 
-  const handleSaveInternal = () => {
-    onSave({ ...item, cores, popups });
-  };
-
   return (
     <div className="fixed inset-0 z-[160] flex items-center justify-center bg-black/70 backdrop-blur-md p-4">
       <div className="bg-white rounded-[2.5rem] w-full max-w-xl shadow-2xl flex flex-col animate-in slide-in-from-bottom-10 max-h-[90vh] overflow-hidden">
-        {/* Header Fixo */}
         <div className="p-8 pb-4 flex justify-between items-center border-b border-gray-50 bg-white z-10">
           <div>
             <h3 className="text-xl font-black text-gray-800 uppercase tracking-tight flex items-center space-x-3">
@@ -661,46 +836,19 @@ export const ControlItemSettingsModal: React.FC<{ isOpen: boolean; onClose: () =
           </div>
           <button onClick={onClose} className="p-2 text-gray-300 hover:text-red-500 transition-colors bg-gray-50 rounded-xl"><X className="w-6 h-6" /></button>
         </div>
-
-        {/* Tabs de Navegação */}
         <div className="px-8 pt-4 flex space-x-2 bg-white">
-           <TabSelector 
-             label="Verde" 
-             active={activeLevel === 'verde'} 
-             onClick={() => setActiveLevel('verde')} 
-             colorClass="bg-green-500" 
-             activeText="text-green-600"
-             activeBg="bg-green-50"
-           />
-           <TabSelector 
-             label="Amarelo" 
-             active={activeLevel === 'amarelo'} 
-             onClick={() => setActiveLevel('amarelo')} 
-             colorClass="bg-yellow-500"
-             activeText="text-yellow-600"
-             activeBg="bg-yellow-50"
-           />
-           <TabSelector 
-             label="Vermelho" 
-             active={activeLevel === 'vermelho'} 
-             onClick={() => setActiveLevel('vermelho')} 
-             colorClass="bg-red-500"
-             activeText="text-red-600"
-             activeBg="bg-red-50"
-           />
+           <TabSelector label="Verde" active={activeLevel === 'verde'} onClick={() => setActiveLevel('verde')} colorClass="bg-green-500" activeText="text-green-600" activeBg="bg-green-50" />
+           <TabSelector label="Amarelo" active={activeLevel === 'amarelo'} onClick={() => setActiveLevel('amarelo')} colorClass="bg-yellow-500" activeText="text-yellow-600" activeBg="bg-yellow-50" />
+           <TabSelector label="Vermelho" active={activeLevel === 'vermelho'} onClick={() => setActiveLevel('vermelho')} colorClass="bg-red-500" activeText="text-red-600" activeBg="bg-red-50" />
         </div>
-
-        {/* Corpo Scrollable */}
         <div className="flex-1 overflow-y-auto p-8 pt-6 space-y-6 scrollbar-hide">
            {activeLevel === 'verde' && renderConfigSection('verde', 'border-green-500')}
            {activeLevel === 'amarelo' && renderConfigSection('amarelo', 'border-yellow-500')}
            {activeLevel === 'vermelho' && renderConfigSection('vermelho', 'border-red-500')}
         </div>
-
-        {/* Footer Fixo */}
         <div className="p-6 px-8 flex space-x-3 border-t border-gray-50 bg-gray-50/50">
            <button onClick={onClose} className="flex-1 py-4 font-black text-gray-400 uppercase text-[10px] tracking-widest hover:text-gray-600 transition-colors bg-white border border-gray-200 rounded-2xl">Cancelar</button>
-           <button onClick={handleSaveInternal} className="flex-1 py-4 bg-orange-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-orange-100 hover:bg-orange-700 transition-all hover:scale-[1.02] active:scale-95">Salvar Configurações</button>
+           <button onClick={() => onSave({ ...item, cores, popups })} className="flex-1 py-4 bg-orange-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-orange-100 hover:bg-orange-700 transition-all hover:scale-[1.02] active:scale-95">Salvar Configurações</button>
         </div>
       </div>
     </div>
@@ -708,10 +856,7 @@ export const ControlItemSettingsModal: React.FC<{ isOpen: boolean; onClose: () =
 };
 
 const TabSelector: React.FC<{label: string, active: boolean, onClick: () => void, colorClass: string, activeText: string, activeBg: string}> = ({ label, active, onClick, colorClass, activeText, activeBg }) => (
-  <button 
-    onClick={onClick}
-    className={`flex-1 py-3 px-4 rounded-xl flex items-center justify-center space-x-2 border transition-all ${active ? `${activeBg} border-transparent shadow-sm` : 'bg-white border-gray-100 text-gray-400 hover:bg-gray-50'}`}
-  >
+  <button onClick={onClick} className={`flex-1 py-3 px-4 rounded-xl flex items-center justify-center space-x-2 border transition-all ${active ? `${activeBg} border-transparent shadow-sm` : 'bg-white border-gray-100 text-gray-400 hover:bg-gray-50'}`}>
     <div className={`w-2 h-2 rounded-full ${active ? colorClass : 'bg-gray-300'}`} />
     <span className={`text-[10px] font-black uppercase tracking-widest ${active ? activeText : ''}`}>{label}</span>
   </button>
@@ -752,7 +897,6 @@ export const TaskModal: React.FC<ModalProps & { categories?: Category[] }> = ({ 
   }, [initialData, isOpen]);
   if (!isOpen) return null;
   const handleLocalSave = () => {
-    // Se for tipo tempo, o fator multiplicador é irrelevante no gerenciamento pois é preenchido no turno
     const finalFator = formData.tipoMedida === MeasureType.TEMPO ? 0 : hhmmssToMinutes(timeValue);
     onSave({...formData, fatorMultiplicador: finalFator, id: formData.id || Math.random().toString(36).substr(2, 9)});
   };
@@ -776,12 +920,7 @@ export const TaskModal: React.FC<ModalProps & { categories?: Category[] }> = ({ 
             </div>
             <div className="space-y-1">
               <label className="text-[10px] font-black text-gray-400 uppercase">Fator (HH:MM:SS)</label>
-              <TimeInput 
-                value={timeValue} 
-                onChange={setTimeValue} 
-                className={`w-full p-3 border rounded-xl text-orange-600 ${formData.tipoMedida === MeasureType.TEMPO ? 'bg-gray-100 opacity-50' : ''}`} 
-                disabled={formData.tipoMedida === MeasureType.TEMPO}
-              />
+              <TimeInput value={timeValue} onChange={setTimeValue} className={`w-full p-3 border rounded-xl text-orange-600 ${formData.tipoMedida === MeasureType.TEMPO ? 'bg-gray-100 opacity-50' : ''}`} disabled={formData.tipoMedida === MeasureType.TEMPO} />
             </div>
           </div>
           {formData.tipoMedida === MeasureType.TEMPO && (

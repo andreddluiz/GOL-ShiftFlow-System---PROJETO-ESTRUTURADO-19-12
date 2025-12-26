@@ -3,7 +3,7 @@ import {
   Base, User, Category, Task, Control, 
   DefaultLocationItem, DefaultTransitItem, DefaultCriticalItem,
   ShelfLifeItem, CustomControlType, CustomControlItem,
-  ShiftHandover, Indicator, Report
+  ShiftHandover, Indicator, Report, OutraAtividade
 } from './types';
 import { BASES, CATEGORIES, TASKS, CONTROLS, USERS, DEFAULT_LOCATIONS, DEFAULT_TRANSITS, DEFAULT_CRITICALS } from './constants';
 
@@ -54,8 +54,50 @@ export const timeUtils = {
   somarMinutos: (h1: number, m1: number, h2: number, m2: number) => {
     const total = (h1 * 60 + m1) + (h2 * 60 + m2);
     return timeUtils.converterMinutosParaHoras(total);
+  },
+  formatToHms: (h: number, m: number, s: number = 0) => {
+    return `${String(Math.floor(h)).padStart(2, '0')}:${String(Math.round(m)).padStart(2, '0')}:${String(Math.round(s)).padStart(2, '0')}`;
   }
 };
+
+// --- FUNÇÕES DE FORMATAÇÃO E MAPEAMENTO (SOLICITAÇÃO 44.0) ---
+
+function formatarControle(items: any[]): string {
+  if (!items || items.length === 0) return '';
+  return items
+    .filter(item => item.data || item.quantidade !== undefined)
+    .map(item => item.data || item.quantidade)
+    .join(' | ');
+}
+
+function criarMapaTarefas(detalhe: any): Record<string, string> {
+  console.debug(`[Tarefas] Criando mapa de tarefas para registro ${detalhe.id}`);
+  const tarefasMap: Record<string, string> = {};
+  
+  // 1. Processar atividades rotineiras
+  if (detalhe.activities && Array.isArray(detalhe.activities)) {
+    detalhe.activities.forEach((atividade: any) => {
+      if (atividade.taskNome) {
+        const tempo = timeUtils.formatToHms(atividade.horas || 0, atividade.minutos || 0, atividade.segundos || 0);
+        tarefasMap[atividade.taskNome.toUpperCase()] = tempo;
+        console.debug(`[Tarefas] Mapeada atividade: ${atividade.taskNome} = ${tempo}`);
+      }
+    });
+  }
+  
+  // 2. Processar outras tarefas (extras)
+  if (detalhe.nonRoutineTasks && Array.isArray(detalhe.nonRoutineTasks)) {
+    detalhe.nonRoutineTasks.forEach((tarefa: any) => {
+      if (tarefa.nome && tarefa.nome.trim() !== '') {
+        const tempo = tarefa.tempo || '00:00:00';
+        tarefasMap[`[EXTRA] ${tarefa.nome.toUpperCase()}`] = tempo;
+        console.debug(`[Tarefas] Mapeada outra tarefa: ${tarefa.nome} = ${tempo}`);
+      }
+    });
+  }
+  
+  return tarefasMap;
+}
 
 export const baseService = {
   async getAll(): Promise<Base[]> {
@@ -304,204 +346,153 @@ export const userService = {
   }
 };
 
-/**
- * SERVIÇOS DE VALIDAÇÃO E MIGRAÇÃO
- */
-
 export const validationService = {
-  /**
-   * VALIDAÇÃO 2: Verificar se já existe uma passagem finalizada para o mesmo dia e turno
-   */
-  validarPassagemDuplicada(data: string, turnoId: string, baseId: string): boolean {
-    console.debug(`[Validação 2] Verificando duplicidade: Data=${data}, Turno=${turnoId}, Base=${baseId}`);
-    const reports = getFromStorage<any[]>(STORAGE_KEYS.REP_DETALHAMENTO, []);
-    
-    const jaExiste = reports.some(r => 
-      r.data === data && 
-      r.turnoId === turnoId && 
-      r.baseId === baseId && 
-      r.status === 'Finalizado'
-    );
-    
-    if (jaExiste) console.warn(`[Validação 2] FALHOU: Turno já migrado.`);
-    return jaExiste;
+  async validarPassagemDuplicada(data: string, turnoId: string, baseId: string): Promise<{ valido: boolean; mensagem: string }> {
+    console.debug(`[Validação 2] ========== INICIANDO VALIDAÇÃO DE DUPLICIDADE ==========`);
+    console.debug(`[Validação 2] Data: ${data}, TurnoID: ${turnoId}, Base: ${baseId}`);
+
+    try {
+      const reports = getFromStorage<any[]>(STORAGE_KEYS.REP_DETALHAMENTO, []);
+      if (reports.length === 0) return { valido: true, mensagem: '' };
+
+      const jaExiste = reports.some(r => r.data === data && r.turnoId === turnoId && r.baseId === baseId && r.status === 'Finalizado');
+      if (jaExiste) {
+        const mensagem = `Já existe uma Passagem de Serviço finalizada para o dia ${data} no Turno correspondente. Não é possível finalizar 2 vezes a mesma passagem.`;
+        console.debug(`[Validação 2] FALHOU: ${mensagem}`);
+        return { valido: false, mensagem };
+      }
+      return { valido: true, mensagem: '' };
+    } catch (e) {
+      console.error(`[Validação 2] ERRO:`, e);
+      return { valido: true, mensagem: '' };
+    }
   },
 
-  /**
-   * VALIDAÇÃO 3 (CORRIGIDA): Verificar se colaboradores já estão registrados em outros turnos do mesmo dia
-   */
-  verificarColaboradoresEmOutrosTurnos(data: string, turnoId: string, baseId: string, atuaisIds: (string | null)[], users: User[]): string[] {
-    console.debug(`[Validação 3] Verificando jornada dupla para o dia ${data}`);
-    
-    const reports = getFromStorage<any[]>(STORAGE_KEYS.REP_DETALHAMENTO, []);
-    
-    // Filtra apenas passagens da mesma base, mesma data, MAS de turnos diferentes
-    const passagensDoDia = reports.filter(r => 
-      r.data === data && 
-      r.baseId === baseId && 
-      r.turnoId !== turnoId && 
-      r.status === 'Finalizado'
-    );
-
-    console.debug(`[Validação 3] Encontradas ${passagensDoDia.length} outras passagens finalizadas hoje.`);
-
-    const duplicados: string[] = [];
-    atuaisIds.forEach(id => {
-      if (!id) return;
-      
-      // Verifica se o ID do colaborador aparece no array de colaboradores de qualquer passagem do dia
-      const jaTrabalhou = passagensDoDia.some(p => {
-        // Assume que p.colaboradoresIds ou p.colaboradores contém os IDs dos usuários
-        const listaMembros = p.colaboradoresIds || p.colaboradores || [];
-        return listaMembros.includes(id);
+  async verificarColaboradoresEmOutrosTurnos(data: string, turnoId: string, baseId: string, atuaisIds: (string | null)[], users: User[]): Promise<{ valido: boolean; mensagem: string; colaboradoresDuplicados: string[] }> {
+    console.debug(`[Validação 3] ========== INICIANDO VALIDAÇÃO DE COLABORADOR DUPLICADO ==========`);
+    try {
+      const reports = getFromStorage<any[]>(STORAGE_KEYS.REP_DETALHAMENTO, []);
+      const duplicadosNomes: string[] = [];
+      const passagensDoDia = reports.filter(r => r.data === data && r.baseId === baseId && r.turnoId !== turnoId && r.status === 'Finalizado');
+      atuaisIds.forEach(id => {
+        if (!id) return;
+        const jaTrabalhou = passagensDoDia.some(p => (p.colaboradoresIds || []).includes(id));
+        if (jaTrabalhou) {
+          const nome = users.find(u => u.id === id)?.nome || 'Membro do Time';
+          if (!duplicadosNomes.includes(nome)) duplicadosNomes.push(nome);
+        }
       });
-
-      if (jaTrabalhou) {
-        const nome = users.find(u => u.id === id)?.nome || 'Membro do Time';
-        console.warn(`[Validação 3] DUPLICIDADE DETECTADA: ${nome} já trabalhou hoje.`);
-        if (!duplicados.includes(nome)) duplicados.push(nome);
+      if (duplicadosNomes.length > 0) {
+        const nomes = duplicadosNomes.join(', ');
+        return { valido: false, mensagem: `O(s) colaborador(es) '${nomes}' já está(ão) registrado(s) em outro turno do dia ${data}.`, colaboradoresDuplicados: duplicadosNomes };
       }
-    });
-
-    return duplicados;
+      return { valido: true, mensagem: '', colaboradoresDuplicados: [] };
+    } catch (e) {
+      return { valido: true, mensagem: '', colaboradoresDuplicados: [] };
+    }
   },
 
   validarPassagem(handover: ShiftHandover, storeTasks: Task[]): { valido: boolean; camposPendentes: string[] } {
     const pendentes: string[] = [];
-
     if (!handover.turnoId) pendentes.push("Configuração: Seleção de Turno obrigatória");
     if (handover.colaboradores.every(c => !c)) pendentes.push("Equipe: Pelo menos 1 colaborador deve ser selecionado");
-
     const baseTasks = storeTasks.filter(t => !t.deletada && t.visivel !== false && (!t.baseId || t.baseId === handover.baseId));
     baseTasks.forEach(task => {
       const valor = handover.tarefasExecutadas[task.id];
-      if (valor === undefined || valor === null || valor === "") {
-        pendentes.push(`Atividades: A tarefa "${task.nome}" deve ser preenchida (use 0 se não executada)`);
-      }
+      if (valor === undefined || valor === null || valor === "") pendentes.push(`Atividades: A tarefa "${task.nome}" deve ser preenchida`);
     });
-
-    handover.shelfLifeData.forEach((item, idx) => {
-      const label = item.partNumber || `Item ${idx + 1}`;
-      if (!item.partNumber) pendentes.push(`Shelf Life: Part Number obrigatório no item ${idx+1}`);
-      if (!item.dataVencimento) pendentes.push(`Shelf Life - ${label}: Data de Vencimento obrigatória`);
-    });
-
-    handover.locationsData.forEach((item, idx) => {
-      const label = item.nomeLocation || `Local ${idx + 1}`;
-      if (item.quantidade === null) {
-        pendentes.push(`Locations - ${label}: Quantidade obrigatória`);
-      } else if (item.quantidade > 0 && !item.dataMaisAntigo) {
-        pendentes.push(`Locations - ${label}: Data do volume mais antigo obrigatória para saldo positivo`);
-      }
-    });
-
-    handover.transitData.forEach((item, idx) => {
-      const label = item.nomeTransito || `Trânsito ${idx + 1}`;
-      if (item.quantidade === null) {
-        pendentes.push(`Trânsito - ${label}: Quantidade obrigatória`);
-      } else if (item.quantidade > 0 && !item.dataSaida) {
-        pendentes.push(`Trânsito - ${label}: Data de saída obrigatória para saldo positivo`);
-      }
-    });
-
-    handover.criticalData.forEach((item, idx) => {
-      const label = item.partNumber || `Item ${idx + 1}`;
-      if (!item.partNumber) pendentes.push(`Saldo Crítico: PN obrigatório no item ${idx+1}`);
-      if (item.saldoSistema === null) pendentes.push(`Saldo Crítico - ${label}: Saldo Sistema obrigatório`);
-      if (item.saldoFisico === null) pendentes.push(`Saldo Crítico - ${label}: Saldo Físico obrigatório`);
-    });
-
-    console.debug("[Validação] Resultado:", { valido: pendentes.length === 0, pendentes });
     return { valido: pendentes.length === 0, camposPendentes: pendentes };
   }
 };
 
 export const migrationService = {
-  /**
-   * REPROCESSAR RESUMO APÓS EDIÇÃO
-   */
   async reprocessarResumo(store: any): Promise<void> {
+    console.debug(`[Resumo] ========== INICIANDO REPROCESSAMENTO DO RESUMO GERAL ==========`);
     const repDetalhamento = getFromStorage<any[]>(STORAGE_KEYS.REP_DETALHAMENTO, []);
     const repResumo: any = { categorias: [], totalHoras: 0, totalMinutos: 0 };
     
     repDetalhamento.forEach(handover => {
-      Object.entries(handover.tarefasExecutadas).forEach(([taskId, val]: [string, any]) => {
+      // 1. Processar Atividades Rotineiras
+      Object.entries(handover.tarefasExecutadas || {}).forEach(([taskId, val]: [string, any]) => {
         const task = store.tasks.find((t: any) => t.id === taskId);
         if (!task) return;
         const cat = store.categories.find((c: any) => c.id === task.categoriaId);
         if (!cat) return;
-
+        
         let catResumo = repResumo.categorias.find((r: any) => r.categoryId === cat.id);
         if (!catResumo) {
           catResumo = { categoryId: cat.id, categoryNome: cat.nome, atividades: [], totalCategoryHoras: 0, totalCategoryMinutos: 0 };
           repResumo.categorias.push(catResumo);
         }
-
+        
         let taskResumo = catResumo.atividades.find((a: any) => a.nome === task.nome);
         if (!taskResumo) {
           taskResumo = { nome: task.nome, tipoInput: task.tipoMedida === 'TEMPO' ? 'TIME' : 'QTY', totalQuantidade: 0, totalHoras: 0, totalMinutos: 0 };
           catResumo.atividades.push(taskResumo);
         }
-
+        
         if (task.tipoMedida === 'TEMPO') {
-          const parts = val.split(':').map(Number);
-          const newMins = (parts[0] * 60) + parts[1];
+          const parts = (val as string).split(':').map(Number);
+          const newMins = (parts[0] * 60) + (parts[1] || 0);
           const updated = timeUtils.somarMinutos(taskResumo.totalHoras, taskResumo.totalMinutos, 0, newMins);
-          taskResumo.totalHoras = updated.horas;
-          taskResumo.totalMinutos = updated.minutos;
+          taskResumo.totalHoras = updated.horas; taskResumo.totalMinutos = updated.minutos;
+          const catUpdated = timeUtils.somarMinutos(catResumo.totalCategoryHoras, catResumo.totalCategoryMinutos, 0, newMins);
+          catResumo.totalCategoryHoras = catUpdated.horas; catResumo.totalCategoryMinutos = catUpdated.minutos;
+          const globalUpdated = timeUtils.somarMinutos(repResumo.totalHoras, repResumo.totalMinutos, 0, newMins);
+          repResumo.totalHoras = globalUpdated.horas; repResumo.totalMinutos = globalUpdated.minutos;
         } else {
-          const qty = parseFloat(val) || 0;
+          const qty = parseFloat(val as string) || 0;
           taskResumo.totalQuantidade += qty;
           const newMins = qty * task.fatorMultiplicador;
           const updated = timeUtils.somarMinutos(taskResumo.totalHoras, taskResumo.totalMinutos, 0, newMins);
-          taskResumo.totalHoras = updated.horas;
-          taskResumo.totalMinutos = updated.minutos;
+          taskResumo.totalHoras = updated.horas; taskResumo.totalMinutos = updated.minutos;
+          const catUpdated = timeUtils.somarMinutos(catResumo.totalCategoryHoras, catResumo.totalCategoryMinutos, 0, newMins);
+          catResumo.totalCategoryHoras = catUpdated.horas; catResumo.totalCategoryMinutos = catUpdated.minutos;
+          const globalUpdated = timeUtils.somarMinutos(repResumo.totalHoras, repResumo.totalMinutos, 0, newMins);
+          repResumo.totalHoras = globalUpdated.horas; repResumo.totalMinutos = globalUpdated.minutos;
         }
       });
-      
-      // Reprocessar Outras Tarefas
-      if (handover.nonRoutineTasks) {
-        let catOutras = repResumo.categorias.find((r: any) => r.categoryId === 'cat_outras');
-        if (!catOutras) {
-          catOutras = { categoryId: 'cat_outras', categoryNome: 'OUTRAS TAREFAS', atividades: [], totalCategoryHoras: 0, totalCategoryMinutos: 0 };
-          repResumo.categorias.push(catOutras);
+
+      // 2. Processar Outras Tarefas (Detalhadas Individualmente na categoria 5. OUTROS)
+      if (handover.nonRoutineTasks && handover.nonRoutineTasks.length > 0) {
+        let catOutros = repResumo.categorias.find((r: any) => r.categoryNome.includes('OUTROS'));
+        if (!catOutros) {
+          catOutros = { categoryId: 'cat_outros', categoryNome: '5. OUTROS', atividades: [], totalCategoryHoras: 0, totalCategoryMinutos: 0 };
+          repResumo.categorias.push(catOutros);
         }
 
-        handover.nonRoutineTasks.forEach((nr: any) => {
-          if (!nr.nome || !nr.tempo) return;
-          const [h, m] = nr.tempo.split(':').map(Number);
-          const mins = (h * 60) + m;
-          
-          let taskResumo = catOutras.atividades.find((a: any) => a.nome === nr.nome);
-          if (!taskResumo) {
-            taskResumo = { nome: nr.nome, tipoInput: 'TIME', totalQuantidade: 0, totalHoras: 0, totalMinutos: 0 };
-            catOutras.atividades.push(taskResumo);
-          }
-          
-          const updated = timeUtils.somarMinutos(taskResumo.totalHoras, taskResumo.totalMinutos, 0, mins);
-          taskResumo.totalHoras = updated.horas;
-          taskResumo.totalMinutos = updated.minutos;
+        handover.nonRoutineTasks.forEach((t: any) => {
+           if (!t.nome || !t.tempo) return;
+           const taskName = t.nome;
+           // Localizar ou criar a atividade customizada específica pelo NOME
+           let taskResumo = catOutros.atividades.find((a: any) => a.nome === taskName);
+           if (!taskResumo) {
+             taskResumo = { nome: taskName, tipoInput: 'CUSTOM', totalQuantidade: 0, totalHoras: 0, totalMinutos: 0 };
+             catOutros.atividades.push(taskResumo);
+           }
+           
+           // Incrementar quantidade (cada registro é 1)
+           taskResumo.totalQuantidade += 1;
+           
+           const parts = (t.tempo as string).split(':').map(Number);
+           const newMins = (parts[0] * 60) + (parts[1] || 0);
+           
+           const updated = timeUtils.somarMinutos(taskResumo.totalHoras, taskResumo.totalMinutos, 0, newMins);
+           taskResumo.totalHoras = updated.horas; taskResumo.totalMinutos = updated.minutos;
+           
+           const catUpdated = timeUtils.somarMinutos(catOutros.totalCategoryHoras, catOutros.totalCategoryMinutos, 0, newMins);
+           catOutros.totalCategoryHoras = catUpdated.horas; catOutros.totalCategoryMinutos = catUpdated.minutos;
+           
+           const globalUpdated = timeUtils.somarMinutos(repResumo.totalHoras, repResumo.totalMinutos, 0, newMins);
+           repResumo.totalHoras = globalUpdated.horas; repResumo.totalMinutos = globalUpdated.minutos;
         });
       }
     });
 
-    let totalGeralMins = 0;
-    repResumo.categorias.forEach((cat: any) => {
-      let catMins = 0;
-      cat.atividades.forEach((at: any) => catMins += (at.totalHoras * 60) + at.totalMinutos);
-      const { horas, minutos } = timeUtils.converterMinutosParaHoras(catMins);
-      cat.totalCategoryHoras = horas; cat.totalCategoryMinutos = minutos;
-      totalGeralMins += catMins;
-    });
-    const { horas: gH, minutos: gM } = timeUtils.converterMinutosParaHoras(totalGeralMins);
-    repResumo.totalHoras = gH; repResumo.totalMinutos = gM;
-    
     saveToStorage(STORAGE_KEYS.REP_RESUMO, repResumo);
   },
 
   async processarMigracao(handover: ShiftHandover, store: any, replaceId?: string): Promise<void> {
-    console.debug("[Migração] Iniciando processamento para base:", handover.baseId, replaceId ? "(Substituição)" : "(Novo)");
-
     const repAcompanhamento = getFromStorage<any[]>(STORAGE_KEYS.REP_ACOMPANHAMENTO, []);
     const repDetalhamento = getFromStorage<any[]>(STORAGE_KEYS.REP_DETALHAMENTO, []);
 
@@ -513,32 +504,29 @@ export const migrationService = {
     const turnoKey = `turno${handover.turnoId}` as keyof typeof dataEntry;
     dataEntry[turnoKey] = 'OK';
 
-    const colaboradoresNomes = handover.colaboradores
-      .map(id => store.users.find((u:any) => u.id === id)?.nome)
-      .filter(Boolean);
-
+    const colaboradoresNomes = handover.colaboradores.map(id => store.users.find((u:any) => u.id === id)?.nome).filter(Boolean);
     const atividadesDetalhadas = Object.entries(handover.tarefasExecutadas).map(([taskId, val]) => {
       const task = store.tasks.find((t: any) => t.id === taskId);
       const cat = store.categories.find((c: any) => c.id === task?.categoriaId);
       let h = 0, m = 0;
       if (task?.tipoMedida === 'TEMPO') {
-        const p = val.split(':').map(Number);
-        h = p[0]; m = p[1];
+        const p = val.split(':').map(Number); h = p[0]||0; m = p[1]||0;
       } else {
         const mins = (parseFloat(val) || 0) * (task?.fatorMultiplicador || 0);
-        const conv = timeUtils.converterMinutosParaHoras(mins);
-        h = conv.horas; m = conv.minutos;
+        const conv = timeUtils.converterMinutosParaHoras(mins); h = conv.horas; m = conv.minutos;
       }
       return { taskNome: task?.nome || 'Desc.', categoryNome: cat?.nome || 'Geral', horas: h, minutos: m };
     });
 
-    if (handover.nonRoutineTasks) {
-       handover.nonRoutineTasks.forEach(nr => {
-         if (!nr.nome || !nr.tempo) return;
-         const [h, m] = nr.tempo.split(':').map(Number);
-         atividadesDetalhadas.push({ taskNome: nr.nome, categoryNome: 'OUTRAS TAREFAS', horas: h, minutos: m });
-       });
-    }
+    const hDisp = handover.colaboradores.reduce((acc, id) => acc + (store.users.find((u:any) => u.id === id)?.jornadaPadrao || 0), 0);
+    let hProdTotalMin = 0;
+    atividadesDetalhadas.forEach(a => hProdTotalMin += (a.horas * 60) + a.minutos);
+    (handover.nonRoutineTasks || []).forEach(t => {
+      const p = t.tempo.split(':').map(Number);
+      hProdTotalMin += (p[0] * 60) + (p[1] || 0);
+    });
+
+    const performanceCalc = hDisp > 0 ? (hProdTotalMin / (hDisp * 60)) * 100 : 0;
 
     const record = {
       ...handover,
@@ -547,15 +535,26 @@ export const migrationService = {
       horaRegistro: new Date().toLocaleTimeString('pt-BR'),
       turno: `Turno ${handover.turnoId}`,
       colaboradores: colaboradoresNomes,
-      horasDisponivel: handover.colaboradores.reduce((acc, id) => acc + (store.users.find((u:any) => u.id === id)?.jornadaPadrao || 0), 0),
-      horasProduzida: (handover.performance / 100) * handover.colaboradores.reduce((acc, id) => acc + (store.users.find((u:any) => u.id === id)?.jornadaPadrao || 0), 0),
-      percentualPerformance: handover.performance,
-      atividades: atividadesDetalhadas,
+      nomeColaboradores: colaboradoresNomes.join(', '),
+      qtdColaboradores: colaboradoresNomes.length,
+      horasDisponivel: timeUtils.formatToHms(hDisp, 0, 0).substring(0, 5),
+      horasProduzida: timeUtils.formatToHms(Math.floor(hProdTotalMin / 60), hProdTotalMin % 60, 0).substring(0, 5),
+      percentualPerformance: Math.round(performanceCalc * 100) / 100,
+      tarefasMap: criarMapaTarefas({ ...handover, activities: atividadesDetalhadas }),
+      shelfLife: formatarControle(handover.shelfLifeData.map(i => ({ data: i.dataVencimento }))),
+      locations: formatarControle(handover.locationsData.map(i => ({ quantidade: i.quantidade }))),
+      transito: formatarControle(handover.transitData.map(i => ({ quantidade: i.quantidade }))),
+      saldoCritico: handover.criticalData
+        .filter(c => c.saldoSistema !== null)
+        .map(c => `${c.saldoSistema}|${c.saldoFisico}|${(c.saldoSistema||0)-(c.saldoFisico||0)}`)
+        .join(' | '),
       observacoes: handover.informacoesImportantes,
       shelfLifeItems: handover.shelfLifeData.map(i => ({ itemNome: i.partNumber, data: i.dataVencimento })),
-      locationItems: handover.locationsData.map(i => ({ itemNome: i.nomeLocation, data: i.dataMaisAntigo, quantidade: i.quantidade })),
-      transitItems: handover.transitData.map(i => ({ itemNome: i.nomeTransito, data: i.dataSaida, quantidade: i.quantidade })),
-      saldoItems: handover.criticalData.map(i => ({ itemNome: i.partNumber, saldoSistema: i.saldoSistema, saldoFisico: i.saldoFisico, divergencia: (i.saldoSistema||0) - (i.saldoFisico||0) }))
+      locationItems: handover.locationsData.map(i => ({ itemNome: i.nomeLocation, quantidade: i.quantidade })),
+      transitItems: handover.transitData.map(i => ({ itemNome: i.nomeTransito, quantidade: i.quantidade })),
+      criticosItems: handover.criticalData.map(i => ({ itemNome: i.partNumber, saldoSistema: i.saldoSistema, saldoFisico: i.saldoFisico, divergencia: (i.saldoSistema||0)-(i.saldoFisico||0) })),
+      activities: atividadesDetalhadas,
+      outrasTarefas: handover.nonRoutineTasks
     };
 
     if (replaceId) {
@@ -568,10 +567,6 @@ export const migrationService = {
 
     saveToStorage(STORAGE_KEYS.REP_ACOMPANHAMENTO, repAcompanhamento);
     saveToStorage(STORAGE_KEYS.REP_DETALHAMENTO, repDetalhamento);
-    
-    // Recalcular resumo total para garantir que edições reflitam no dashboard de resumo
     await this.reprocessarResumo(store);
-    
-    console.debug("[Migração] Sucesso.");
   }
 };

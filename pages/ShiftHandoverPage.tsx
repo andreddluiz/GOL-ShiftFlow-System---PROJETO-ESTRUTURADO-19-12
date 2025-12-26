@@ -2,10 +2,11 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   CheckCircle, Trash2, Info, Users, Clock, AlertTriangle, ClipboardList,
-  X, TrendingUp, Timer, MapPin, Box, Truck, FlaskConical, AlertOctagon, Plane, Settings,
+  X, TrendingUp, Timer, MapPin, Box as BoxIcon, Truck, FlaskConical, AlertOctagon, Plane, Settings,
   Calendar, UserCheck, Activity, BarChart3, MessageSquare, PlusCircle,
   Edit2
 } from 'lucide-react';
+import { Box, Typography } from '@mui/material';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useStore } from '../hooks/useStore';
 import { 
@@ -34,7 +35,8 @@ const getDaysDiff = (dateStr: any): number => {
   const today = new Date();
   today.setHours(0,0,0,0);
   date.setHours(0,0,0,0);
-  return Math.abs(Math.floor((today.getTime() - date.getTime()) / (1000 * 60 * 60 * 24)));
+  const diffTime = today.getTime() - date.getTime();
+  return Math.floor(diffTime / (1000 * 60 * 60 * 24));
 };
 
 const getDaysRemaining = (dateStr: any): number => {
@@ -43,8 +45,42 @@ const getDaysRemaining = (dateStr: any): number => {
   const today = new Date();
   today.setHours(0,0,0,0);
   date.setHours(0,0,0,0);
-  return Math.floor((date.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  const diffTime = date.getTime() - today.getTime();
+  return Math.floor(diffTime / (1000 * 60 * 60 * 24));
 };
+
+// --- FUNÇÕES DE EXIBIÇÃO E CORES ---
+
+const getShelfLifeDisplayText = (dateStr: string) => {
+  if (!dateStr) return '';
+  const dias = getDaysRemaining(dateStr);
+  if (dias < 0) return 'Vencido';
+  if (dias === 0) return 'Vence Hoje';
+  if (dias === 1) return '1 Dia';
+  return `${dias} Dias`;
+};
+
+const getEnvioDisplayText = (dateStr: string) => {
+  if (!dateStr) return '';
+  const dias = getDaysDiff(dateStr);
+  if (dias <= 0) return 'Hoje';
+  if (dias === 1) return '1 Dia';
+  return `${dias} Dias`;
+};
+
+function obterCorDoBackgroundShelfLife(item: any): string {
+  const corBackground = item.corBackground || 'verde';
+  if (corBackground === 'vermelho') return '#d32f2f'; 
+  if (corBackground === 'amarelo') return '#f57c00'; 
+  return '#388e3c'; 
+}
+
+function obterCorDoBackgroundEnvio(item: any): string {
+  const corBackground = item.corBackground || 'verde';
+  if (corBackground === 'vermelho') return '#d32f2f'; 
+  if (corBackground === 'amarelo') return '#f57c00'; 
+  return '#388e3c'; 
+}
 
 const atendeCriterioVerde = (verde: any, dias: number): boolean => {
   if (!verde || verde.habilitado === false) return false;
@@ -112,10 +148,10 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
     { id: 'nr3', nome: '', tempo: '' }
   ]);
   
-  const [locations, setLocations] = useState<LocationRow[]>([]);
-  const [transit, setTransit] = useState<TransitRow[]>([]);
-  const [shelfLife, setShelfLife] = useState<ShelfLifeRow[]>([]);
-  const [critical, setCritical] = useState<CriticalRow[]>([]);
+  const [locations, setLocations] = useState<any[]>([]);
+  const [transit, setTransit] = useState<any[]>([]);
+  const [shelfLife, setShelfLife] = useState<any[]>([]);
+  const [critical, setCritical] = useState<any[]>([]);
   
   const [activeAlert, setActiveAlert] = useState<{titulo: string, mensagem: string, color: string} | null>(null);
   const [confirmModal, setConfirmModal] = useState<{ open: boolean, title: string, message: string, onConfirm: () => void, onCancel?: () => void, type?: 'danger' | 'warning' | 'info' | 'success', confirmLabel?: string, cancelLabel?: string }>({ open: false, title: '', message: '', onConfirm: () => {} });
@@ -124,12 +160,9 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
   const storageKey = useMemo(() => `gol_handover_draft_${baseId || 'null'}`, [baseId]);
   const hasLoadedDraft = useRef<string | null>(null);
 
-  // Carregar do LocalStorage ou do modo EDIÇÃO
   useEffect(() => {
     if (!baseId || hasLoadedDraft.current === baseId) return;
-
     if (editId) {
-      // Modo Edição: Carregar do relatório
       const reportsRaw = localStorage.getItem('gol_rep_detalhamento');
       if (reportsRaw) {
         const reports = JSON.parse(reportsRaw);
@@ -145,15 +178,12 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
           setTransit(record.transitData || []);
           setShelfLife(record.shelfLifeData || []);
           setCritical(record.criticalData || []);
-          setStatus('Rascunho'); // Permitir editar
-          console.debug("[Persistência] Modo Edição Carregado:", editId);
+          setStatus('Rascunho');
           hasLoadedDraft.current = baseId;
           return;
         }
       }
     }
-    
-    // Modo Draft Normal
     const saved = localStorage.getItem(storageKey);
     if (saved) {
       try {
@@ -169,78 +199,47 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
         if (data.shelfLife) setShelfLife(data.shelfLife);
         if (data.critical) setCritical(data.critical);
         if (data.status) setStatus(data.status);
-        console.debug("[Persistência] Draft carregado integralmente.");
-      } catch (e) {
-        console.error("[Persistência] Erro ao carregar draft:", e);
-      }
+      } catch (e) { console.error(e); }
     }
     hasLoadedDraft.current = baseId;
   }, [baseId, storageKey, editId]);
 
-  // Salvar no LocalStorage sempre que houver alteração
   useEffect(() => {
     if (!baseId || hasLoadedDraft.current !== baseId || editId) return;
-
-    const draft = {
-      dataOperacional,
-      turnoAtivo,
-      colaboradoresIds,
-      tarefasValores,
-      obs,
-      outrasTarefas,
-      locations,
-      transit,
-      shelfLife,
-      critical,
-      status
-    };
+    const draft = { dataOperacional, turnoAtivo, colaboradoresIds, tarefasValores, obs, outrasTarefas, locations, transit, shelfLife, critical, status };
     localStorage.setItem(storageKey, JSON.stringify(draft));
-  }, [
-    baseId, storageKey, dataOperacional, turnoAtivo, colaboradoresIds, 
-    tarefasValores, obs, outrasTarefas, locations, transit, shelfLife, critical, status, editId
-  ]);
+  }, [baseId, storageKey, dataOperacional, turnoAtivo, colaboradoresIds, tarefasValores, obs, outrasTarefas, locations, transit, shelfLife, critical, status, editId]);
 
-  // Sincronização de Itens Padrão
   useEffect(() => {
     if (!initialized || !baseId) return;
-
     setLocations(prev => {
       const activeStoreItems = getDefaultLocations(baseId);
       const filtered = prev.filter(p => !p.isPadrao || activeStoreItems.some(i => i.id === p.id));
       const toAdd = activeStoreItems.filter(i => !prev.some(p => p.id === i.id));
-      return [...filtered, ...toAdd.map(i => ({ id: i.id, nomeLocation: i.nomeLocation, quantidade: null, dataMaisAntigo: '', isPadrao: true, config: i }))];
+      return [...filtered, ...toAdd.map(i => ({ id: i.id, nomeLocation: i.nomeLocation, quantidade: null, dataMaisAntigo: '', isPadrao: true, config: i, corBackground: 'verde' }))];
     });
-
     setTransit(prev => {
       const activeStoreItems = getDefaultTransits(baseId);
       const filtered = prev.filter(p => !p.isPadrao || activeStoreItems.some(i => i.id === p.id));
       const toAdd = activeStoreItems.filter(i => !prev.some(p => p.id === i.id));
-      return [...filtered, ...toAdd.map(i => ({ id: i.id, nomeTransito: i.nomeTransito, diasPadrao: i.diasPadrao, quantidade: null, dataSaida: '', isPadrao: true, config: i }))];
+      return [...filtered, ...toAdd.map(i => ({ id: i.id, nomeTransito: i.nomeTransito, diasPadrao: i.diasPadrao, quantidade: null, dataSaida: '', isPadrao: true, config: i, corBackground: 'verde' }))];
     });
-
     setCritical(prev => {
       const activeStoreItems = getDefaultCriticals(baseId);
       const filtered = prev.filter(p => !p.isPadrao || activeStoreItems.some(i => i.id === p.id));
       const toAdd = activeStoreItems.filter(i => !prev.some(p => p.id === i.id));
-      return [...filtered, ...toAdd.map(i => ({ id: i.id, partNumber: i.partNumber, lote: '', saldoSistema: null, saldoFisico: null, isPadrao: true, config: i }))];
+      return [...filtered, ...toAdd.map(i => ({ id: i.id, partNumber: i.partNumber, lote: '', saldoSistema: null, saldoFisico: null, isPadrao: true, config: i, corBackground: 'verde' }))];
     });
-
     setShelfLife(prev => {
       const activeStoreItems = getDefaultShelfLifes(baseId);
-      // Garantir 2 linhas disponíveis se não existirem
       const filtered = prev.filter(p => !p.isPadrao || activeStoreItems.some(i => i.id === p.id));
       const toAdd = activeStoreItems.filter(i => !prev.some(p => p.id === i.id));
-      const result = [...filtered, ...toAdd.map(i => ({ id: i.id, partNumber: i.partNumber, lote: '', dataVencimento: '', isPadrao: true, config: i }))];
-      
-      // Se não houver pelo menos 2 linhas manuais, adicionar
+      const result = [...filtered, ...toAdd.map(i => ({ id: i.id, partNumber: i.partNumber, lote: '', dataVencimento: '', isPadrao: true, config: i, corBackground: 'verde' }))];
       const manualRows = result.filter(r => !r.isPadrao);
       if (manualRows.length < 2) {
         const needed = 2 - manualRows.length;
-        for (let j = 0; j < needed; j++) {
-          result.push({ id: `manual-init-${Date.now()}-${j}`, partNumber: '', lote: '', dataVencimento: '', isPadrao: false });
-        }
+        for (let j = 0; j < needed; j++) result.push({ id: `manual-init-${Date.now()}-${j}`, partNumber: '', lote: '', dataVencimento: '', isPadrao: false, corBackground: 'verde' });
       }
-      
       return result;
     });
   }, [baseId, initialized, getDefaultLocations, getDefaultTransits, getDefaultCriticals, getDefaultShelfLifes]);
@@ -278,14 +277,13 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
   }, [performance, currentBase]);
 
   const evaluateAlert = (item: any, value: any, controlType: string) => {
-    if (value === undefined || value === null || value === '') return;
+    if (!item || value === undefined || value === null || value === '') return;
     const categoryConfig = activeControls.find(c => c.tipo === controlType);
     const itemConfig = item.config;
     const cores = (itemConfig?.cores?.vermelho) ? itemConfig.cores : categoryConfig?.cores;
     const popups = (itemConfig?.popups?.vermelho) ? itemConfig.popups : categoryConfig?.popups;
     if (!cores || !popups) return;
     const val = Number(value);
-    
     if (atendeCriterioVerde(cores.verde, val)) {
        if (popups.verde.habilitado !== false) setActiveAlert({ titulo: popups.verde.titulo || 'OK', mensagem: popups.verde.mensagem.replace('X', String(val)), color: 'bg-green-600' });
     } else if (atendeCriterioAmarelo(cores.amarelo, val)) {
@@ -296,14 +294,85 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
   };
 
   const getRowStatusClasses = (item: any, val: number, controlType: string) => {
-    const categoryConfig = activeControls.find(c => c.tipo === controlType);
-    const itemConfig = item.config;
-    const cores = (itemConfig?.cores?.vermelho) ? itemConfig.cores : categoryConfig?.cores;
-    if (!cores) return '';
-    if (atendeCriterioVermelho(cores.vermelho, val)) return 'bg-red-100 text-red-950 border-l-4 border-l-red-600 font-bold';
-    if (atendeCriterioAmarelo(cores.amarelo, val)) return 'bg-yellow-100 text-yellow-950 border-l-4 border-l-yellow-500 font-bold';
-    if (atendeCriterioVerde(cores.verde, val)) return 'bg-green-100 text-green-950 border-l-4 border-l-green-600 font-bold';
+    const corStatus = item.corBackground;
+    if (corStatus === 'vermelho') return 'bg-red-100 text-red-950 border-l-4 border-l-red-600 font-bold';
+    if (corStatus === 'amarelo') return 'bg-yellow-100 text-yellow-950 border-l-4 border-l-yellow-500 font-bold';
+    if (corStatus === 'verde') return 'bg-green-100 text-green-950 border-l-4 border-l-green-600 font-bold';
     return '';
+  };
+
+  const handleShelfLifeDataChange = (id: string, novaData: string) => {
+    const dias = getDaysRemaining(novaData);
+    const categoryConfig = activeControls.find(c => c.tipo === 'shelf_life');
+    setShelfLife(prev => prev.map(item => {
+      if (item.id === id) {
+        const cores = item.config?.cores || categoryConfig?.cores;
+        let status: 'verde' | 'amarelo' | 'vermelho' = 'verde';
+        if (cores) {
+          if (atendeCriterioVermelho(cores.vermelho, dias)) status = 'vermelho';
+          else if (atendeCriterioAmarelo(cores.amarelo, dias)) status = 'amarelo';
+        }
+        evaluateAlert(item, dias, 'shelf_life');
+        return { ...item, dataVencimento: novaData, corBackground: status };
+      }
+      return item;
+    }));
+  };
+
+  const handleLocationsDataChange = (id: string, novaData: string) => {
+    const dias = getDaysDiff(novaData);
+    const categoryConfig = activeControls.find(c => c.tipo === 'locations');
+    setLocations(prev => prev.map(item => {
+      if (item.id === id) {
+        const cores = item.config?.cores || categoryConfig?.cores;
+        let status: 'verde' | 'amarelo' | 'vermelho' = 'verde';
+        if (cores) {
+          if (atendeCriterioVermelho(cores.vermelho, dias)) status = 'vermelho';
+          else if (atendeCriterioAmarelo(cores.amarelo, dias)) status = 'amarelo';
+        }
+        evaluateAlert(item, dias, 'locations');
+        return { ...item, dataMaisAntigo: novaData, corBackground: status };
+      }
+      return item;
+    }));
+  };
+
+  const handleTransitDataChange = (id: string, novaData: string) => {
+    const dias = getDaysDiff(novaData);
+    const categoryConfig = activeControls.find(c => c.tipo === 'transito');
+    setTransit(prev => prev.map(item => {
+      if (item.id === id) {
+        const cores = item.config?.cores || categoryConfig?.cores;
+        let status: 'verde' | 'amarelo' | 'vermelho' = 'verde';
+        if (cores) {
+          if (atendeCriterioVermelho(cores.vermelho, dias)) status = 'vermelho';
+          else if (atendeCriterioAmarelo(cores.amarelo, dias)) status = 'amarelo';
+        }
+        evaluateAlert(item, dias, 'transito');
+        return { ...item, dataSaida: novaData, corBackground: status };
+      }
+      return item;
+    }));
+  };
+
+  // --- HANDLER SALDO CRÍTICO (SOLICITAÇÃO 53.0) ---
+  const handleCriticalFieldChange = (id: string, field: 'partNumber' | 'lote' | 'saldoSistema' | 'saldoFisico', val: any) => {
+    console.debug(`[SaldoCritico] Campo alterado: ${id} - ${field} = ${val}`);
+    setCritical(prev => prev.map(item => {
+      if (item.id === id) {
+        const newItem = { ...item, [field]: val };
+        const categoryConfig = activeControls.find(c => c.tipo === 'itens_criticos');
+        const diff = Math.abs((newItem.saldoSistema || 0) - (newItem.saldoFisico || 0));
+        const cores = item.config?.cores || categoryConfig?.cores;
+        let status: 'verde' | 'amarelo' | 'vermelho' = 'verde';
+        if (cores) {
+          if (atendeCriterioVermelho(cores.vermelho, diff)) status = 'vermelho';
+          else if (atendeCriterioAmarelo(cores.amarelo, diff)) status = 'amarelo';
+        }
+        return { ...newItem, corBackground: status };
+      }
+      return item;
+    }));
   };
 
   const hasErr = (keyword: string) => errosValidacao.some(err => err.includes(keyword));
@@ -311,160 +380,49 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
   const handleColaboradorChange = (idx: number, id: string | null) => {
     if (id && colaboradoresIds.some((cid, i) => cid === id && i !== idx)) {
       const nome = baseUsers.find(u => u.id === id)?.nome || 'Selecionado';
-      setActiveAlert({
-        titulo: 'COLABORADOR JÁ REGISTRADO',
-        mensagem: `O colaborador '${nome}' já está registrado neste turno do dia ${dataOperacional}.`,
-        color: 'bg-red-600'
-      });
+      setActiveAlert({ titulo: 'COLABORADOR JÁ REGISTRADO', mensagem: `O colaborador '${nome}' já está registrado neste turno do dia ${dataOperacional}.`, color: 'bg-red-600' });
       return;
     }
-    const n = [...colaboradoresIds];
-    n[idx] = id;
-    setColaboradoresIds(n);
+    const n = [...colaboradoresIds]; n[idx] = id; setColaboradoresIds(n);
   };
 
-  /**
-   * CORREÇÃO: Função de Limpeza Seletiva (Pós-Finalização)
-   * Limpa estritamente apenas dados de produção e equipe.
-   * PRESERVA: Observações, Shelf-Life, Locations, Trânsito e Saldo Crítico.
-   */
   const resetCamposProducao = () => {
-    console.debug("[Limpeza Seletiva] Iniciando limpeza de produtividade...");
-    
-    // 1. Limpar Equipe
     setColaboradoresIds([null, null, null, null, null, null]);
-    
-    // 2. Limpar Horas Produzidas
     setTarefasValores({});
-    
-    // 3. Reinicializar Outras Tarefas para o padrão inicial
-    setOutrasTarefas([
-      { id: 'nr1', nome: '', tempo: '' }, 
-      { id: 'nr2', nome: '', tempo: '' }, 
-      { id: 'nr3', nome: '', tempo: '' }
-    ]);
-
-    // 4. Voltar status e limpar erros
+    setOutrasTarefas([{ id: 'nr1', nome: '', tempo: '' }, { id: 'nr2', nome: '', tempo: '' }, { id: 'nr3', nome: '', tempo: '' }]);
     setStatus('Rascunho');
     setErrosValidacao([]);
-
-    //Logs para auditoria
-    console.debug("[Limpeza Seletiva] Produtividade limpa. Dados de Continuidade (Obs e Controles) PRESERVADOS.");
   };
 
   const handleFinalize = async () => {
     const errosOutras: string[] = [];
-    outrasTarefas.forEach(t => {
-       if (t.nome.trim() !== '' && (!t.tempo || t.tempo === '00:00:00')) {
-          errosOutras.push(`Outras Tarefas: O tempo para "${t.nome}" é obrigatório.`);
-       }
-    });
-
-    const handoverData: ShiftHandover = {
-      id: editId || `sh_${Date.now()}`,
-      baseId: baseId || '',
-      data: dataOperacional,
-      turnoId: turnoAtivo,
-      colaboradores: colaboradoresIds,
-      tarefasExecutadas: tarefasValores,
-      nonRoutineTasks: outrasTarefas,
-      locationsData: locations,
-      transitData: transit,
-      shelfLifeData: shelfLife,
-      criticalData: critical,
-      informacoesImportantes: obs,
-      status: 'Finalizado',
-      performance: performance,
-      CriadoEm: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-
+    outrasTarefas.forEach(t => { if (t.nome.trim() !== '' && (!t.tempo || t.tempo === '00:00:00')) errosOutras.push(`Outras Tarefas: O tempo para "${t.nome}" é obrigatório.`); });
+    const handoverData: ShiftHandover = { id: editId || `sh_${Date.now()}`, baseId: baseId || '', data: dataOperacional, turnoId: turnoAtivo, colaboradores: colaboradoresIds, tarefasExecutadas: tarefasValores, nonRoutineTasks: outrasTarefas, locationsData: locations, transitData: transit, shelfLifeData: shelfLife, criticalData: critical, informacoesImportantes: obs, status: 'Finalizado', performance: performance, CriadoEm: new Date().toISOString(), updatedAt: new Date().toISOString() };
     const validacao = validationService.validarPassagem(handoverData, opTasks);
     const todosErros = [...validacao.camposPendentes, ...errosOutras];
-
-    if (todosErros.length > 0) {
-      setErrosValidacao(todosErros);
-      setActiveAlert({
-        titulo: "Campos Pendentes",
-        mensagem: "Existem campos obrigatórios não preenchidos:\n\n" + todosErros.join("\n"),
-        color: "bg-red-600"
-      });
-      return;
-    }
-
+    if (todosErros.length > 0) { setErrosValidacao(todosErros); setActiveAlert({ titulo: "Campos Pendentes", mensagem: "Existem campos obrigatórios não preenchidos:\n\n" + todosErros.join("\n"), color: "bg-red-600" }); return; }
     if (!editId) {
-      const jaFinalizada = validationService.validarPassagemDuplicada(dataOperacional, turnoAtivo, baseId || '');
-      if (jaFinalizada) {
+      const respDuplicada = await validationService.validarPassagemDuplicada(dataOperacional, turnoAtivo, baseId || '');
+      if (!respDuplicada.valido) {
         const turnoNum = currentBase?.turnos.find(t => t.id === turnoAtivo)?.numero || turnoAtivo;
-        setActiveAlert({
-          titulo: "PASSAGEM JÁ FINALIZADA",
-          mensagem: `Já existe uma Passagem de Serviço finalizada para o dia ${dataOperacional} no Turno ${turnoNum}. Não é possível finalizar 2 vezes a mesma passagem.`,
-          color: "bg-red-600"
-        });
+        setActiveAlert({ titulo: "PASSAGEM JÁ FINALIZADA", mensagem: respDuplicada.mensagem || `Já existe uma Passagem de Serviço finalizada para o dia ${dataOperacional} no Turno ${turnoNum}. Não é possível finalizar 2 vezes a mesma passagem.`, color: "bg-red-600" });
         return;
       }
     }
-
-    const duplicadosNoDia = validationService.verificarColaboradoresEmOutrosTurnos(dataOperacional, turnoAtivo, baseId || '', colaboradoresIds, baseUsers);
-    if (duplicadosNoDia.length > 0) {
-      setConfirmModal({
-        open: true,
-        title: 'ATENÇÃO - COLABORADOR DUPLICADO',
-        message: `Os colaboradores '${duplicadosNoDia.join(', ')}' já estão registrados em outro turno do dia ${dataOperacional}. Tem certeza que quer considerar o mesmo colaborador em 2 turnos diferentes no mesmo dia?`,
-        type: 'warning',
-        onConfirm: () => proceedToMigrate(handoverData),
-        confirmLabel: 'Sim, Continuar',
-        cancelLabel: 'Não, Cancelar'
-      });
+    const { colaboradoresDuplicados } = await validationService.verificarColaboradoresEmOutrosTurnos(dataOperacional, turnoAtivo, baseId || '', colaboradoresIds, baseUsers);
+    if (colaboradoresDuplicados.length > 0) {
+      setConfirmModal({ open: true, title: 'ATENÇÃO - COLABORADOR DUPLICADO', message: `Os colaboradores '${colaboradoresDuplicados.join(', ')}' já estão registrados em outro turno do dia ${dataOperacional}. Tem certeza que quer considerar o mesmo colaborador em 2 turnos diferentes no mesmo dia?`, type: 'warning', onConfirm: () => proceedToMigrate(handoverData), confirmLabel: 'Sim, Continuar', cancelLabel: 'Não, Cancelar' });
       return;
     }
-
-    if (editId) {
-      setConfirmModal({
-        open: true,
-        title: 'CONFIRMAR ALTERAÇÃO',
-        message: 'Tem certeza que quer alterar os dados desta passagem de serviço no histórico de relatórios?',
-        type: 'warning',
-        onConfirm: () => proceedToMigrate(handoverData),
-        confirmLabel: 'Sim, Salvar Alterações',
-        cancelLabel: 'Não, Cancelar'
-      });
-      return;
-    }
-
+    if (editId) { setConfirmModal({ open: true, title: 'CONFIRMAR ALTERAÇÃO', message: 'Tem certeza que quer alterar os dados desta passagem de serviço no histórico de relatórios?', type: 'warning', onConfirm: () => proceedToMigrate(handoverData), confirmLabel: 'Sim, Salvar Alterações', cancelLabel: 'Não, Cancelar' }); return; }
     proceedToMigrate(handoverData);
   };
 
   const proceedToMigrate = async (data: ShiftHandover) => {
     try {
-      console.debug("[Finalização] Iniciando finalização da passagem");
-      console.debug("[Finalização] Migrando dados para histórico...");
       await migrationService.processarMigracao(data, store, editId || undefined);
-      console.debug("[Finalização] Passagem salva com sucesso");
-      
-      setConfirmModal({
-        open: true,
-        title: editId ? 'Alteração Salva com Sucesso!' : 'Passagem Finalizada com Sucesso!',
-        message: editId ? 'As informações originais foram substituídas pelas novas no histórico.' : 'Seus dados foram migrados para Relatórios com sucesso.',
-        type: 'success',
-        confirmLabel: 'OK',
-        cancelLabel: undefined, 
-        onConfirm: () => {
-          console.debug("[Finalização] Usuário clicou 'OK'");
-          if (editId) {
-             navigate('/reports');
-          } else {
-             resetCamposProducao();
-             setConfirmModal(prev => ({ ...prev, open: false }));
-             window.scrollTo({ top: 0, behavior: 'smooth' });
-          }
-          console.debug("[Finalização] Fluxo concluído.");
-        }
-      });
-    } catch (error) {
-      console.error("[Finalização] Erro ao finalizar:", error);
-      setActiveAlert({ titulo: "Erro ao Finalizar", mensagem: "Ocorreu um erro ao finalizar a passagem. Tente novamente.", color: "bg-red-700" });
-    }
+      setConfirmModal({ open: true, title: editId ? 'Alteração Salva com Sucesso!' : 'Passagem Finalizada com Sucesso!', message: editId ? 'As informações originais foram substituídas pelas novas no histórico.' : 'Seus dados foram migrados para Relatórios com sucesso.', type: 'success', confirmLabel: 'OK', cancelLabel: undefined, onConfirm: () => { if (editId) navigate('/reports'); else { resetCamposProducao(); setConfirmModal(prev => ({ ...prev, open: false })); window.scrollTo({ top: 0, behavior: 'smooth' }); } } });
+    } catch (error) { setActiveAlert({ titulo: "Erro ao Finalizar", mensagem: "Ocorreu um erro ao finalizar a passagem. Tente novamente.", color: "bg-red-700" }); }
   };
 
   const isViewOnly = status === 'Finalizado';
@@ -491,16 +449,7 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
         </div>
       )}
 
-      <ConfirmModal 
-        isOpen={confirmModal.open} 
-        onClose={() => { if(confirmModal.onCancel) confirmModal.onCancel(); setConfirmModal({ ...confirmModal, open: false }); }} 
-        onConfirm={confirmModal.onConfirm} 
-        title={confirmModal.title} 
-        message={confirmModal.message} 
-        type={confirmModal.type} 
-        confirmLabel={confirmModal.confirmLabel}
-        cancelLabel={confirmModal.cancelLabel}
-      />
+      <ConfirmModal isOpen={confirmModal.open} onClose={() => { if(confirmModal.onCancel) confirmModal.onCancel(); setConfirmModal({ ...confirmModal, open: false }); }} onConfirm={confirmModal.onConfirm} title={confirmModal.title} message={confirmModal.message} type={confirmModal.type} confirmLabel={confirmModal.confirmLabel} cancelLabel={confirmModal.cancelLabel} />
 
       <header className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-6">
          <div className="flex items-center space-x-6">
@@ -554,7 +503,11 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                  {colaboradoresIds.map((id, idx) => (
                     <select key={idx} disabled={isViewOnly} value={id || ''} onChange={e => handleColaboradorChange(idx, e.target.value || null)} className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-xs">
                        <option value="">Colaborador {idx+1}...</option>
-                       {baseUsers.map(u => <option key={u.id} value={u.id}>{u.nome}</option>)}
+                       {baseUsers.map(u => (
+                         <option key={u.id} value={u.id}>
+                           {u.nome} - {currentBase?.sigla} - {u.jornadaPadrao}h
+                         </option>
+                       ))}
                     </select>
                  ))}
               </div>
@@ -566,72 +519,124 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.2em] mt-1">Gestão de itens críticos e conformidade técnica.</p>
               </div>
 
-              <PanelContainer title="Shelf Life" icon={<FlaskConical size={16} className="text-orange-500" />} onAdd={() => setShelfLife([...shelfLife, { id: `m-${Date.now()}`, partNumber: '', lote: '', dataVencimento: '', isPadrao: false }])} isViewOnly={isViewOnly}>
+              <PanelContainer title="Shelf Life" icon={<FlaskConical size={16} className="text-orange-500" />} onAdd={() => setShelfLife([...shelfLife, { id: `m-${Date.now()}`, partNumber: '', lote: '', dataVencimento: '', isPadrao: false, corBackground: 'verde' }])} isViewOnly={isViewOnly}>
                 <table className="w-full text-left">
                   <thead className="bg-gray-50 text-[10px] font-black text-gray-400 uppercase tracking-widest"><tr><th className="px-6 py-4">Part Number</th><th className="px-6 py-4">Lote</th><th className="px-6 py-4">Vencimento</th></tr></thead>
                   <tbody>
-                    {shelfLife.map(row => (
-                      <tr key={row.id} className={`border-t border-gray-50 ${getRowStatusClasses(row, getDaysRemaining(row.dataVencimento), 'shelf_life')} ${hasErr(row.partNumber) ? 'bg-red-50' : ''}`}>
-                        <td className="px-6 py-4 font-bold uppercase"><input disabled={isViewOnly || row.isPadrao} className="bg-transparent w-full outline-none" value={row.partNumber} onChange={e => setShelfLife(shelfLife.map(l => l.id === row.id ? {...l, partNumber: e.target.value} : l))} /></td>
-                        <td className="px-6 py-4 font-bold"><input disabled={isViewOnly} className="bg-transparent w-full outline-none" value={row.lote} onChange={e => setShelfLife(shelfLife.map(l => l.id === row.id ? {...l, lote: e.target.value} : l))} /></td>
-                        <td className="px-6 py-4"><DatePickerField value={row.dataVencimento} onChange={v => { setShelfLife(shelfLife.map(l => l.id === row.id ? {...l, dataVencimento: v} : l)); evaluateAlert(row, getDaysRemaining(v), 'shelf_life'); }} disabled={isViewOnly} /></td>
-                      </tr>
-                    ))}
+                    {shelfLife.map(row => {
+                      const dias = getDaysRemaining(row.dataVencimento);
+                      return (
+                        <tr key={row.id} className={`border-t border-gray-50 ${getRowStatusClasses(row, dias, 'shelf_life')} ${hasErr(row.partNumber) ? 'bg-red-50' : ''}`}>
+                          <td className="px-6 py-4 font-bold uppercase"><input disabled={isViewOnly || row.isPadrao} className="bg-transparent w-full outline-none" value={row.partNumber} onChange={e => setShelfLife(shelfLife.map(l => l.id === row.id ? {...l, partNumber: e.target.value} : l))} /></td>
+                          <td className="px-6 py-4 font-bold"><input disabled={isViewOnly} className="bg-transparent w-full outline-none" value={row.lote} onChange={e => setShelfLife(shelfLife.map(l => l.id === row.id ? {...l, lote: e.target.value} : l))} /></td>
+                          <td className="px-6 py-4">
+                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                               <Box sx={{ minWidth: '150px' }}>
+                                 <DatePickerField value={row.dataVencimento} onChange={v => handleShelfLifeDataChange(row.id, v)} disabled={isViewOnly} />
+                               </Box>
+                               {row.dataVencimento && (
+                                 <Typography sx={{ fontWeight: 800, fontSize: '14px', color: obterCorDoBackgroundShelfLife(row), letterSpacing: '0.5px', whiteSpace: 'nowrap' }}>
+                                   <span className="opacity-40"> - </span> {getShelfLifeDisplayText(row.dataVencimento)}
+                                 </Typography>
+                               )}
+                             </Box>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </PanelContainer>
 
-              <PanelContainer title="Locations" icon={<Box size={16} className="text-orange-500" />} onAdd={() => setLocations([...locations, { id: `m-${Date.now()}`, nomeLocation: '', quantidade: null, dataMaisAntigo: '' }])} isViewOnly={isViewOnly}>
+              <PanelContainer title="Locations" icon={<BoxIcon size={16} className="text-orange-500" />} onAdd={() => setLocations([...locations, { id: `m-${Date.now()}`, nomeLocation: '', quantidade: null, dataMaisAntigo: '', corBackground: 'verde' }])} isViewOnly={isViewOnly}>
                 <table className="w-full text-left">
                   <thead className="bg-gray-50 text-[10px] font-black text-gray-400 uppercase tracking-widest"><tr><th className="px-6 py-4">Location</th><th className="px-6 py-4">Quantidade</th><th className="px-6 py-4">Mais Antigo</th></tr></thead>
                   <tbody>
-                    {locations.map(row => (
-                      <tr key={row.id} className={`border-t border-gray-50 ${getRowStatusClasses(row, getDaysDiff(row.dataMaisAntigo), 'locations')} ${hasErr(row.nomeLocation) ? 'bg-red-50' : ''}`}>
-                        <td className="px-6 py-4 font-bold uppercase"><input disabled={isViewOnly || row.isPadrao} className="bg-transparent w-full outline-none" value={row.nomeLocation} onChange={e => setLocations(locations.map(l => l.id === row.id ? {...l, nomeLocation: e.target.value} : l))} /></td>
-                        <td className="px-6 py-4"><input type="number" disabled={isViewOnly} className="w-20 p-2 rounded-xl font-black text-center bg-gray-50" value={row.quantidade ?? ''} onChange={e => setLocations(locations.map(l => l.id === row.id ? {...l, quantidade: e.target.value === '' ? null : Number(e.target.value)} : l))} /></td>
-                        <td className="px-6 py-4"><DatePickerField disabled={isViewOnly || row.quantidade === 0 || row.quantidade === null} value={row.dataMaisAntigo} onChange={v => { setLocations(locations.map(l => l.id === row.id ? {...l, dataMaisAntigo: v} : l)); evaluateAlert(row, getDaysDiff(v), 'locations'); }} /></td>
-                      </tr>
-                    ))}
+                    {locations.map(row => {
+                      const dias = getDaysDiff(row.dataMaisAntigo);
+                      return (
+                        <tr key={row.id} className={`border-t border-gray-50 ${getRowStatusClasses(row, dias, 'locations')} ${hasErr(row.nomeLocation) ? 'bg-red-50' : ''}`}>
+                          <td className="px-6 py-4 font-bold uppercase"><input disabled={isViewOnly || row.isPadrao} className="bg-transparent w-full outline-none" value={row.nomeLocation} onChange={e => setLocations(locations.map(l => l.id === row.id ? {...l, nomeLocation: e.target.value} : l))} /></td>
+                          <td className="px-6 py-4"><input type="number" disabled={isViewOnly} className="w-20 p-2 rounded-xl font-black text-center bg-gray-50" value={row.quantidade ?? ''} onChange={e => setLocations(locations.map(l => l.id === row.id ? {...l, quantidade: e.target.value === '' ? null : Number(e.target.value)} : l))} /></td>
+                          <td className="px-6 py-4">
+                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                               <Box sx={{ minWidth: '150px' }}>
+                                 <DatePickerField disabled={isViewOnly || row.quantidade === 0 || row.quantidade === null} value={row.dataMaisAntigo} onChange={v => handleLocationsDataChange(row.id, v)} />
+                               </Box>
+                               {row.dataMaisAntigo && (row.quantidade !== 0 && row.quantidade !== null) && (
+                                 <Typography sx={{ fontWeight: 800, fontSize: '14px', color: obterCorDoBackgroundEnvio(row), letterSpacing: '0.5px', whiteSpace: 'nowrap' }}>
+                                   <span className="opacity-40"> - </span> {getEnvioDisplayText(row.dataMaisAntigo)}
+                                 </Typography>
+                               )}
+                             </Box>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </PanelContainer>
 
-              <PanelContainer title="Trânsito" icon={<Truck size={16} className="text-orange-500" />} onAdd={() => setTransit([...transit, { id: `m-${Date.now()}`, nomeTransito: '', diasPadrao: 0, quantidade: null, dataSaida: '' }])} isViewOnly={isViewOnly}>
+              <PanelContainer title="Trânsito" icon={<Truck size={16} className="text-orange-500" />} onAdd={() => setTransit([...transit, { id: `m-${Date.now()}`, nomeTransito: '', diasPadrao: 0, quantidade: null, dataSaida: '', corBackground: 'verde' }])} isViewOnly={isViewOnly}>
                 <table className="w-full text-left">
                   <thead className="bg-gray-50 text-[10px] font-black text-gray-400 uppercase tracking-widest"><tr><th className="px-6 py-4">Tipo</th><th className="px-6 py-4">Quantidade</th><th className="px-6 py-4">Data Saída</th></tr></thead>
                   <tbody>
-                    {transit.map(row => (
-                      <tr key={row.id} className={`border-t border-gray-50 ${getRowStatusClasses(row, getDaysDiff(row.dataSaida), 'transito')} ${hasErr(row.nomeTransito) ? 'bg-red-50' : ''}`}>
-                        <td className="px-6 py-4 font-bold uppercase"><input disabled={isViewOnly || row.isPadrao} className="bg-transparent w-full outline-none" value={row.nomeTransito} onChange={e => setTransit(transit.map(l => l.id === row.id ? {...l, nomeTransito: e.target.value} : l))} /></td>
-                        <td className="px-6 py-4"><input type="number" disabled={isViewOnly} className="w-20 p-2 rounded-xl font-black text-center bg-gray-50" value={row.quantidade ?? ''} onChange={e => setTransit(transit.map(l => l.id === row.id ? {...l, quantidade: e.target.value === '' ? null : Number(e.target.value)} : l))} /></td>
-                        <td className="px-6 py-4"><DatePickerField disabled={isViewOnly || row.quantidade === 0 || row.quantidade === null} value={row.dataSaida} onChange={v => { setTransit(transit.map(l => l.id === row.id ? {...l, dataSaida: v} : l)); evaluateAlert(row, getDaysDiff(v), 'transito'); }} /></td>
-                      </tr>
-                    ))}
+                    {transit.map(row => {
+                      const dias = getDaysDiff(row.dataSaida);
+                      return (
+                        <tr key={row.id} className={`border-t border-gray-50 ${getRowStatusClasses(row, dias, 'transito')} ${hasErr(row.nomeTransito) ? 'bg-red-50' : ''}`}>
+                          <td className="px-6 py-4 font-bold uppercase"><input disabled={isViewOnly || row.isPadrao} className="bg-transparent w-full outline-none" value={row.nomeTransito} onChange={e => setTransit(transit.map(l => l.id === row.id ? {...l, nomeTransito: e.target.value} : l))} /></td>
+                          <td className="px-6 py-4"><input type="number" disabled={isViewOnly} className="w-20 p-2 rounded-xl font-black text-center bg-gray-50" value={row.quantidade ?? ''} onChange={e => setTransit(transit.map(l => l.id === row.id ? {...l, quantidade: e.target.value === '' ? null : Number(e.target.value)} : l))} /></td>
+                          <td className="px-6 py-4">
+                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                               <Box sx={{ minWidth: '150px' }}>
+                                 <DatePickerField disabled={isViewOnly || row.quantidade === 0 || row.quantidade === null} value={row.dataSaida} onChange={v => handleTransitDataChange(row.id, v)} />
+                               </Box>
+                               {row.dataSaida && (row.quantidade !== 0 && row.quantidade !== null) && (
+                                 <Typography sx={{ fontWeight: 800, fontSize: '14px', color: obterCorDoBackgroundEnvio(row), letterSpacing: '0.5px', whiteSpace: 'nowrap' }}>
+                                   <span className="opacity-40"> - </span> {getEnvioDisplayText(row.dataSaida)}
+                                 </Typography>
+                               )}
+                             </Box>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </PanelContainer>
 
-              <PanelContainer title="Saldo Crítico" icon={<AlertOctagon size={16} className="text-orange-500" />} onAdd={() => setCritical([...critical, { id: `m-${Date.now()}`, partNumber: '', lote: '', saldoSistema: null, saldoFisico: null }])} isViewOnly={isViewOnly}>
+              <PanelContainer title="Saldo Crítico" icon={<AlertOctagon size={16} className="text-orange-500" />} onAdd={() => setCritical([...critical, { id: `m-${Date.now()}`, partNumber: '', lote: '', saldoSistema: null, saldoFisico: null, corBackground: 'verde' }])} isViewOnly={isViewOnly}>
                 <table className="w-full text-left">
-                  <thead className="bg-gray-50 text-[10px] font-black text-gray-400 uppercase tracking-widest"><tr><th className="px-6 py-4">PN</th><th className="px-6 py-4 text-center">Sistema</th><th className="px-6 py-4 text-center">Físico</th><th className="px-6 py-4 text-center">Diferença</th></tr></thead>
+                  <thead className="bg-gray-50 text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                    <tr>
+                      <th className="px-6 py-4">PN</th>
+                      <th className="px-6 py-4">Lote/Série</th>
+                      <th className="px-6 py-4 text-center">Sistema</th>
+                      <th className="px-6 py-4 text-center">Físico</th>
+                      <th className="px-6 py-4 text-center">Diferença</th>
+                    </tr>
+                  </thead>
                   <tbody>
                     {critical.map(row => {
-                      const diff = Math.abs((row.saldoSistema||0) - (row.saldoFisico||0));
+                      const diff = (row.saldoSistema || 0) - (row.saldoFisico || 0);
+                      const absDiff = Math.abs(diff);
                       return (
-                        <tr key={row.id} className={`border-t border-gray-50 ${getRowStatusClasses(row, diff, 'itens_criticos')} ${hasErr(row.partNumber) ? 'bg-red-50' : ''}`}>
-                          <td className="px-6 py-4 font-bold uppercase"><input disabled={isViewOnly || row.isPadrao} className="bg-transparent w-full outline-none" value={row.partNumber} onChange={e => setCritical(critical.map(c => c.id === row.id ? {...c, partNumber: e.target.value} : c))} /></td>
-                          <td className="px-6 py-4 text-center"><input type="number" disabled={isViewOnly} className="w-16 p-2 rounded-xl font-black text-center bg-white/50" value={row.saldoSistema ?? ''} onChange={e => setCritical(critical.map(c => c.id === row.id ? {...c, saldoSistema: e.target.value === '' ? null : Number(e.target.value)} : c))} /></td>
+                        <tr key={row.id} className={`border-t border-gray-50 ${getRowStatusClasses(row, absDiff, 'itens_criticos')} ${hasErr(row.partNumber) ? 'bg-red-50' : ''}`}>
+                          <td className="px-6 py-4 font-bold uppercase"><input disabled={isViewOnly || row.isPadrao} className="bg-transparent w-full outline-none" value={row.partNumber} onChange={e => handleCriticalFieldChange(row.id, 'partNumber', e.target.value)} /></td>
+                          <td className="px-6 py-4 font-bold uppercase"><input disabled={isViewOnly} className="bg-transparent w-full outline-none" value={row.lote} placeholder="N/S ou Lote" onChange={e => handleCriticalFieldChange(row.id, 'lote', e.target.value)} /></td>
+                          <td className="px-6 py-4 text-center"><input type="number" disabled={isViewOnly} className="w-16 p-2 rounded-xl font-black text-center bg-white/50" value={row.saldoSistema ?? ''} onChange={e => handleCriticalFieldChange(row.id, 'saldoSistema', e.target.value === '' ? null : Number(e.target.value))} /></td>
                           <td className="px-6 py-4 text-center">
                             <input 
                               type="number" 
                               disabled={isViewOnly} 
                               className="w-16 p-2 rounded-xl font-black text-center bg-white/50" 
                               value={row.saldoFisico ?? ''} 
-                              onChange={e => setCritical(critical.map(c => c.id === row.id ? {...c, saldoFisico: e.target.value === '' ? null : Number(e.target.value)} : c))}
+                              onChange={e => handleCriticalFieldChange(row.id, 'saldoFisico', e.target.value === '' ? null : Number(e.target.value))}
                               onBlur={() => evaluateAlert(row, Math.abs((row.saldoSistema||0) - (row.saldoFisico||0)), 'itens_criticos')}
                             />
                           </td>
-                          <td className="px-6 py-4 text-center font-black">{(row.saldoSistema||0) - (row.saldoFisico||0)}</td>
+                          <td className="px-6 py-4 text-center font-black">{diff}</td>
                         </tr>
                       );
                     })}
@@ -649,7 +654,15 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                        <div className="bg-white rounded-[2.5rem] shadow-sm border border-gray-100 overflow-hidden divide-y divide-gray-50">
                           {opTasks.filter(t => t.categoriaId === cat.id).map(task => (
                              <div key={task.id} className={`p-6 flex items-center justify-between hover:bg-orange-50/10 transition-colors ${hasErr(task.nome) ? 'bg-red-50' : ''}`}>
-                                <div className="flex flex-col"><span className="text-sm font-black text-gray-700 uppercase">{task.nome}</span><span className="text-[10px] font-bold text-gray-300 uppercase">{task.tipoMedida}</span></div>
+                                <div className="flex flex-col">
+                                  <span className="text-sm font-black text-gray-700 uppercase">{task.nome}</span>
+                                  <span className="text-[10px] font-bold text-gray-300 uppercase">{task.tipoMedida}</span>
+                                  {task.tipoMedida === MeasureType.QTD && (
+                                    <span className="text-[9px] font-bold text-gray-400 italic">
+                                      Fator Multiplicador: {task.fatorMultiplicador.toFixed(2)}
+                                    </span>
+                                  )}
+                                </div>
                                 {task.tipoMedida === MeasureType.TEMPO ? (
                                   <TimeInput disabled={isViewOnly} value={tarefasValores[task.id] || ''} onChange={v => setTarefasValores({...tarefasValores, [task.id]: v})} className="w-32 p-4 bg-gray-50 border-transparent rounded-2xl font-black text-center text-orange-600" />
                                 ) : (
@@ -667,46 +680,25 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                         {outrasTarefas.map((nr, idx) => {
                            const isTempoVisivel = nr.nome.trim() !== '';
                            const isTempoPendente = isTempoVisivel && (!nr.tempo || nr.tempo === '00:00:00');
-                           
                            return (
                              <div key={nr.id} className={`p-6 flex flex-col md:flex-row items-center gap-4 hover:bg-gray-50/50 transition-colors ${isTempoPendente ? 'bg-red-50/30' : ''}`}>
                                 <div className="flex-1 w-full">
                                   <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1 block">Nome da Atividade Customizada</label>
-                                  <input 
-                                    disabled={isViewOnly}
-                                    value={nr.nome}
-                                    onChange={e => setOutrasTarefas(outrasTarefas.map(item => item.id === nr.id ? {...item, nome: e.target.value} : item))}
-                                    placeholder="Descreva a atividade..."
-                                    className="w-full p-4 bg-gray-50 border-transparent rounded-2xl font-bold text-sm outline-none focus:bg-white focus:border-orange-100 transition-all"
-                                  />
+                                  <input disabled={isViewOnly} value={nr.nome} onChange={e => setOutrasTarefas(outrasTarefas.map(item => item.id === nr.id ? {...item, nome: e.target.value} : item))} placeholder="Descreva a atividade..." className="w-full p-4 bg-gray-50 border-transparent rounded-2xl font-bold text-sm outline-none focus:bg-white focus:border-orange-100 transition-all" />
                                 </div>
-                                
                                 {isTempoVisivel && (
                                   <div className="w-full md:w-auto animate-in fade-in slide-in-from-right-2">
-                                    <label className={`text-[9px] font-black uppercase tracking-widest mb-1 block ${isTempoPendente ? 'text-red-500' : 'text-gray-400'}`}>
-                                      Tempo HH:MM:SS {isTempoPendente && '(Obrigatório)'}
-                                    </label>
-                                    <TimeInput 
-                                      disabled={isViewOnly}
-                                      value={nr.tempo}
-                                      onChange={v => setOutrasTarefas(outrasTarefas.map(item => item.id === nr.id ? {...item, tempo: v} : item))}
-                                      className={`w-40 p-4 rounded-2xl font-black text-center transition-all ${isTempoPendente ? 'bg-red-50 border-2 border-red-500 text-red-600' : 'bg-gray-50 border-transparent text-orange-600'}`}
-                                    />
+                                    <label className={`text-[9px] font-black uppercase tracking-widest mb-1 block ${isTempoPendente ? 'text-red-500' : 'text-gray-400'}`}>Tempo HH:MM:SS {isTempoPendente && '(Obrigatório)'}</label>
+                                    <TimeInput disabled={isViewOnly} value={nr.tempo} onChange={v => setOutrasTarefas(outrasTarefas.map(item => item.id === nr.id ? {...item, tempo: v} : item))} className={`w-40 p-4 rounded-2xl font-black text-center transition-all ${isTempoPendente ? 'bg-red-50 border-2 border-red-500 text-red-600' : 'bg-gray-50 border-transparent text-orange-600'}`} />
                                   </div>
                                 )}
-                                
-                                {!isViewOnly && idx >= 3 && (
-                                  <button onClick={() => setOutrasTarefas(outrasTarefas.filter(item => item.id !== nr.id))} className="mt-5 p-3 text-gray-300 hover:text-red-500 bg-gray-100 rounded-xl"><Trash2 size={18}/></button>
-                                )}
+                                {!isViewOnly && idx >= 3 && <button onClick={() => setOutrasTarefas(outrasTarefas.filter(item => item.id !== nr.id))} className="mt-5 p-3 text-gray-300 hover:text-red-500 bg-gray-100 rounded-xl"><Trash2 size={18}/></button>}
                              </div>
                            );
                         })}
                         {!isViewOnly && (
                           <div className="p-4 bg-gray-50/30 flex justify-center">
-                            <button 
-                              onClick={() => setOutrasTarefas([...outrasTarefas, { id: `nr-${Date.now()}`, nome: '', tempo: '' }])}
-                              className="flex items-center space-x-2 text-[10px] font-black text-gray-400 uppercase tracking-widest hover:text-orange-600 transition-colors"
-                            >
+                            <button onClick={() => setOutrasTarefas([...outrasTarefas, { id: `nr-${Date.now()}`, nome: '', tempo: '' }])} className="flex items-center space-x-2 text-[10px] font-black text-gray-400 uppercase tracking-widest hover:text-orange-600 transition-colors">
                               <PlusCircle size={16} /> <span>Adicionar Linha</span>
                             </button>
                           </div>

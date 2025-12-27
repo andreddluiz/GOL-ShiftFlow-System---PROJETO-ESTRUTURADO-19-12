@@ -14,7 +14,7 @@ import {
   baseService, userService, taskService, categoryService 
 } from '../services';
 import { 
-  BaseModal, UserModal, TaskModal, CategoryModal, ConfirmModal
+  BaseModal, UserModal, TaskModal, CategoryModal, ConfirmModal, minutesToHhmmss
 } from '../modals';
 import { useStore } from '../hooks/useStore';
 import ManagementControlsAlertsPage from './ManagementControlsAlertsPage';
@@ -413,8 +413,7 @@ interface UsuariosTableProps {
 }
 
 const formatJornada = (val: number) => {
-  if (val === 7.2) return '7,12h';
-  return `${val}h`;
+  return minutesToHhmmss(val * 60);
 };
 
 const UsersTable: React.FC<UsuariosTableProps> = ({ users, bases, onEdit, onDelete }) => {

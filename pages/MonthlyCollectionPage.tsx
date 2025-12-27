@@ -3,7 +3,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Calendar, Save, CheckCircle, ArrowLeft, 
   Clock, Hash, Lock, AlertCircle, Info, ChevronRight,
-  TrendingUp, BarChart3, Activity
+  TrendingUp, BarChart3, Activity, Timer, Edit2
 } from 'lucide-react';
 import { 
   Box, Typography, Card, CardContent, Grid, FormControl, 
@@ -13,7 +13,7 @@ import {
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useStore } from '../hooks/useStore';
 import { MonthlyCollection, MeasureType } from '../types';
-import { TimeInput } from '../modals';
+import { TimeInput, minutesToHhmmss, hhmmssToMinutes } from '../modals';
 
 const MonthlyCollectionPage: React.FC<{baseId?: string}> = ({ baseId }) => {
   const navigate = useNavigate();
@@ -35,6 +35,23 @@ const MonthlyCollectionPage: React.FC<{baseId?: string}> = ({ baseId }) => {
 
   const categories = useMemo(() => getMonthlyCategoriesCombinadas(baseId), [getMonthlyCategoriesCombinadas, baseId, initialized]);
   const tasks = useMemo(() => getMonthlyTasksCombinadas(baseId), [getMonthlyTasksCombinadas, baseId, initialized]);
+
+  // NOVO: Cálculo de Horas em Tempo Real
+  const totalHorasCalculadas = useMemo(() => {
+    let totalMins = 0;
+    tasks.forEach(task => {
+      const val = valores[task.id];
+      if (!val) return;
+      
+      if (task.tipoMedida === MeasureType.TEMPO) {
+        totalMins += hhmmssToMinutes(val);
+      } else {
+        const qty = parseFloat(val) || 0;
+        totalMins += qty * task.fatorMultiplicador;
+      }
+    });
+    return minutesToHhmmss(totalMins);
+  }, [valores, tasks]);
 
   useEffect(() => {
     if (!initialized) refreshData();
@@ -89,7 +106,7 @@ const MonthlyCollectionPage: React.FC<{baseId?: string}> = ({ baseId }) => {
   };
 
   const handleValueChange = (taskId: string, val: string) => {
-    if (coletaAtiva?.status === 'FINALIZADO') return;
+    if (coletaAtiva?.status === 'FINALIZADO' && !editId) return;
     setValores(prev => ({ ...prev, [taskId]: val }));
   };
 
@@ -117,7 +134,10 @@ const MonthlyCollectionPage: React.FC<{baseId?: string}> = ({ baseId }) => {
     }
   };
 
-  const isViewOnly = coletaAtiva?.status === 'FINALIZADO';
+  // Se estiver em modo de edição vindo dos relatórios, liberamos os campos mesmo que status seja FINALIZADO
+  const isViewOnly = coletaAtiva?.status === 'FINALIZADO' && !editId;
+  const isEditMode = !!editId;
+
   const mesesDisponiveis = [
     "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
     "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
@@ -149,11 +169,11 @@ const MonthlyCollectionPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                 <Typography variant="caption" sx={{ fontWeight: 800, color: '#9ca3af', uppercase: true }}>Seleção de competência para indicadores</Typography>
               </Box>
             </Box>
-            {isViewOnly && (
+            {coletaAtiva?.status === 'FINALIZADO' && (
                <Chip 
-                icon={<Lock size={14} />} 
-                label="MÊS FINALIZADO" 
-                color="warning" 
+                icon={isEditMode ? <Edit2 size={14} /> : <Lock size={14} />} 
+                label={isEditMode ? "MODO EDIÇÃO (FINALIZADO)" : "MÊS FINALIZADO"} 
+                color={isEditMode ? "primary" : "warning"}
                 sx={{ fontWeight: 900, fontSize: '0.65rem' }} 
                />
             )}
@@ -164,7 +184,7 @@ const MonthlyCollectionPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                <FormControl fullWidth size="small">
                   <InputLabel>Mês</InputLabel>
                   <Select 
-                    disabled={isViewOnly} 
+                    disabled={isViewOnly || isEditMode} 
                     value={mes} 
                     onChange={e => setMes(Number(e.target.value))} 
                     label="Mês"
@@ -178,7 +198,7 @@ const MonthlyCollectionPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                <FormControl fullWidth size="small">
                   <InputLabel>Ano</InputLabel>
                   <Select 
-                    disabled={isViewOnly} 
+                    disabled={isViewOnly || isEditMode} 
                     value={ano} 
                     onChange={e => setAno(Number(e.target.value))} 
                     label="Ano"
@@ -194,6 +214,7 @@ const MonthlyCollectionPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                 variant="contained" 
                 color="warning" 
                 onClick={handleCarregar} 
+                disabled={isEditMode}
                 sx={{ borderRadius: 3, py: 1.2, fontWeight: 900, boxShadow: 'none' }}
                >
                  {coletaAtiva ? 'Atualizar Visualização' : 'Iniciar Coleta'}
@@ -205,12 +226,57 @@ const MonthlyCollectionPage: React.FC<{baseId?: string}> = ({ baseId }) => {
 
       {coletaAtiva ? (
         <Box sx={{ spaceY: 6 }}>
-          {isViewOnly && (
-            <Alert severity="warning" sx={{ mb: 4, borderRadius: 4, border: '1px solid #fed7aa', bgcolor: '#fffcf9' }}>
+          {/* NOVO: Resumo de Produção Acumulado em Tempo Real */}
+          <Card 
+            sx={{ 
+              borderRadius: 6, 
+              mb: 4, 
+              background: 'linear-gradient(135deg, #FF5A00 0%, #ff8e4d 100%)', 
+              color: 'white',
+              boxShadow: '0 8px 30px rgba(255, 90, 0, 0.2)',
+              position: 'sticky',
+              top: 16,
+              zIndex: 10
+            }}
+          >
+            <CardContent sx={{ p: 3, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                <Box sx={{ p: 1.5, bgcolor: 'rgba(255,255,255,0.2)', borderRadius: 3 }}>
+                  <Timer size={28} />
+                </Box>
+                <Box>
+                  <Typography sx={{ fontWeight: 900, fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.1em', opacity: 0.9 }}>
+                    Total de Horas Calculadas
+                  </Typography>
+                  <Typography variant="h4" sx={{ fontWeight: 900, lineHeight: 1 }}>
+                    {totalHorasCalculadas}
+                  </Typography>
+                </Box>
+              </Box>
+              <Box sx={{ textAlign: 'right' }}>
+                <Typography sx={{ fontWeight: 800, fontSize: '0.65rem', textTransform: 'uppercase', opacity: 0.8 }}>
+                  Base: {currentBase?.sigla}
+                </Typography>
+                <Typography sx={{ fontWeight: 800, fontSize: '0.65rem', textTransform: 'uppercase', opacity: 0.8 }}>
+                  Período: {mesesDisponiveis[mes-1]} / {ano}
+                </Typography>
+              </Box>
+            </CardContent>
+          </Card>
+
+          {coletaAtiva.status === 'FINALIZADO' && (
+            <Alert severity={isEditMode ? "info" : "warning"} sx={{ mb: 4, borderRadius: 4, border: `1px solid ${isEditMode ? '#93c5fd' : '#fed7aa'}`, bgcolor: isEditMode ? '#f0f9ff' : '#fffcf9' }}>
                <Typography variant="body2" sx={{ fontWeight: 800 }}>
-                 DADOS BLOQUEADOS: Esta coleta foi finalizada em {new Date(coletaAtiva.dataFinalizacao!).toLocaleString('pt-BR')}.
-                 <br />
-                 <Typography variant="caption" sx={{ fontWeight: 600 }}>Para correções, utilize o botão Editar no Histórico de Relatórios.</Typography>
+                 {isEditMode 
+                   ? "MODO EDIÇÃO ATIVO: Você pode alterar os valores e salvar novamente para atualizar o histórico."
+                   : `DADOS BLOQUEADOS: Esta coleta foi finalizada em ${new Date(coletaAtiva.dataFinalizacao!).toLocaleString('pt-BR')}.`
+                 }
+                 {!isEditMode && (
+                   <>
+                    <br />
+                    <Typography variant="caption" sx={{ fontWeight: 600 }}>Para correções, utilize o botão Editar no Histórico de Relatórios.</Typography>
+                   </>
+                 )}
                </Typography>
             </Alert>
           )}
@@ -243,7 +309,7 @@ const MonthlyCollectionPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                                   )}
                                   {task.tipoMedida === MeasureType.QTD && (
                                     <Typography variant="caption" sx={{ color: '#9ca3af', fontWeight: 700, fontStyle: 'italic' }}>
-                                      Fator: {task.fatorMultiplicador}m
+                                      Fator: {minutesToHhmmss(task.fatorMultiplicador)}
                                     </Typography>
                                   )}
                                 </Box>
@@ -294,11 +360,11 @@ const MonthlyCollectionPage: React.FC<{baseId?: string}> = ({ baseId }) => {
           <Box sx={{ display: 'flex', justifyContent: 'space-between', pb: 10 }}>
              <Button 
               variant="outlined" 
-              onClick={() => navigate('/management')} 
+              onClick={() => navigate('/reports')} 
               startIcon={<ArrowLeft />}
               sx={{ borderRadius: 4, fontWeight: 900, px: 4 }}
              >
-               Voltar ao Gerenciamento
+               {isEditMode ? 'Cancelar e Voltar' : 'Voltar aos Relatórios'}
              </Button>
 
              <Box sx={{ display: 'flex', gap: 2 }}>
@@ -310,7 +376,7 @@ const MonthlyCollectionPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                     startIcon={<Save />}
                     onClick={() => handleAction(false)}
                    >
-                     Salvar Rascunho
+                     {isEditMode ? 'Salvar Alterações' : 'Salvar Rascunho'}
                    </Button>
                    <Button 
                     variant="contained" 
@@ -319,7 +385,7 @@ const MonthlyCollectionPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                     startIcon={<CheckCircle />}
                     onClick={() => handleAction(true)}
                    >
-                     Finalizar Coleta Mensal
+                     {isEditMode ? 'Finalizar e Re-Salvar' : 'Finalizar Coleta Mensal'}
                    </Button>
                  </>
                )}

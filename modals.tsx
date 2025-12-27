@@ -111,9 +111,10 @@ export const hhmmssToMinutes = (hms: string): number => {
 
 export const minutesToHhmmss = (totalMinutes: number): string => {
   if (isNaN(totalMinutes) || totalMinutes <= 0) return '00:00:00';
-  const h = Math.floor(totalMinutes / 60);
-  const m = Math.floor(totalMinutes % 60);
-  const s = Math.round((totalMinutes * 60) % 60);
+  const totalSeconds = Math.round(totalMinutes * 60);
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = totalSeconds % 60;
   const pad = (n: number) => n.toString().padStart(2, '0');
   return `${pad(h)}:${pad(m)}:${pad(s)}`;
 };
@@ -646,9 +647,9 @@ export const UserModal: React.FC<ModalProps & { availableBases?: Base[] }> = ({ 
                     label="Jornada"
                     sx={{ borderRadius: '0.75rem', bgcolor: 'white' }}
                   >
-                    <MenuItem value={6}>6h</MenuItem>
-                    <MenuItem value={7.2}>7,12h</MenuItem>
-                    <MenuItem value={8}>8h</MenuItem>
+                    <MenuItem value={6}>06:00:00</MenuItem>
+                    <MenuItem value={7.2}>07:12:00</MenuItem>
+                    <MenuItem value={8}>08:00:00</MenuItem>
                   </Select>
                 </FormControl>
               ) : (
@@ -837,9 +838,9 @@ export const ControlItemSettingsModal: React.FC<{ isOpen: boolean; onClose: () =
           <button onClick={onClose} className="p-2 text-gray-300 hover:text-red-500 transition-colors bg-gray-50 rounded-xl"><X className="w-6 h-6" /></button>
         </div>
         <div className="px-8 pt-4 flex space-x-2 bg-white">
-           <TabSelector label="Verde" active={activeLevel === 'verde'} onClick={() => setActiveLevel('verde')} colorClass="bg-green-500" activeText="text-green-600" activeBg="bg-green-50" />
-           <TabSelector label="Amarelo" active={activeLevel === 'amarelo'} onClick={() => setActiveLevel('amarelo')} colorClass="bg-yellow-500" activeText="text-yellow-600" activeBg="bg-yellow-50" />
-           <TabSelector label="Vermelho" active={activeLevel === 'vermelho'} onClick={() => setActiveLevel('vermelho')} colorClass="bg-red-500" activeText="text-red-600" activeBg="bg-red-50" />
+           <TabSelector label="Verde" active={activeLevel === 'verde'} onClick={() => setActiveLevel('verde'} colorClass="bg-green-500" activeText="text-green-600" activeBg="bg-green-50" />
+           <TabSelector label="Amarelo" active={activeLevel === 'amarelo'} onClick={() => setActiveLevel('amarelo'} colorClass="bg-yellow-500" activeText="text-yellow-600" activeBg="bg-yellow-50" />
+           <TabSelector label="Vermelho" active={activeLevel === 'vermelho'} onClick={() => setActiveLevel('vermelho'} colorClass="bg-red-500" activeText="text-red-600" activeBg="bg-red-50" />
         </div>
         <div className="flex-1 overflow-y-auto p-8 pt-6 space-y-6 scrollbar-hide">
            {activeLevel === 'verde' && renderConfigSection('verde', 'border-green-500')}
@@ -863,16 +864,45 @@ const TabSelector: React.FC<{label: string, active: boolean, onClick: () => void
 );
 
 export const CategoryModal: React.FC<ModalProps> = ({ isOpen, onClose, onSave, title, initialData }) => {
-  const [formData, setFormData] = useState<Partial<Category>>({ nome: '', status: 'Ativa', ordem: 1 });
-  useEffect(() => { if (initialData) setFormData(initialData); }, [initialData, isOpen]);
+  const [formData, setFormData] = useState<Partial<Category>>({ nome: '', exibicao: 'lista', status: 'Ativa', ordem: 1 });
+  
+  useEffect(() => { 
+    if (initialData) {
+      setFormData({ ...initialData, exibicao: initialData.exibicao || 'lista' });
+    } else {
+      setFormData({ nome: '', exibicao: 'lista', status: 'Ativa', ordem: 1 });
+    }
+  }, [initialData, isOpen]);
+  
   if (!isOpen) return null;
+
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
       <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl p-8 animate-in zoom-in-95">
         <h3 className="text-xl font-bold mb-4">{title}</h3>
         <div className="space-y-4">
-          <input className="w-full p-3 border rounded-xl font-bold uppercase" placeholder="Nome da Categoria" value={formData.nome} onChange={e => setFormData({...formData, nome: e.target.value})} />
-          <input type="number" className="w-full p-3 border rounded-xl font-bold" placeholder="Ordem" value={formData.ordem} onChange={e => setFormData({...formData, ordem: parseInt(e.target.value) || 1})} />
+          <MuiBox sx={{ mb: 2 }}>
+            <Input label="Nome da Categoria" value={formData.nome} onChange={v => setFormData({...formData, nome: v})} />
+          </MuiBox>
+          
+          <MuiBox sx={{ mb: 2 }}>
+            <FormControl fullWidth size="small">
+              <InputLabel>Formato de Exibição</InputLabel>
+              <Select
+                value={formData.exibicao}
+                onChange={(e) => setFormData({ ...formData, exibicao: e.target.value as any })}
+                label="Formato de Exibição"
+                sx={{ borderRadius: '1rem' }}
+              >
+                <MenuItem value="lista">Sempre Visível (Lista)</MenuItem>
+                <MenuItem value="suspensa">Lista Suspensa (Dropdown)</MenuItem>
+              </Select>
+            </FormControl>
+          </MuiBox>
+
+          <MuiBox sx={{ mb: 2 }}>
+            <Input type="number" label="Ordem de Exibição" value={formData.ordem} onChange={v => setFormData({...formData, ordem: parseInt(v) || 1})} />
+          </MuiBox>
         </div>
         <div className="flex space-x-2 mt-6">
           <button onClick={onClose} className="flex-1 py-3 bg-gray-100 rounded-xl font-bold text-gray-500">Cancelar</button>

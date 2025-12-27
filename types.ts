@@ -50,6 +50,7 @@ export interface Category {
   id: string;
   nome: string;
   tipo: 'operacional' | 'mensal';
+  exibicao: 'lista' | 'suspensa'; // NOVO: Controle de formato de exibição
   ordem: number;
   status: 'Ativa' | 'Inativa';
   visivel?: boolean; 
@@ -78,7 +79,7 @@ export interface MonthlyCollection {
   mes: number; // 1-12
   ano: number;
   status: 'ABERTO' | 'FINALIZADO';
-  tarefasValores: Record<string, string>; // ID da tarefa -> Valor string (qty ou tempo)
+  tarefasValores: Record<string, string>; 
   dataCriacao: string;
   dataFinalizacao?: string;
   updatedAt: string;
@@ -187,8 +188,8 @@ export interface Control {
 export interface LocationRow {
   id: string;
   nomeLocation: string;
-  quantidade: number | null; // OBRIGATÓRIO
-  dataMaisAntigo: string;    // OBRIGATÓRIO SE QUANTIDADE > 0
+  quantidade: number | null; 
+  dataMaisAntigo: string;    
   isPadrao?: boolean;
   config?: any;
 }
@@ -197,8 +198,8 @@ export interface TransitRow {
   id: string;
   nomeTransito: string;
   diasPadrao: number;
-  quantidade: number | null; // OBRIGATÓRIO
-  dataSaida: string;         // OBRIGATÓRIO SE QUANTIDADE > 0
+  quantidade: number | null; 
+  dataSaida: string;         
   isPadrao?: boolean;
   config?: any;
 }
@@ -225,7 +226,10 @@ export interface CriticalRow {
 export interface OutraAtividade {
   id: string;
   nome: string;
-  tempo: string; // HH:MM:SS
+  tempo: string; 
+  categoriaId?: string; 
+  tipoMedida?: MeasureType; // NOVO: Para suportar troca dinâmica de input
+  fatorMultiplicador?: number; // NOVO: Para cálculos de performance
 }
 
 export interface ShiftHandover {
@@ -235,7 +239,7 @@ export interface ShiftHandover {
   turnoId: string;
   colaboradores: (string | null)[]; 
   tarefasExecutadas: Record<string, string>;
-  nonRoutineTasks?: OutraAtividade[]; // Corrigido para usar a nova interface de OutraAtividade
+  nonRoutineTasks?: OutraAtividade[]; 
   locationsData: LocationRow[];
   transitData: TransitRow[];
   shelfLifeData: ShelfLifeRow[];

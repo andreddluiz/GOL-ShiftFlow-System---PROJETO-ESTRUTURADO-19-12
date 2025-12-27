@@ -4,9 +4,9 @@ import {
   CheckCircle, Trash2, Info, Users, Clock, AlertTriangle, ClipboardList,
   X, TrendingUp, Timer, MapPin, Box as BoxIcon, Truck, FlaskConical, AlertOctagon, Plane, Settings,
   Calendar, UserCheck, Activity, BarChart3, MessageSquare, PlusCircle,
-  Edit2
+  Edit2, Hash, ChevronDown, CloudCheck, RefreshCw
 } from 'lucide-react';
-import { Box, Typography } from '@mui/material';
+import { Box, Typography, Chip } from '@mui/material';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useStore } from '../hooks/useStore';
 import { 
@@ -15,7 +15,7 @@ import {
   User, Task, Category, ConditionConfig, ShiftHandover
 } from '../types';
 import { DatePickerField, TimeInput, hhmmssToMinutes, minutesToHhmmss, ConfirmModal } from '../modals';
-import { validationService, migrationService } from '../services';
+import { validationService, migrationService, sharedDraftService } from '../services';
 
 // Utilitários de Data
 const parseDate = (str: any): Date | null => {
@@ -48,8 +48,6 @@ const getDaysRemaining = (dateStr: any): number => {
   const diffTime = date.getTime() - today.getTime();
   return Math.floor(diffTime / (1000 * 60 * 60 * 24));
 };
-
-// --- FUNÇÕES DE EXIBIÇÃO E CORES ---
 
 const getShelfLifeDisplayText = (dateStr: string) => {
   if (!dateStr) return '';
@@ -142,11 +140,7 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
   const [obs, setObs] = useState('');
   const [errosValidacao, setErrosValidacao] = useState<string[]>([]);
   
-  const [outrasTarefas, setOutrasTarefas] = useState<OutraAtividade[]>([
-    { id: 'nr1', nome: '', tempo: '' }, 
-    { id: 'nr2', nome: '', tempo: '' }, 
-    { id: 'nr3', nome: '', tempo: '' }
-  ]);
+  const [nonRoutineTasks, setNonRoutineTasks] = useState<OutraAtividade[]>([]);
   
   const [locations, setLocations] = useState<any[]>([]);
   const [transit, setTransit] = useState<any[]>([]);
@@ -155,60 +149,122 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
   
   const [activeAlert, setActiveAlert] = useState<{titulo: string, mensagem: string, color: string} | null>(null);
   const [confirmModal, setConfirmModal] = useState<{ open: boolean, title: string, message: string, onConfirm: () => void, onCancel?: () => void, type?: 'danger' | 'warning' | 'info' | 'success', confirmLabel?: string, cancelLabel?: string }>({ open: false, title: '', message: '', onConfirm: () => {} });
+  
+  // Controle de Sincronia Multi-usuário
+  const [lastLocalUpdate, setLastLocalUpdate] = useState<number>(0);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
 
-  // --- Lógica de Persistência Local ---
-  const storageKey = useMemo(() => `gol_handover_draft_${baseId || 'null'}`, [baseId]);
-  const hasLoadedDraft = useRef<string | null>(null);
+  // Categorias e Tarefas Operacionais
+  const opCategories = useMemo(() => allCats.filter(c => c.tipo === 'operacional' && c.status === 'Ativa' && c.visivel !== false && (!c.baseId || c.baseId === baseId)).sort((a,b) => a.ordem - b.ordem), [allCats, baseId]);
+  const opTasks = useMemo(() => allTasks.filter(t => t.status === 'Ativa' && t.visivel !== false && (!t.baseId || t.baseId === baseId)), [allTasks, baseId]);
 
+  // --- Lógica de Sincronização Compartilhada (Multi-usuário) ---
+  
+  // Carregar dados quando Data ou Turno mudam
   useEffect(() => {
-    if (!baseId || hasLoadedDraft.current === baseId) return;
-    if (editId) {
-      const reportsRaw = localStorage.getItem('gol_rep_detalhamento');
-      if (reportsRaw) {
-        const reports = JSON.parse(reportsRaw);
-        const record = reports.find((r: any) => r.id === editId);
-        if (record) {
-          setDataOperacional(record.data);
-          setTurnoAtivo(record.turnoId);
-          setColaboradoresIds(record.colaboradoresIds || [null, null, null, null, null, null]);
-          setTarefasValores(record.tarefasExecutadas);
-          setObs(record.informacoesImportantes || record.observacoes || '');
-          setOutrasTarefas(record.nonRoutineTasks || []);
-          setLocations(record.locationsData || []);
-          setTransit(record.transitData || []);
-          setShelfLife(record.shelfLifeData || []);
-          setCritical(record.criticalData || []);
-          setStatus('Rascunho');
-          hasLoadedDraft.current = baseId;
-          return;
+    if (!baseId || !dataOperacional || !turnoAtivo || editId) return;
+
+    const loadSharedDraft = async () => {
+      const remote = await sharedDraftService.getDraft(baseId, dataOperacional, turnoAtivo);
+      if (remote) {
+        setColaboradoresIds(remote.colaboradoresIds);
+        setTarefasValores(remote.tarefasValores);
+        setObs(remote.obs);
+        setNonRoutineTasks(remote.nonRoutineTasks);
+        setLocations(remote.locations);
+        setTransit(remote.transit);
+        setShelfLife(remote.shelfLife);
+        setCritical(remote.critical);
+        setLastLocalUpdate(remote.updatedAt);
+      } else {
+        // Se não houver rascunho compartilhado, manter os campos limpos (ou rascunho local se preferir)
+        resetCamposProducao();
+      }
+    };
+    loadSharedDraft();
+  }, [baseId, dataOperacional, turnoAtivo, editId]);
+
+  // Auto-Save: Salvar rascunho compartilhado em cada alteração
+  useEffect(() => {
+    if (!baseId || !dataOperacional || !turnoAtivo || editId || status === 'Finalizado') return;
+
+    const saveDraft = async () => {
+      const now = new Date().getTime();
+      setLastLocalUpdate(now);
+      const content = { dataOperacional, turnoAtivo, colaboradoresIds, tarefasValores, obs, nonRoutineTasks, locations, transit, shelfLife, critical, status };
+      await sharedDraftService.saveDraft(baseId, dataOperacional, turnoAtivo, content);
+    };
+
+    // Debounce manual simples para evitar excesso de escritas
+    const timeout = setTimeout(saveDraft, 1000);
+    return () => clearTimeout(timeout);
+  }, [colaboradoresIds, tarefasValores, obs, nonRoutineTasks, locations, transit, shelfLife, critical]);
+
+  // Polling de sincronização: Verificar se outros usuários atualizaram o mesmo turno
+  useEffect(() => {
+    if (!baseId || !dataOperacional || !turnoAtivo || editId || status === 'Finalizado') return;
+
+    const syncWithRemote = async () => {
+      setIsSyncing(true);
+      const remote = await sharedDraftService.getDraft(baseId, dataOperacional, turnoAtivo);
+      // Se o remoto for mais novo que a nossa última atualização local, atualizamos o estado
+      if (remote && remote.updatedAt > lastLocalUpdate) {
+         setColaboradoresIds(remote.colaboradoresIds);
+         setTarefasValores(remote.tarefasValores);
+         setObs(remote.obs);
+         setNonRoutineTasks(remote.nonRoutineTasks);
+         setLocations(remote.locations);
+         setTransit(remote.transit);
+         setShelfLife(remote.shelfLife);
+         setCritical(remote.critical);
+         setLastLocalUpdate(remote.updatedAt);
+      }
+      setTimeout(() => setIsSyncing(false), 500);
+    };
+
+    const interval = setInterval(syncWithRemote, 5000); // Sincroniza a cada 5 segundos
+    return () => clearInterval(interval);
+  }, [baseId, dataOperacional, turnoAtivo, lastLocalUpdate, editId, status]);
+
+  // Inicialização de tarefas dinâmicas (suspensas)
+  useEffect(() => {
+    if (!initialized || !opCategories.length) return;
+    
+    if (nonRoutineTasks.length === 0) {
+      const initialDynamicRows: OutraAtividade[] = [];
+      opCategories.forEach(cat => {
+        if (cat.exibicao === 'suspensa') {
+          for (let i = 0; i < 3; i++) {
+            initialDynamicRows.push({ id: `dyn-${cat.id}-${Date.now()}-${i}`, nome: '', tempo: '', categoriaId: cat.id, tipoMedida: MeasureType.TEMPO });
+          }
         }
+      });
+      setNonRoutineTasks(initialDynamicRows);
+    }
+  }, [initialized, opCategories]);
+
+  // Carregar rascunho de EDIÇÃO (Relatórios)
+  useEffect(() => {
+    if (!baseId || !editId) return;
+    const reportsRaw = localStorage.getItem('gol_rep_detalhamento');
+    if (reportsRaw) {
+      const reports = JSON.parse(reportsRaw);
+      const record = reports.find((r: any) => r.id === editId);
+      if (record) {
+        setDataOperacional(record.data);
+        setTurnoAtivo(record.turnoId);
+        setColaboradoresIds(record.colaboradoresIds || [null, null, null, null, null, null]);
+        setTarefasValores(record.tarefasExecutadas);
+        setObs(record.informacoesImportantes || record.observacoes || '');
+        setNonRoutineTasks(record.nonRoutineTasks || []);
+        setLocations(record.locationsData || []);
+        setTransit(record.transitData || []);
+        setShelfLife(record.shelfLifeData || []);
+        setCritical(record.criticalData || []);
+        setStatus('Rascunho');
       }
     }
-    const saved = localStorage.getItem(storageKey);
-    if (saved) {
-      try {
-        const data = JSON.parse(saved);
-        if (data.dataOperacional) setDataOperacional(data.dataOperacional);
-        if (data.turnoAtivo) setTurnoAtivo(data.turnoAtivo);
-        if (data.colaboradoresIds) setColaboradoresIds(data.colaboradoresIds);
-        if (data.tarefasValores) setTarefasValores(data.tarefasValores);
-        if (data.obs !== undefined) setObs(data.obs);
-        if (data.outrasTarefas) setOutrasTarefas(data.outrasTarefas);
-        if (data.locations) setLocations(data.locations);
-        if (data.transit) setTransit(data.transit);
-        if (data.shelfLife) setShelfLife(data.shelfLife);
-        if (data.critical) setCritical(data.critical);
-        if (data.status) setStatus(data.status);
-      } catch (e) { console.error(e); }
-    }
-    hasLoadedDraft.current = baseId;
-  }, [baseId, storageKey, editId]);
-
-  useEffect(() => {
-    if (!baseId || hasLoadedDraft.current !== baseId || editId) return;
-    const draft = { dataOperacional, turnoAtivo, colaboradoresIds, tarefasValores, obs, outrasTarefas, locations, transit, shelfLife, critical, status };
-    localStorage.setItem(storageKey, JSON.stringify(draft));
-  }, [baseId, storageKey, dataOperacional, turnoAtivo, colaboradoresIds, tarefasValores, obs, outrasTarefas, locations, transit, shelfLife, critical, status, editId]);
+  }, [baseId, editId]);
 
   useEffect(() => {
     if (!initialized || !baseId) return;
@@ -244,9 +300,6 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
     });
   }, [baseId, initialized, getDefaultLocations, getDefaultTransits, getDefaultCriticals, getDefaultShelfLifes]);
 
-  const opCategories = useMemo(() => allCats.filter(c => c.tipo === 'operacional' && c.status === 'Ativa' && c.visivel !== false && (!c.baseId || c.baseId === baseId)).sort((a,b) => a.ordem - b.ordem), [allCats, baseId]);
-  const opTasks = useMemo(() => allTasks.filter(t => t.status === 'Ativa' && t.visivel !== false && (!t.baseId || t.baseId === baseId)), [allTasks, baseId]);
-
   const { horasDisponiveis, horasProduzidas, performance } = useMemo(() => {
     const disp = colaboradoresIds.reduce((acc: number, id: string | null) => {
       if (!id) return acc;
@@ -258,9 +311,16 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
       if (!task) return;
       prod += task.tipoMedida === MeasureType.TEMPO ? hhmmssToMinutes(val as string) / 60 : (parseFloat(val as string) || 0) * task.fatorMultiplicador / 60;
     });
-    outrasTarefas.forEach(nr => { if (nr.tempo) prod += hhmmssToMinutes(nr.tempo) / 60; });
+    nonRoutineTasks.forEach(nr => { 
+      if (!nr.nome || !nr.tempo) return;
+      if (nr.tipoMedida === MeasureType.QTD) {
+         prod += (parseFloat(nr.tempo) || 0) * (nr.fatorMultiplicador || 0) / 60;
+      } else {
+         prod += hhmmssToMinutes(nr.tempo) / 60; 
+      }
+    });
     return { horasDisponiveis: disp, horasProduzidas: prod, performance: disp > 0 ? (prod / disp) * 100 : 0 };
-  }, [colaboradoresIds, tarefasValores, outrasTarefas, baseUsers, opTasks]);
+  }, [colaboradoresIds, tarefasValores, nonRoutineTasks, baseUsers, opTasks]);
 
   const performanceColor = useMemo(() => {
     const v = currentBase?.metaVerde || 80; const a = currentBase?.metaAmarelo || 50;
@@ -355,9 +415,7 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
     }));
   };
 
-  // --- HANDLER SALDO CRÍTICO (SOLICITAÇÃO 53.0) ---
   const handleCriticalFieldChange = (id: string, field: 'partNumber' | 'lote' | 'saldoSistema' | 'saldoFisico', val: any) => {
-    console.debug(`[SaldoCritico] Campo alterado: ${id} - ${field} = ${val}`);
     setCritical(prev => prev.map(item => {
       if (item.id === id) {
         const newItem = { ...item, [field]: val };
@@ -389,15 +447,16 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
   const resetCamposProducao = () => {
     setColaboradoresIds([null, null, null, null, null, null]);
     setTarefasValores({});
-    setOutrasTarefas([{ id: 'nr1', nome: '', tempo: '' }, { id: 'nr2', nome: '', tempo: '' }, { id: 'nr3', nome: '', tempo: '' }]);
+    setObs('');
+    setNonRoutineTasks([]);
     setStatus('Rascunho');
     setErrosValidacao([]);
   };
 
   const handleFinalize = async () => {
     const errosOutras: string[] = [];
-    outrasTarefas.forEach(t => { if (t.nome.trim() !== '' && (!t.tempo || t.tempo === '00:00:00')) errosOutras.push(`Outras Tarefas: O tempo para "${t.nome}" é obrigatório.`); });
-    const handoverData: ShiftHandover = { id: editId || `sh_${Date.now()}`, baseId: baseId || '', data: dataOperacional, turnoId: turnoAtivo, colaboradores: colaboradoresIds, tarefasExecutadas: tarefasValores, nonRoutineTasks: outrasTarefas, locationsData: locations, transitData: transit, shelfLifeData: shelfLife, criticalData: critical, informacoesImportantes: obs, status: 'Finalizado', performance: performance, CriadoEm: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    nonRoutineTasks.forEach(t => { if (t.nome.trim() !== '' && (!t.tempo || t.tempo === '00:00:00')) errosOutras.push(`Entrada Suspensa: O valor para "${t.nome}" é obrigatório.`); });
+    const handoverData: ShiftHandover = { id: editId || `sh_${Date.now()}`, baseId: baseId || '', data: dataOperacional, turnoId: turnoAtivo, colaboradores: colaboradoresIds, tarefasExecutadas: tarefasValores, nonRoutineTasks: nonRoutineTasks, locationsData: locations, transitData: transit, shelfLifeData: shelfLife, criticalData: critical, informacoesImportantes: obs, status: 'Finalizado', performance: performance, CriadoEm: new Date().toISOString(), updatedAt: new Date().toISOString() };
     const validacao = validationService.validarPassagem(handoverData, opTasks);
     const todosErros = [...validacao.camposPendentes, ...errosOutras];
     if (todosErros.length > 0) { setErrosValidacao(todosErros); setActiveAlert({ titulo: "Campos Pendentes", mensagem: "Existem campos obrigatórios não preenchidos:\n\n" + todosErros.join("\n"), color: "bg-red-600" }); return; }
@@ -427,8 +486,30 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
 
   const isViewOnly = status === 'Finalizado';
 
+  const handleDynamicRowTaskChange = (rowId: string, taskName: string, catId: string) => {
+    const matchedTask = opTasks.find(t => t.nome === taskName && t.categoriaId === catId);
+    setNonRoutineTasks(prev => prev.map(item => {
+      if (item.id === rowId) {
+        return { 
+          ...item, 
+          nome: taskName, 
+          tipoMedida: matchedTask?.tipoMedida || MeasureType.TEMPO,
+          fatorMultiplicador: matchedTask?.fatorMultiplicador || 0,
+          tempo: '' // Limpar valor ao trocar tarefa para evitar conflito de tipos
+        };
+      }
+      return item;
+    }));
+  };
+
   return (
     <div className="max-w-full mx-auto space-y-8 animate-in fade-in relative px-4 md:px-8">
+      {opCategories.filter(c => c.exibicao === 'suspensa').map(cat => (
+        <datalist key={`list-${cat.id}`} id={`datalist-${cat.id}`}>
+          {opTasks.filter(t => t.categoriaId === cat.id).map(t => <option key={t.id} value={t.nome} />)}
+        </datalist>
+      ))}
+
       {editId && (
         <div className="bg-amber-50 border-l-4 border-amber-500 p-4 rounded-xl flex items-center justify-between">
            <div className="flex items-center space-x-3">
@@ -459,7 +540,13 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                <p className="text-gray-400 font-bold uppercase text-[10px] tracking-widest">{currentBase?.nome} - {dataOperacional}</p>
             </div>
          </div>
-         <div className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border ${status === 'Rascunho' ? 'bg-orange-50 text-orange-600 border-orange-100' : 'bg-green-50 text-green-600 border-green-100'}`}>Status: {status}</div>
+         <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-2 text-[10px] font-black uppercase tracking-widest text-gray-400 animate-pulse">
+               {isSyncing ? <RefreshCw className="w-3 h-3 animate-spin text-orange-500" /> : <CloudCheck className="w-3 h-3 text-green-500" />}
+               <span>{isSyncing ? 'Sincronizando...' : 'Auto-save Ativo'}</span>
+            </div>
+            <div className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border ${status === 'Rascunho' ? 'bg-orange-50 text-orange-600 border-orange-100' : 'bg-green-50 text-green-600 border-green-100'}`}>Status: {status}</div>
+         </div>
       </header>
 
       <div className="flex flex-col lg:flex-row gap-8 items-start">
@@ -645,15 +732,24 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
               </PanelContainer>
            </section>
 
-           <section className="space-y-6 pb-12">
-              <h3 className="font-black text-gray-800 uppercase tracking-widest flex items-center space-x-2 text-sm"><Activity size={16} className="text-orange-500" /> <span>Processos Operacionais</span></h3>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
+           <section className="space-y-12 pb-12">
+              <div className="px-4">
+                <h2 className="text-2xl font-black text-gray-800 uppercase tracking-tighter">Processos Operacionais</h2>
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.2em] mt-1">Acompanhamento de produtividade por fluxo de trabalho.</p>
+              </div>
+              
+              <div className="flex flex-col gap-16">
                  {opCategories.map(cat => (
-                    <div key={cat.id} className="space-y-6">
-                       <h3 className="px-4 text-xl font-black text-gray-800 uppercase tracking-tight flex items-center space-x-3"><div className="w-1.5 h-6 bg-orange-600 rounded-full" /><span>{cat.nome}</span></h3>
+                    <div key={cat.id} className="w-full space-y-6">
+                       <h3 className="px-4 text-xl font-black text-gray-800 uppercase tracking-tight flex items-center space-x-3">
+                         <div className="w-1.5 h-6 bg-orange-600 rounded-full" />
+                         <span>{cat.nome}</span>
+                       </h3>
+                       
                        <div className="bg-white rounded-[2.5rem] shadow-sm border border-gray-100 overflow-hidden divide-y divide-gray-50">
-                          {opTasks.filter(t => t.categoriaId === cat.id).map(task => (
-                             <div key={task.id} className={`p-6 flex items-center justify-between hover:bg-orange-50/10 transition-colors ${hasErr(task.nome) ? 'bg-red-50' : ''}`}>
+                          {cat.exibicao === 'lista' ? (
+                            opTasks.filter(t => t.categoriaId === cat.id).map(task => (
+                              <div key={task.id} className={`p-6 flex items-center justify-between hover:bg-orange-50/10 transition-colors ${hasErr(task.nome) ? 'bg-red-50' : ''}`}>
                                 <div className="flex flex-col">
                                   <span className="text-sm font-black text-gray-700 uppercase">{task.nome}</span>
                                   <span className="text-[10px] font-bold text-gray-300 uppercase">{task.tipoMedida}</span>
@@ -668,43 +764,76 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                                 ) : (
                                   <input type="number" disabled={isViewOnly} value={tarefasValores[task.id] || ''} onChange={e => setTarefasValores({...tarefasValores, [task.id]: e.target.value})} placeholder="0" className="w-24 p-4 bg-gray-50 border-transparent rounded-2xl font-black text-center" />
                                 )}
-                             </div>
-                          ))}
+                              </div>
+                            ))
+                          ) : (
+                            <div className="divide-y divide-gray-50">
+                               {nonRoutineTasks.filter(t => t.categoriaId === cat.id).map((nr, idx) => {
+                                 const isInputVisivel = nr.nome.trim() !== '';
+                                 const isPendente = isInputVisivel && (!nr.tempo || nr.tempo === '00:00:00' || nr.tempo === '0');
+                                 return (
+                                   <div key={nr.id} className={`p-6 flex flex-col md:flex-row items-center gap-4 hover:bg-gray-50/50 transition-colors ${isPendente ? 'bg-red-50/30' : ''}`}>
+                                      <div className="flex-1 w-full">
+                                        <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1 block">Nome da Atividade (Selecione ou Digite)</label>
+                                        <input 
+                                          disabled={isViewOnly} 
+                                          list={`datalist-${cat.id}`}
+                                          value={nr.nome} 
+                                          onChange={e => handleDynamicRowTaskChange(nr.id, e.target.value, cat.id)} 
+                                          placeholder="Escolha na lista ou descreva..." 
+                                          className="w-full p-4 bg-gray-50 border-transparent rounded-2xl font-bold text-sm outline-none focus:bg-white focus:border-orange-100 transition-all" 
+                                        />
+                                      </div>
+                                      {isInputVisivel && (
+                                        <div className="w-full md:w-auto animate-in fade-in slide-in-from-right-2">
+                                          <div className="flex items-center space-x-2 mb-1">
+                                            {nr.tipoMedida === MeasureType.QTD ? <Hash size={10} className="text-gray-400" /> : <Timer size={10} className="text-gray-400" />}
+                                            <label className={`text-[9px] font-black uppercase tracking-widest block ${isPendente ? 'text-red-500' : 'text-gray-400'}`}>
+                                              {nr.tipoMedida === MeasureType.QTD ? 'Quantidade' : 'Tempo HH:MM:SS'} {isPendente && '(Obrigatório)'}
+                                            </label>
+                                          </div>
+                                          
+                                          {nr.tipoMedida === MeasureType.QTD ? (
+                                            <input 
+                                              type="number"
+                                              disabled={isViewOnly}
+                                              value={nr.tempo}
+                                              onChange={e => setNonRoutineTasks(nonRoutineTasks.map(item => item.id === nr.id ? {...item, tempo: e.target.value} : item))}
+                                              placeholder="0"
+                                              className={`w-40 p-4 rounded-2xl font-black text-center transition-all ${isPendente ? 'bg-red-50 border-2 border-red-500' : 'bg-gray-50 border-transparent'}`}
+                                            />
+                                          ) : (
+                                            <TimeInput 
+                                              disabled={isViewOnly} 
+                                              value={nr.tempo} 
+                                              onChange={v => setNonRoutineTasks(nonRoutineTasks.map(item => item.id === nr.id ? {...item, tempo: v} : item))} 
+                                              className={`w-40 p-4 rounded-2xl font-black text-center transition-all ${isPendente ? 'bg-red-50 border-2 border-red-500 text-red-600' : 'bg-gray-50 border-transparent text-orange-600'}`} 
+                                            />
+                                          )}
+                                          
+                                          {nr.tipoMedida === MeasureType.QTD && (
+                                            <p className="text-[8px] font-bold text-gray-300 mt-1 uppercase text-center italic">Fator: {nr.fatorMultiplicador?.toFixed(2)}m</p>
+                                          )}
+                                        </div>
+                                      )}
+                                      {!isViewOnly && (nonRoutineTasks.filter(f => f.categoriaId === cat.id).length > 1) && (
+                                        <button onClick={() => setNonRoutineTasks(nonRoutineTasks.filter(item => item.id !== nr.id))} className="mt-5 p-3 text-gray-300 hover:text-red-500 bg-gray-100 rounded-xl"><Trash2 size={18}/></button>
+                                      )}
+                                   </div>
+                                 );
+                               })}
+                               {!isViewOnly && (
+                                 <div className="p-4 bg-gray-50/30 flex justify-center">
+                                   <button onClick={() => setNonRoutineTasks([...nonRoutineTasks, { id: `nr-${cat.id}-${Date.now()}`, nome: '', tempo: '', categoriaId: cat.id, tipoMedida: MeasureType.TEMPO }])} className="flex items-center space-x-2 text-[10px] font-black text-gray-400 uppercase tracking-widest hover:text-orange-600 transition-colors">
+                                     <PlusCircle size={16} /> <span>Adicionar Linha</span>
+                                   </button>
+                                 </div>
+                               )}
+                            </div>
+                          )}
                        </div>
                     </div>
                  ))}
-
-                 <div className="space-y-6 lg:col-span-2">
-                    <h3 className="px-4 text-xl font-black text-gray-800 uppercase tracking-tight flex items-center space-x-3"><div className="w-1.5 h-6 bg-orange-600 rounded-full" /><span>Outras Tarefas</span></h3>
-                    <div className="bg-white rounded-[2.5rem] shadow-sm border border-gray-100 overflow-hidden divide-y divide-gray-50">
-                        {outrasTarefas.map((nr, idx) => {
-                           const isTempoVisivel = nr.nome.trim() !== '';
-                           const isTempoPendente = isTempoVisivel && (!nr.tempo || nr.tempo === '00:00:00');
-                           return (
-                             <div key={nr.id} className={`p-6 flex flex-col md:flex-row items-center gap-4 hover:bg-gray-50/50 transition-colors ${isTempoPendente ? 'bg-red-50/30' : ''}`}>
-                                <div className="flex-1 w-full">
-                                  <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1 block">Nome da Atividade Customizada</label>
-                                  <input disabled={isViewOnly} value={nr.nome} onChange={e => setOutrasTarefas(outrasTarefas.map(item => item.id === nr.id ? {...item, nome: e.target.value} : item))} placeholder="Descreva a atividade..." className="w-full p-4 bg-gray-50 border-transparent rounded-2xl font-bold text-sm outline-none focus:bg-white focus:border-orange-100 transition-all" />
-                                </div>
-                                {isTempoVisivel && (
-                                  <div className="w-full md:w-auto animate-in fade-in slide-in-from-right-2">
-                                    <label className={`text-[9px] font-black uppercase tracking-widest mb-1 block ${isTempoPendente ? 'text-red-500' : 'text-gray-400'}`}>Tempo HH:MM:SS {isTempoPendente && '(Obrigatório)'}</label>
-                                    <TimeInput disabled={isViewOnly} value={nr.tempo} onChange={v => setOutrasTarefas(outrasTarefas.map(item => item.id === nr.id ? {...item, tempo: v} : item))} className={`w-40 p-4 rounded-2xl font-black text-center transition-all ${isTempoPendente ? 'bg-red-50 border-2 border-red-500 text-red-600' : 'bg-gray-50 border-transparent text-orange-600'}`} />
-                                  </div>
-                                )}
-                                {!isViewOnly && idx >= 3 && <button onClick={() => setOutrasTarefas(outrasTarefas.filter(item => item.id !== nr.id))} className="mt-5 p-3 text-gray-300 hover:text-red-500 bg-gray-100 rounded-xl"><Trash2 size={18}/></button>}
-                             </div>
-                           );
-                        })}
-                        {!isViewOnly && (
-                          <div className="p-4 bg-gray-50/30 flex justify-center">
-                            <button onClick={() => setOutrasTarefas([...outrasTarefas, { id: `nr-${Date.now()}`, nome: '', tempo: '' }])} className="flex items-center space-x-2 text-[10px] font-black text-gray-400 uppercase tracking-widest hover:text-orange-600 transition-colors">
-                              <PlusCircle size={16} /> <span>Adicionar Linha</span>
-                            </button>
-                          </div>
-                        )}
-                    </div>
-                 </div>
               </div>
            </section>
         </div>

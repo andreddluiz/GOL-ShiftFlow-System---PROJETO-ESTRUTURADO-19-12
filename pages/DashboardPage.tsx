@@ -39,9 +39,9 @@ const DashboardPage: React.FC<{baseId?: string}> = ({ baseId }) => {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <KpiCard title="Horas Disponíveis" value="446h" icon={<Clock className="text-blue-600" />} change="+12%" />
-        <KpiCard title="Horas Produzidas" value="382h" icon={<TrendingUp className="text-orange-600" />} change="+8%" />
-        <KpiCard title="Performance" value="85.6%" icon={<CheckCircle className="text-green-600" />} change="+2.4%" />
+        <KpiCard title="Horas Disponíveis" value="446:00:00" icon={<Clock className="text-blue-600" />} change="+12%" />
+        <KpiCard title="Horas Produzidas" value="382:00:00" icon={<TrendingUp className="text-orange-600" />} change="+8%" />
+        <KpiCard title="Performance" value="85.60%" icon={<CheckCircle className="text-green-600" />} change="+2.4%" />
         <KpiCard title="Colaboradores" value="24" icon={<Users className="text-purple-600" />} change="0%" />
       </div>
 

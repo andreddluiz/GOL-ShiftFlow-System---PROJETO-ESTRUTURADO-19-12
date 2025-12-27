@@ -4,8 +4,8 @@ import { Send, Heart, MessageCircle, MoreHorizontal, User } from 'lucide-react';
 
 const AnnouncementsPage: React.FC<{baseId?: string}> = ({ baseId }) => {
   const [messages, setMessages] = useState([
-    { id: 1, user: 'Coordenação Regional', text: 'Lembrete: Novo protocolo de etiquetagem entra em vigor na segunda-feira.', time: '2h atrás', likes: 5, comments: 2 },
-    { id: 2, user: 'Gestão POA', text: 'Parabéns ao Turno 1 pela performance de 98% ontem! Ótimo trabalho.', time: '5h atrás', likes: 12, comments: 1 },
+    { id: 1, user: 'Coordenação Regional', text: 'Lembrete: Novo protocolo de etiquetagem entra em vigor na segunda-feira.', time: '02:00:00 atrás', likes: 5, comments: 2 },
+    { id: 2, user: 'Gestão POA', text: 'Parabéns ao Turno 1 pela performance de 98% ontem! Ótimo trabalho.', time: '05:00:00 atrás', likes: 12, comments: 1 },
   ]);
 
   return (

@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   Calendar, Save, CheckCircle, ArrowLeft, 
   Clock, Hash, Lock, AlertCircle, Info, ChevronRight,
@@ -19,6 +19,7 @@ const MonthlyCollectionPage: React.FC<{baseId?: string}> = ({ baseId }) => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const editId = searchParams.get('editId');
+  const pageRef = useRef<HTMLDivElement>(null);
   
   const { 
     getMonthlyCategoriesCombinadas, getMonthlyTasksCombinadas, 
@@ -36,7 +37,24 @@ const MonthlyCollectionPage: React.FC<{baseId?: string}> = ({ baseId }) => {
   const categories = useMemo(() => getMonthlyCategoriesCombinadas(baseId), [getMonthlyCategoriesCombinadas, baseId, initialized]);
   const tasks = useMemo(() => getMonthlyTasksCombinadas(baseId), [getMonthlyTasksCombinadas, baseId, initialized]);
 
-  // NOVO: Cálculo de Horas em Tempo Real
+  // Avançar campos com Enter (Solicitação 1)
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'TEXTAREA') return;
+      e.preventDefault();
+      const form = pageRef.current;
+      if (form) {
+        const focusable = form.querySelectorAll('input, select, textarea, button:not([disabled])');
+        const index = Array.prototype.indexOf.call(focusable, target);
+        if (index > -1 && index < focusable.length - 1) {
+          (focusable[index + 1] as HTMLElement).focus();
+        }
+      }
+    }
+  };
+
+  // Cálculo de Horas em Tempo Real
   const totalHorasCalculadas = useMemo(() => {
     let totalMins = 0;
     tasks.forEach(task => {
@@ -155,7 +173,7 @@ const MonthlyCollectionPage: React.FC<{baseId?: string}> = ({ baseId }) => {
   }
 
   return (
-    <Box sx={{ maxWidth: '1000px', mx: 'auto', spaceY: 4, animateIn: 'fade-in' }}>
+    <Box ref={pageRef} onKeyDown={handleKeyDown} sx={{ maxWidth: '1000px', mx: 'auto', spaceY: 4, animateIn: 'fade-in' }}>
       {/* Header Período */}
       <Card sx={{ borderRadius: 8, mb: 4, boxShadow: '0 4px 20px rgba(0,0,0,0.05)' }}>
         <CardContent sx={{ p: 4 }}>
@@ -226,7 +244,7 @@ const MonthlyCollectionPage: React.FC<{baseId?: string}> = ({ baseId }) => {
 
       {coletaAtiva ? (
         <Box sx={{ spaceY: 6 }}>
-          {/* NOVO: Resumo de Produção Acumulado em Tempo Real */}
+          {/* Resumo de Produção Acumulado em Tempo Real */}
           <Card 
             sx={{ 
               borderRadius: 6, 

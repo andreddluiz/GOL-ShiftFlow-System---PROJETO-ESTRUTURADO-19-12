@@ -40,6 +40,7 @@ interface ModalProps {
 
 /**
  * Componente de Confirmação Customizado
+ * Solicitação 2: Fechar ao pressionar Enter ou navegar por Tab
  */
 export const ConfirmModal: React.FC<{
   isOpen: boolean;
@@ -51,6 +52,26 @@ export const ConfirmModal: React.FC<{
   cancelLabel?: string;
   type?: 'danger' | 'warning' | 'info' | 'success';
 }> = ({ isOpen, onClose, onConfirm, title, message, confirmLabel = "Confirmar", cancelLabel, type = 'warning' }) => {
+  
+  useEffect(() => {
+    const handleModalKeys = (e: KeyboardEvent) => {
+      if (!isOpen) return;
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        onConfirm();
+        onClose();
+      }
+      if (e.key === 'Tab' && !cancelLabel) {
+         // Se só tiver um botão, o Tab fecha o modal pra agilizar
+         e.preventDefault();
+         onConfirm();
+         onClose();
+      }
+    };
+    window.addEventListener('keydown', handleModalKeys);
+    return () => window.removeEventListener('keydown', handleModalKeys);
+  }, [isOpen, onConfirm, onClose, cancelLabel]);
+
   if (!isOpen) return null;
 
   const colors = {
@@ -492,10 +513,6 @@ export const BaseModal: React.FC<ModalProps> = ({ isOpen, onClose, onSave, title
   );
 };
 
-/**
- * UserModal Atualizado (Solicitação 56.0)
- * Inclui campo Base, opções de Jornada e opção de Status (ATIVO/INATIVO).
- */
 export const UserModal: React.FC<ModalProps & { availableBases?: Base[] }> = ({ isOpen, onClose, onSave, title, initialData, availableBases = [] }) => {
   const [formData, setFormData] = useState<any>({ 
     nome: '', 
@@ -509,7 +526,6 @@ export const UserModal: React.FC<ModalProps & { availableBases?: Base[] }> = ({ 
 
   useEffect(() => { 
     if (initialData) {
-      console.debug(`[UserModal] Carregando dados iniciais:`, initialData);
       const isPredefined = [6, 7.2, 8].includes(Number(initialData.jornadaPadrao));
       setFormData({
         ...initialData,
@@ -527,7 +543,6 @@ export const UserModal: React.FC<ModalProps & { availableBases?: Base[] }> = ({ 
   if (!isOpen) return null;
 
   const handleFieldChange = (campo: string, valor: any) => {
-    console.debug(`[UserModal] Campo alterado: ${campo} = ${valor}`);
     if (campo === 'tipoJornada') {
       setFormData({
         ...formData,
@@ -535,7 +550,6 @@ export const UserModal: React.FC<ModalProps & { availableBases?: Base[] }> = ({ 
         jornadaPadrao: valor === 'predefinida' ? 6 : formData.jornadaPadrao
       });
     } else if (campo === 'selectedBase') {
-      // Mapeia a base única selecionada para o array de bases do objeto User
       setFormData({ ...formData, bases: valor ? [valor] : [] });
     } else {
       setFormData({ ...formData, [campo]: valor });
@@ -543,8 +557,6 @@ export const UserModal: React.FC<ModalProps & { availableBases?: Base[] }> = ({ 
   };
 
   const handleLocalSave = () => {
-    console.debug(`[UserModal] Tentando salvar usuário:`, formData);
-    
     if (!formData.nome?.trim()) { alert('Nome é obrigatório'); return; }
     if (!formData.email?.trim()) { alert('Email é obrigatório'); return; }
     if (formData.bases.length === 0) { alert('Base é obrigatória'); return; }

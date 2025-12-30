@@ -48,10 +48,10 @@ export const CATEGORIES: Category[] = [
   { id: 'cat_expedir', nome: 'EXPEDIR', tipo: 'operacional', exibicao: 'lista', ordem: 3, status: 'Ativa' },
   { id: 'cat_logistica', nome: 'LOGÍSTICA', tipo: 'operacional', exibicao: 'lista', ordem: 4, status: 'Ativa' },
   { id: 'cat_preservar', nome: 'PRESERVAR / CONTROLAR', tipo: 'operacional', exibicao: 'lista', ordem: 5, status: 'Ativa' },
-  { id: 'cat_nao_operacional', nome: 'TAREFAS NÃO OPERACIONAIS', tipo: 'operacional', exibicao: 'lista', ordem: 6, status: 'Ativa' },
+  { id: 'cat_nao_operacional', nome: 'TAREFAS NÃO OPERACIONAIS', tipo: 'operacional', exibicao: 'suspensa', ordem: 6, status: 'Ativa' },
   { id: 'cat_outras', nome: 'OUTRAS TAREFAS', tipo: 'operacional', exibicao: 'suspensa', ordem: 7, status: 'Ativa' },
   
-  { id: 'cat_m_recebimento', nome: 'RECEBIMENTO', tipo: 'mensal', exibicao: 'lista', ordem: 1, status: 'Ativa' },
+  { id: 'cat_m_recebimento', nome: 'RECEBER', tipo: 'mensal', exibicao: 'lista', ordem: 1, status: 'Ativa' },
   { id: 'cat_m_fornecer', nome: 'FORNECER', tipo: 'mensal', exibicao: 'lista', ordem: 2, status: 'Ativa' },
   { id: 'cat_m_preservar', nome: 'PRESERVAR / CONTROLAR', tipo: 'mensal', exibicao: 'lista', ordem: 3, status: 'Ativa' },
   { id: 'cat_m_armazenar', nome: 'ARMAZENAR', tipo: 'mensal', exibicao: 'lista', ordem: 4, status: 'Ativa' },
@@ -126,7 +126,7 @@ export const TASKS: Task[] = [
   { id: 'op_nop_7', categoriaId: 'cat_nao_operacional', nome: 'Teams - Leitura de comunicados, informações ou Participação em reuniões', tipoMedida: MeasureType.TEMPO, fatorMultiplicador: 0, obrigatoriedade: false, status: 'Ativa', ordem: 7 },
   { id: 'op_nop_8', categoriaId: 'cat_nao_operacional', nome: 'Realizar Logística colaboradores C1, C6, C7', tipoMedida: MeasureType.TEMPO, fatorMultiplicador: 0, obrigatoriedade: false, status: 'Ativa', ordem: 8 },
 
-  // --- OUTRAS TAREFAS (SOLICITAÇÃO 62.0 - Visíveis no Gerenciamento) ---
+  // --- OUTRAS TAREFAS ---
   { id: 'out_1', categoriaId: 'cat_outras', nome: 'Abrir chamados', tipoMedida: MeasureType.TEMPO, fatorMultiplicador: 0, obrigatoriedade: false, status: 'Ativa', ordem: 1 },
   { id: 'out_2', categoriaId: 'cat_outras', nome: 'Auxiliar ao PA para envio de uniformes / volumes do T.I', tipoMedida: MeasureType.TEMPO, fatorMultiplicador: 0, obrigatoriedade: false, status: 'Ativa', ordem: 2 },
   { id: 'out_3', categoriaId: 'cat_outras', nome: 'Ajustar e conferir ponto', tipoMedida: MeasureType.TEMPO, fatorMultiplicador: 0, obrigatoriedade: false, status: 'Ativa', ordem: 3 },
@@ -181,9 +181,8 @@ export const DEFAULT_LOCATIONS: DefaultLocationItem[] = [
 ];
 
 export const DEFAULT_TRANSITS: DefaultTransitItem[] = [
-  { id: 'trans1', nomeTransito: 'AÉREO (GOL LOG / CARGO)', diasPadrao: 5, baseId: null, status: 'ativo', visivel: true },
-  { id: 'trans2', nomeTransito: 'TERRESTRE (TRANSP. EXTERNA)', diasPadrao: 20, baseId: null, status: 'ativo', visivel: true },
-  { id: 'trans3', nomeTransito: 'COMAT (MATERIAL COMPANHIA)', diasPadrao: 7, baseId: null, status: 'ativo', visivel: true },
+  { id: 'trans1', nomeTransito: 'AÉREO', diasPadrao: 5, baseId: null, status: 'ativo', visivel: true },
+  { id: 'trans2', nomeTransito: 'TERRESTRE', diasPadrao: 20, baseId: null, status: 'ativo', visivel: true },
 ];
 
 export const DEFAULT_CRITICALS: DefaultCriticalItem[] = [
@@ -275,3 +274,47 @@ export const CONTROLS: Control[] = [
     }
   }
 ];
+
+// DADOS HISTÓRICOS PARA TESTE (Solicitação 6)
+export const INITIAL_TEST_DATA = {
+  rep_detalhamento: [
+    {
+      id: 'test_1',
+      baseId: 'poa',
+      data: '01/01/2025',
+      turnoId: '1',
+      colaboradoresIds: ['u1'],
+      horasProduzida: '04:30:00',
+      percentualPerformance: 75,
+      activities: [
+        { taskNome: 'Abrir caixas', categoryNome: 'RECEBER', formatted: '02:00:00' },
+        { taskNome: 'Embalar', categoryNome: 'EXPEDIR', formatted: '02:30:00' }
+      ]
+    },
+    {
+      id: 'test_2',
+      baseId: 'poa',
+      data: '01/02/2025',
+      turnoId: '1',
+      colaboradoresIds: ['u1'],
+      horasProduzida: '05:15:00',
+      percentualPerformance: 87,
+      activities: [
+        { taskNome: 'Abrir caixas', categoryNome: 'RECEBER', formatted: '03:15:00' },
+        { taskNome: 'Embalar', categoryNome: 'EXPEDIR', formatted: '02:00:00' }
+      ]
+    }
+  ],
+  rep_mensal_detalhado: [
+    {
+      id: 'm_test_1',
+      baseId: 'poa',
+      mesReferencia: '01/2025',
+      totalHoras: '40:00:00',
+      activities: [
+        { taskNome: 'Recebimento Sistema', categoryNome: 'RECEBER', formatted: '20:00:00' },
+        { taskNome: 'Check Mensal', categoryNome: 'PRESERVAR / CONTROLAR', formatted: '20:00:00' }
+      ]
+    }
+  ]
+};

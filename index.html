@@ -7,17 +7,38 @@
     <title>GOL ShiftFlow System</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              gol: {
+                orange: '#FF5A00',
+              }
+            }
+          }
+        }
+      }
+    </script>
     <style>
       body {
         font-family: 'Inter', sans-serif;
         background-color: #f3f4f6;
       }
+      .dark body {
+        background-color: #0f172a;
+      }
       .gol-orange { background-color: #FF5A00; }
       .gol-text-orange { color: #FF5A00; }
       .gol-border-orange { border-color: #FF5A00; }
       ::-webkit-scrollbar { width: 6px; height: 6px; }
-      ::-webkit-scrollbar-track { background: #f1f1f1; }
+      ::-webkit-scrollbar-track { background: transparent; }
       ::-webkit-scrollbar-thumb { background: #FF5A00; border-radius: 10px; }
+      .dark ::-webkit-scrollbar-thumb { background: #475569; }
+      .scrollbar-hide::-webkit-scrollbar {
+        display: none;
+      }
     </style>
   <script type="importmap">
 {

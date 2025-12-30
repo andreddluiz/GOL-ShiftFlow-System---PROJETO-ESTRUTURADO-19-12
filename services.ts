@@ -29,7 +29,8 @@ const STORAGE_KEYS = {
   REP_MENSAL_DETALHADO: 'gol_rep_mensal_detalhado',
   REP_DETALHAMENTO: 'gol_rep_detalhamento',
   MONTHLY_COLLECTIONS: 'gol_shiftflow_monthly_collections',
-  SHARED_DRAFTS: 'gol_shiftflow_shared_drafts'
+  SHARED_DRAFTS: 'gol_shiftflow_shared_drafts',
+  BASE_STATUS: 'gol_shiftflow_base_status'
 };
 
 const getFromStorage = <T>(key: string, defaultVal: T): T => {
@@ -77,19 +78,27 @@ export const timeUtils = {
 function formatarControle(items: any[]): string {
   if (!items || items.length === 0) return '';
   return items
-    .filter(item => item.data || item.quantidade !== undefined)
-    .map(item => item.data || item.quantidade)
+    .filter(item => item.dataVencimento || item.dataMaisAntigo || item.dataSaida || item.quantidade !== undefined || item.saldoSistema !== undefined)
+    .map(item => {
+        if (item.saldoSistema !== undefined) return `${item.partNumber}: S${item.saldoSistema}/F${item.saldoFisico}`;
+        const desc = item.partNumber || item.nomeLocation || item.nomeTransito || 'Item';
+        const val = item.dataVencimento || item.dataMaisAntigo || item.dataSaida || item.quantidade;
+        return `${desc} (${val})`;
+    })
     .join(' | ');
 }
 
-function criarMapaTarefas(detalhe: any): Record<string, string> {
+function criarMapaTarefas(detalhe: any, allTasks: Task[]): Record<string, string> {
   const tarefasMap: Record<string, string> = {};
   
+  allTasks.sort((a, b) => a.ordem - b.ordem).forEach(t => {
+    tarefasMap[t.nome.toUpperCase()] = '00:00:00';
+  });
+
   if (detalhe.activities && Array.isArray(detalhe.activities)) {
     detalhe.activities.forEach((atividade: any) => {
       if (atividade.taskNome) {
-        const tempo = timeUtils.formatToHms(atividade.horas || 0, atividade.minutos || 0, atividade.segundos || 0);
-        tarefasMap[atividade.taskNome.toUpperCase()] = tempo;
+        tarefasMap[atividade.taskNome.toUpperCase()] = atividade.formatted || '00:00:00';
       }
     });
   }
@@ -104,13 +113,51 @@ function criarMapaTarefas(detalhe: any): Record<string, string> {
         } else if (tempoFinal.split(':').length === 2) {
            tempoFinal += ':00';
         }
-        tarefasMap[`[EXTRA] ${tarefa.nome.toUpperCase()}`] = tempoFinal;
+        tarefasMap[tarefa.nome.toUpperCase()] = tempoFinal;
       }
     });
   }
   
   return tarefasMap;
 }
+
+export const validationService = {
+  validarPassagem: (handover: ShiftHandover, tasks: Task[]) => {
+    const camposPendentes: string[] = [];
+    if (!handover.turnoId) camposPendentes.push("Turno");
+    if (!handover.colaboradores.some(c => c !== null)) camposPendentes.push("Equipe (Pelo menos um colaborador)");
+    tasks.forEach(task => {
+      if (task.obrigatoriedade && (!handover.tarefasExecutadas[task.id] || handover.tarefasExecutadas[task.id] === '00:00:00')) {
+        camposPendentes.push(`Atividades: ${task.nome}`);
+      }
+    });
+    return { valido: camposPendentes.length === 0, camposPendentes };
+  },
+  validarPassagemDuplicada: async (data: string, turnoId: string, baseId: string) => {
+    const repDetalhamento = getFromStorage<any[]>(STORAGE_KEYS.REP_DETALHAMENTO, []);
+    const duplicado = repDetalhamento.some(h => h.baseId === baseId && h.data === data && h.turnoId === turnoId);
+    if (duplicado) return { valido: false, mensagem: "Já existe uma passagem finalizada para este turno nesta data." };
+    return { valido: true };
+  },
+  verificarColaboradoresEmOutrosTurnos: async (data: string, turnoId: string, baseId: string, colaboradoresIds: (string|null)[], allUsers: User[]) => {
+    const repDetalhamento = getFromStorage<any[]>(STORAGE_KEYS.REP_DETALHAMENTO, []);
+    const outrosTurnosDoDia = repDetalhamento.filter(h => h.baseId === baseId && h.data === data && h.turnoId !== turnoId);
+    const idsPresentesEmOutros = new Set<string>();
+    outrosTurnosDoDia.forEach(h => {
+      if (h.colaboradoresIds) {
+        h.colaboradoresIds.forEach((id: string) => { if (id) idsPresentesEmOutros.add(id); });
+      }
+    });
+    const duplicados: string[] = [];
+    colaboradoresIds.forEach(id => {
+      if (id && idsPresentesEmOutros.has(id)) {
+        const user = allUsers.find(u => u.id === id);
+        if (user) duplicados.push(user.nome);
+      }
+    });
+    return { colaboradoresDuplicados: duplicados };
+  }
+};
 
 export const baseService = {
   async getAll(): Promise<Base[]> {
@@ -139,26 +186,32 @@ export const baseService = {
   }
 };
 
+export const baseStatusService = {
+  async saveBaseStatus(baseId: string, status: any): Promise<void> {
+    const allStatuses = getFromStorage<Record<string, any>>(STORAGE_KEYS.BASE_STATUS, {});
+    allStatuses[baseId] = { ...status, updatedAt: new Date().getTime() };
+    saveToStorage(STORAGE_KEYS.BASE_STATUS, allStatuses);
+  },
+  async getBaseStatus(baseId: string): Promise<any | null> {
+    const allStatuses = getFromStorage<Record<string, any>>(STORAGE_KEYS.BASE_STATUS, {});
+    return allStatuses[baseId] || null;
+  }
+};
+
 export const sharedDraftService = {
   async saveDraft(baseId: string, data: string, turnoId: string, content: any): Promise<void> {
     const drafts = getFromStorage<Record<string, any>>(STORAGE_KEYS.SHARED_DRAFTS, {});
-    // Fix: Using replace with global regex instead of replaceAll to avoid ES2021 dependency errors
     const key = `${baseId}_${data.replace(/\//g, '-')}_${turnoId}`;
-    drafts[key] = {
-      ...content,
-      updatedAt: new Date().getTime()
-    };
+    drafts[key] = { ...content, updatedAt: new Date().getTime() };
     saveToStorage(STORAGE_KEYS.SHARED_DRAFTS, drafts);
   },
   async getDraft(baseId: string, data: string, turnoId: string): Promise<any | null> {
     const drafts = getFromStorage<Record<string, any>>(STORAGE_KEYS.SHARED_DRAFTS, {});
-    // Fix: Using replace with global regex instead of replaceAll to avoid ES2021 dependency errors
     const key = `${baseId}_${data.replace(/\//g, '-')}_${turnoId}`;
     return drafts[key] || null;
   },
   async clearDraft(baseId: string, data: string, turnoId: string): Promise<void> {
     const drafts = getFromStorage<Record<string, any>>(STORAGE_KEYS.SHARED_DRAFTS, {});
-    // Fix: Using replace with global regex instead of replaceAll to avoid ES2021 dependency errors
     const key = `${baseId}_${data.replace(/\//g, '-')}_${turnoId}`;
     delete drafts[key];
     saveToStorage(STORAGE_KEYS.SHARED_DRAFTS, drafts);
@@ -168,17 +221,13 @@ export const sharedDraftService = {
 export const defaultItemsService = {
   async getLocations(): Promise<DefaultLocationItem[]> {
     let data = getFromStorage<DefaultLocationItem[]>(STORAGE_KEYS.DEF_LOCS, []);
-    if (data.length === 0) {
-      data = DEFAULT_LOCATIONS;
-      saveToStorage(STORAGE_KEYS.DEF_LOCS, data);
-    }
+    if (data.length === 0) { data = DEFAULT_LOCATIONS; saveToStorage(STORAGE_KEYS.DEF_LOCS, data); }
     return data;
   },
   async saveLocation(data: DefaultLocationItem): Promise<void> {
     const items = await this.getLocations();
     const existingIndex = items.findIndex(i => i.id === data.id);
-    if (existingIndex > -1) items[existingIndex] = data;
-    else items.push(data);
+    if (existingIndex > -1) items[existingIndex] = data; else items.push(data);
     saveToStorage(STORAGE_KEYS.DEF_LOCS, items);
   },
   async deleteLocation(id: string): Promise<void> {
@@ -186,20 +235,15 @@ export const defaultItemsService = {
     const updated = items.map(i => i.id === id ? { ...i, deletada: true } : i) as DefaultLocationItem[];
     saveToStorage(STORAGE_KEYS.DEF_LOCS, updated);
   },
-
   async getTransits(): Promise<DefaultTransitItem[]> {
     let data = getFromStorage<DefaultTransitItem[]>(STORAGE_KEYS.DEF_TRANS, []);
-    if (data.length === 0) {
-      data = DEFAULT_TRANSITS;
-      saveToStorage(STORAGE_KEYS.DEF_TRANS, data);
-    }
+    if (data.length === 0) { data = DEFAULT_TRANSITS; saveToStorage(STORAGE_KEYS.DEF_TRANS, data); }
     return data;
   },
   async saveTransit(data: DefaultTransitItem): Promise<void> {
     const items = await this.getTransits();
     const existingIndex = items.findIndex(i => i.id === data.id);
-    if (existingIndex > -1) items[existingIndex] = data;
-    else items.push(data);
+    if (existingIndex > -1) items[existingIndex] = data; else items.push(data);
     saveToStorage(STORAGE_KEYS.DEF_TRANS, items);
   },
   async deleteTransit(id: string): Promise<void> {
@@ -207,20 +251,15 @@ export const defaultItemsService = {
     const updated = items.map(i => i.id === id ? { ...i, deletada: true } : i) as DefaultTransitItem[];
     saveToStorage(STORAGE_KEYS.DEF_TRANS, updated);
   },
-
   async getCriticals(): Promise<DefaultCriticalItem[]> {
     let data = getFromStorage<DefaultCriticalItem[]>(STORAGE_KEYS.DEF_CRIT, []);
-    if (data.length === 0) {
-      data = DEFAULT_CRITICALS;
-      saveToStorage(STORAGE_KEYS.DEF_CRIT, data);
-    }
+    if (data.length === 0) { data = DEFAULT_CRITICALS; saveToStorage(STORAGE_KEYS.DEF_CRIT, data); }
     return data;
   },
   async saveCritical(data: DefaultCriticalItem): Promise<void> {
     const items = await this.getCriticals();
     const existingIndex = items.findIndex(i => i.id === data.id);
-    if (existingIndex > -1) items[existingIndex] = data;
-    else items.push(data);
+    if (existingIndex > -1) items[existingIndex] = data; else items.push(data);
     saveToStorage(STORAGE_KEYS.DEF_CRIT, items);
   },
   async deleteCritical(id: string): Promise<void> {
@@ -228,15 +267,11 @@ export const defaultItemsService = {
     const updated = items.map(i => i.id === id ? { ...i, deletada: true } : i) as DefaultCriticalItem[];
     saveToStorage(STORAGE_KEYS.DEF_CRIT, updated);
   },
-
-  async getShelfLifes(): Promise<ShelfLifeItem[]> {
-    return getFromStorage<ShelfLifeItem[]>(STORAGE_KEYS.DEF_SHELF, []);
-  },
+  async getShelfLifes(): Promise<ShelfLifeItem[]> { return getFromStorage<ShelfLifeItem[]>(STORAGE_KEYS.DEF_SHELF, []); },
   async saveShelfLife(data: ShelfLifeItem): Promise<void> {
     const items = await this.getShelfLifes();
     const existingIndex = items.findIndex(i => i.id === data.id);
-    if (existingIndex > -1) items[existingIndex] = data;
-    else items.push(data);
+    if (existingIndex > -1) items[existingIndex] = data; else items.push(data);
     saveToStorage(STORAGE_KEYS.DEF_SHELF, items);
   },
   async deleteShelfLife(id: string): Promise<void> {
@@ -244,15 +279,11 @@ export const defaultItemsService = {
     const updated = items.map(i => i.id === id ? { ...i, deletada: true } : i) as ShelfLifeItem[];
     saveToStorage(STORAGE_KEYS.DEF_SHELF, updated);
   },
-
-  async getCustomTypes(): Promise<CustomControlType[]> {
-    return getFromStorage<CustomControlType[]>(STORAGE_KEYS.CUSTOM_TYPES, []);
-  },
+  async getCustomTypes(): Promise<CustomControlType[]> { return getFromStorage<CustomControlType[]>(STORAGE_KEYS.CUSTOM_TYPES, []); },
   async saveCustomType(data: CustomControlType): Promise<void> {
     const types = await this.getCustomTypes();
     const idx = types.findIndex(t => t.id === data.id);
-    if (idx > -1) types[idx] = data;
-    else types.push(data);
+    if (idx > -1) types[idx] = data; else types.push(data);
     saveToStorage(STORAGE_KEYS.CUSTOM_TYPES, types);
   },
   async deleteCustomType(id: string): Promise<void> {
@@ -260,15 +291,11 @@ export const defaultItemsService = {
     const updated = types.map(t => t.id === id ? { ...t, deletada: true } : t) as CustomControlType[];
     saveToStorage(STORAGE_KEYS.CUSTOM_TYPES, updated);
   },
-
-  async getCustomItems(): Promise<CustomControlItem[]> {
-    return getFromStorage<CustomControlItem[]>(STORAGE_KEYS.CUSTOM_ITEMS, []);
-  },
+  async getCustomItems(): Promise<CustomControlItem[]> { return getFromStorage<CustomControlItem[]>(STORAGE_KEYS.CUSTOM_ITEMS, []); },
   async saveCustomItem(data: CustomControlItem): Promise<void> {
     const items = await this.getCustomItems();
     const idx = items.findIndex(i => i.id === data.id);
-    if (idx > -1) items[idx] = data;
-    else items.push(data);
+    if (idx > -1) items[idx] = data; else items.push(data);
     saveToStorage(STORAGE_KEYS.CUSTOM_ITEMS, items);
   },
   async deleteCustomItem(id: string): Promise<void> {
@@ -281,10 +308,7 @@ export const defaultItemsService = {
 export const categoryService = {
   async getAll(): Promise<Category[]> {
     let data = getFromStorage<Category[]>(STORAGE_KEYS.CATEGORIES, []);
-    if (data.length === 0) {
-      data = CATEGORIES;
-      saveToStorage(STORAGE_KEYS.CATEGORIES, data);
-    }
+    if (data.length === 0) { data = CATEGORIES; saveToStorage(STORAGE_KEYS.CATEGORIES, data); }
     return data;
   },
   async create(data: Omit<Category, 'id'>): Promise<Category> {
@@ -308,10 +332,7 @@ export const categoryService = {
 export const taskService = {
   async getAll(): Promise<Task[]> {
     let data = getFromStorage<Task[]>(STORAGE_KEYS.TASKS, []);
-    if (data.length === 0) {
-      data = TASKS;
-      saveToStorage(STORAGE_KEYS.TASKS, data);
-    }
+    if (data.length === 0) { data = TASKS; saveToStorage(STORAGE_KEYS.TASKS, data); }
     return data;
   },
   async create(data: Omit<Task, 'id'>): Promise<Task> {
@@ -335,10 +356,7 @@ export const taskService = {
 export const controlService = {
   async getAll(): Promise<Control[]> {
     let data = getFromStorage<Control[]>(STORAGE_KEYS.CONTROLS, []);
-    if (data.length === 0) {
-      data = CONTROLS;
-      saveToStorage(STORAGE_KEYS.CONTROLS, data);
-    }
+    if (data.length === 0) { data = CONTROLS; saveToStorage(STORAGE_KEYS.CONTROLS, data); }
     return data;
   },
   async create(data: Omit<Control, 'id'>): Promise<Control> {
@@ -361,10 +379,7 @@ export const controlService = {
 export const userService = {
   async getAll(): Promise<User[]> {
     let data = getFromStorage<User[]>(STORAGE_KEYS.USERS, []);
-    if (data.length === 0) {
-      data = USERS;
-      saveToStorage(STORAGE_KEYS.USERS, data);
-    }
+    if (data.length === 0) { data = USERS; saveToStorage(STORAGE_KEYS.USERS, data); }
     return data;
   },
   async create(data: Omit<User, 'id'>): Promise<User> {
@@ -386,37 +401,32 @@ export const userService = {
 };
 
 export const monthlyService = {
-  async getAll(): Promise<MonthlyCollection[]> {
-    return getFromStorage<MonthlyCollection[]>(STORAGE_KEYS.MONTHLY_COLLECTIONS, []);
-  },
-
+  async getAll(): Promise<MonthlyCollection[]> { return getFromStorage<MonthlyCollection[]>(STORAGE_KEYS.MONTHLY_COLLECTIONS, []); },
   async save(data: MonthlyCollection): Promise<void> {
     const collections = await this.getAll();
     const idx = collections.findIndex(c => c.id === data.id);
-    if (idx > -1) collections[idx] = data;
-    else collections.push(data);
+    if (idx > -1) collections[idx] = data; else collections.push(data);
     saveToStorage(STORAGE_KEYS.MONTHLY_COLLECTIONS, collections);
     await this.syncWithReports(collections);
   },
-
   async syncWithReports(collections: MonthlyCollection[]): Promise<void> {
     const storeTasks = getFromStorage<Task[]>(STORAGE_KEYS.TASKS, []);
     const storeCats = getFromStorage<Category[]>(STORAGE_KEYS.CATEGORIES, []);
     const storeBases = getFromStorage<Base[]>(STORAGE_KEYS.BASES, []);
-    
     const finishedCollections = collections.filter(c => c.status === 'FINALIZADO');
-
-    // 1. Gerar Detalhamento Mensal (Matriz analítica por mês/base)
     const repMensalDetalhado = finishedCollections.map(c => {
       const base = storeBases.find(b => b.id === c.baseId);
       let totalMins = 0;
+      const tasksBase = storeTasks.filter(t => {
+          const cat = storeCats.find(cat => cat.id === t.categoriaId);
+          return cat?.tipo === 'mensal' && (!t.baseId || t.baseId === c.baseId);
+      }).sort((a, b) => a.ordem - b.ordem);
       const tarefasMap: Record<string, string> = {};
+      tasksBase.forEach(t => { tarefasMap[t.nome.toUpperCase()] = '00:00:00'; });
       const activities: any[] = [];
-
       Object.entries(c.tarefasValores).forEach(([taskId, val]) => {
         const task = storeTasks.find(t => t.id === taskId);
         if (!task) return;
-        
         let mins = 0;
         if (task.tipoMedida === 'TEMPO') {
           const p = val.split(':').map(Number);
@@ -425,143 +435,37 @@ export const monthlyService = {
           mins = (parseFloat(val) || 0) * task.fatorMultiplicador;
         }
         totalMins += mins;
-        
         const formatted = timeUtils.minutesToHhmmss(mins);
         tarefasMap[task.nome.toUpperCase()] = formatted;
-        
         const cat = storeCats.find(ct => ct.id === task.categoriaId);
-        activities.push({ taskNome: task.nome, categoryNome: cat?.nome || 'Geral', formatted });
+        activities.push({ taskNome: task.nome, categoryNome: cat?.nome || 'Geral', formatted, ordemCat: cat?.ordem || 99, ordemTask: task.ordem || 99 });
       });
-
-      return {
-        id: c.id,
-        mesReferencia: `${String(c.mes).padStart(2, '0')}/${c.ano}`,
-        data: `${String(c.mes).padStart(2, '0')}/${c.ano}`, // Para facilitar filtro de data
-        baseNome: base?.nome || c.baseId,
-        baseSigla: base?.sigla || '',
-        totalHoras: timeUtils.minutesToHhmmss(totalMins),
-        tarefasMap,
-        activities,
-        dataFinalizacao: c.dataFinalizacao,
-        status: 'OK'
-      };
+      return { id: c.id, mesReferencia: `${String(c.mes).padStart(2, '0')}/${c.ano}`, data: `${String(c.mes).padStart(2, '0')}/${c.ano}`, baseNome: base?.nome || c.baseId, baseSigla: base?.sigla || '', totalHoras: timeUtils.minutesToHhmmss(totalMins), tarefasMap, activities: activities.sort((a, b) => { if (a.ordemCat !== b.ordemCat) return a.ordemCat - b.ordemCat; return a.ordemTask - b.ordemTask; }), dataFinalizacao: c.dataFinalizacao, status: 'OK' };
     }).sort((a, b) => b.mesReferencia.localeCompare(a.mesReferencia));
-
     saveToStorage(STORAGE_KEYS.REP_MENSAL_DETALHADO, repMensalDetalhado);
-
-    // 2. Gerar Resumo Geral Mensal (Acumulado por categoria)
     const repResumo: any = { categorias: [], totalMins: 0 };
-    
     finishedCollections.forEach(c => {
-      Object.entries(c.tarefasValores).forEach(([taskId, val]) => {
-        const task = storeTasks.find(t => t.id === taskId);
-        if (!task) return;
-        const cat = storeCats.find(ct => ct.id === task.categoriaId);
-        if (!cat) return;
-
-        let catResumo = repResumo.categorias.find((r: any) => r.categoryId === cat.id);
-        if (!catResumo) {
-          catResumo = { categoryId: cat.id, categoryNome: cat.nome, atividades: [], totalCategoryMins: 0 };
-          repResumo.categorias.push(catResumo);
-        }
-
-        let taskResumo = catResumo.atividades.find((a: any) => a.nome === task.nome);
-        if (!taskResumo) {
-          taskResumo = { nome: task.nome, tipoInput: task.tipoMedida === 'TEMPO' ? 'TIME' : 'QTY', totalQuantidade: 0, totalMins: 0 };
-          catResumo.atividades.push(taskResumo);
-        }
-
-        let taskMins = 0;
-        if (task.tipoMedida === 'TEMPO') {
-          const parts = (val as string).split(':').map(Number);
-          taskMins = (parts[0] * 60) + (parts[1] || 0) + (parts[2] || 0) / 60;
-        } else {
-          const qty = parseFloat(val as string) || 0;
-          taskResumo.totalQuantidade += qty;
-          taskMins = qty * task.fatorMultiplicador;
-        }
-        taskResumo.totalMins += taskMins;
-        catResumo.totalCategoryMins += taskMins;
-        repResumo.totalMins += taskMins;
+      storeTasks.filter(t => { const cat = storeCats.find(ct => ct.id === t.categoriaId); return cat?.tipo === 'mensal'; }).forEach(task => {
+          const cat = storeCats.find(ct => ct.id === task.categoriaId);
+          if (!cat) return;
+          let catResumo = repResumo.categorias.find((r: any) => r.categoryId === cat.id);
+          if (!catResumo) { catResumo = { categoryId: cat.id, categoryNome: cat.nome, atividades: [], totalCategoryMins: 0, ordem: cat.ordem }; repResumo.categorias.push(catResumo); }
+          let taskResumo = catResumo.atividades.find((a: any) => a.nome === task.nome);
+          if (!taskResumo) { taskResumo = { nome: task.nome, tipoInput: task.tipoMedida === 'TEMPO' ? 'TIME' : 'QTY', totalQuantidade: 0, totalMins: 0, ordem: task.ordem }; catResumo.atividades.push(taskResumo); }
+          const val = c.tarefasValores[task.id];
+          if (!val) return;
+          let taskMins = 0;
+          if (task.tipoMedida === 'TEMPO') { const parts = (val as string).split(':').map(Number); taskMins = (parts[0] * 60) + (parts[1] || 0) + (parts[2] || 0) / 60; }
+          else { const qty = parseFloat(val as string) || 0; taskResumo.totalQuantidade += qty; taskMins = qty * task.fatorMultiplicador; }
+          taskResumo.totalMins += taskMins; catResumo.totalCategoryMins += taskMins; repResumo.totalMins += taskMins;
       });
     });
-
-    const finalResumo = {
-      totalHoras: timeUtils.minutesToHhmmss(repResumo.totalMins),
-      categorias: repResumo.categorias.map((c: any) => ({
-        ...c,
-        totalCategoryFormatted: timeUtils.minutesToHhmmss(c.totalCategoryMins),
-        atividades: c.atividades.map((a: any) => ({
-          ...a,
-          totalFormatted: timeUtils.minutesToHhmmss(a.totalMins)
-        }))
-      }))
-    };
-
+    repResumo.categorias.sort((a: any, b: any) => a.ordem - b.ordem);
+    repResumo.categorias.forEach((c: any) => c.atividades.sort((a: any, b: any) => a.ordem - b.ordem));
+    const finalResumo = { totalHoras: timeUtils.minutesToHhmmss(repResumo.totalMins), categorias: repResumo.categorias.map((c: any) => ({ ...c, totalCategoryFormatted: timeUtils.minutesToHhmmss(c.totalCategoryMins), atividades: c.atividades.map((a: any) => ({ ...a, totalFormatted: timeUtils.minutesToHhmmss(a.totalMins) })) })) };
     saveToStorage(STORAGE_KEYS.REP_MENSAL_RESUMO, finalResumo);
-    
-    // Fallback para manter compatibilidade com tabela antiga se necessário
-    const legacy = repMensalDetalhado.map(d => ({
-      id: d.id,
-      mesReferencia: d.mesReferencia,
-      status: 'OK',
-      totalGeral: d.totalHoras,
-      dataFinalizacao: d.dataFinalizacao
-    }));
+    const legacy = repMensalDetalhado.map(d => ({ id: d.id, mesReferencia: d.mesReferencia, status: 'OK', totalGeral: d.totalHoras, dataFinalizacao: d.dataFinalizacao }));
     saveToStorage(STORAGE_KEYS.REP_MENSAL, legacy);
-  }
-};
-
-export const validationService = {
-  async validarPassagemDuplicada(data: string, turnoId: string, baseId: string): Promise<{ valido: boolean; mensagem: string }> {
-    try {
-      const reports = getFromStorage<any[]>(STORAGE_KEYS.REP_DETALHAMENTO, []);
-      if (reports.length === 0) return { valido: true, mensagem: '' };
-
-      const jaExiste = reports.some(r => r.data === data && r.turnoId === turnoId && r.baseId === baseId && r.status === 'Finalizado');
-      if (jaExiste) {
-        const mensagem = `Já existe uma Passagem de Serviço finalizada para o dia ${data} no Turno correspondente. Não é possível finalizar 2 vezes a mesma passagem.`;
-        return { valido: false, mensagem };
-      }
-      return { valido: true, mensagem: '' };
-    } catch (e) {
-      return { valido: true, mensagem: '' };
-    }
-  },
-
-  async verificarColaboradoresEmOutrosTurnos(data: string, turnoId: string, baseId: string, atuaisIds: (string | null)[], users: User[]): Promise<{ valido: boolean; mensagem: string; colaboradoresDuplicados: string[] }> {
-    try {
-      const reports = getFromStorage<any[]>(STORAGE_KEYS.REP_DETALHAMENTO, []);
-      const duplicadosNomes: string[] = [];
-      const passagensDoDia = reports.filter(r => r.data === data && r.baseId === baseId && r.turnoId !== turnoId && r.status === 'Finalizado');
-      atuaisIds.forEach(id => {
-        if (!id) return;
-        const jaTrabalhou = passagensDoDia.some(p => (p.colaboradoresIds || []).includes(id));
-        if (jaTrabalhou) {
-          const nome = users.find(u => u.id === id)?.nome || 'Membro do Time';
-          if (!duplicadosNomes.includes(nome)) duplicadosNomes.push(nome);
-        }
-      });
-      if (duplicadosNomes.length > 0) {
-        const nomes = duplicadosNomes.join(', ');
-        return { valido: false, mensagem: `O(s) colaborador(es) '${nomes}' já está(ão) registrado(s) em outro turno do dia ${data}.`, colaboradoresDuplicados: duplicadosNomes };
-      }
-      return { valido: true, mensagem: '', colaboradoresDuplicados: [] };
-    } catch (e) {
-      return { valido: true, mensagem: '', colaboradoresDuplicados: [] };
-    }
-  },
-
-  validarPassagem(handover: ShiftHandover, storeTasks: Task[]): { valido: boolean; camposPendentes: string[] } {
-    const pendentes: string[] = [];
-    if (!handover.turnoId) pendentes.push("Configuração: Seleção de Turno obrigatória");
-    if (handover.colaboradores.every(c => !c)) pendentes.push("Equipe: Pelo menos 1 colaborador deve ser selecionado");
-    const baseTasks = storeTasks.filter(t => !t.deletada && t.visivel !== false && (!t.baseId || t.baseId === handover.baseId));
-    baseTasks.forEach(task => {
-      const valor = handover.tarefasExecutadas[task.id];
-      if (valor === undefined || valor === null || valor === "") pendentes.push(`Atividades: A tarefa "${task.nome}" deve ser preenchida`);
-    });
-    return { valido: pendentes.length === 0, camposPendentes: pendentes };
   }
 };
 
@@ -569,143 +473,83 @@ export const migrationService = {
   async reprocessarResumo(store: any): Promise<void> {
     const repDetalhamento = getFromStorage<any[]>(STORAGE_KEYS.REP_DETALHAMENTO, []);
     const repResumo: any = { categorias: [], totalMins: 0 };
-    
+    const allOpTasks = store.tasks.filter((t: any) => { const cat = store.categories.find((c: any) => c.id === t.categoriaId); return cat?.tipo === 'operacional'; });
+    allOpTasks.forEach((task: any) => {
+        const cat = store.categories.find((c: any) => c.id === task.categoriaId);
+        if (!cat) return;
+        let catResumo = repResumo.categorias.find((r: any) => r.categoryId === cat.id);
+        if (!catResumo) { catResumo = { categoryId: cat.id, categoryNome: cat.nome, atividades: [], totalCategoryMins: 0, ordem: cat.ordem }; repResumo.categorias.push(catResumo); }
+        let taskResumo = catResumo.atividades.find((a: any) => a.nome === task.nome);
+        if (!taskResumo) { taskResumo = { nome: task.nome, tipoInput: task.tipoMedida === 'TEMPO' ? 'TIME' : 'QTY', totalQuantidade: 0, totalMins: 0, ordem: task.ordem }; catResumo.atividades.push(taskResumo); }
+    });
     repDetalhamento.forEach(handover => {
       Object.entries(handover.tarefasExecutadas || {}).forEach(([taskId, val]: [string, any]) => {
         const task = store.tasks.find((t: any) => t.id === taskId);
         if (!task) return;
         const cat = store.categories.find((c: any) => c.id === task.categoriaId);
         if (!cat) return;
-        
         let catResumo = repResumo.categorias.find((r: any) => r.categoryId === cat.id);
-        if (!catResumo) {
-          catResumo = { categoryId: cat.id, categoryNome: cat.nome, atividades: [], totalCategoryMins: 0 };
-          repResumo.categorias.push(catResumo);
-        }
-        
+        if (!catResumo) { catResumo = { categoryId: cat.id, categoryNome: cat.nome, atividades: [], totalCategoryMins: 0, ordem: cat.ordem }; repResumo.categorias.push(catResumo); }
         let taskResumo = catResumo.atividades.find((a: any) => a.nome === task.nome);
-        if (!taskResumo) {
-          taskResumo = { nome: task.nome, tipoInput: task.tipoMedida === 'TEMPO' ? 'TIME' : 'QTY', totalQuantidade: 0, totalMins: 0 };
-          catResumo.atividades.push(taskResumo);
-        }
-        
+        if (!taskResumo) { taskResumo = { nome: task.nome, tipoInput: task.tipoMedida === 'TEMPO' ? 'TIME' : 'QTY', totalQuantidade: 0, totalMins: 0, ordem: task.ordem }; catResumo.atividades.push(taskResumo); }
         let taskMins = 0;
-        if (task.tipoMedida === 'TEMPO') {
-          const parts = (val as string).split(':').map(Number);
-          taskMins = (parts[0] * 60) + (parts[1] || 0) + (parts[2] || 0) / 60;
-        } else {
-          const qty = parseFloat(val as string) || 0;
-          taskResumo.totalQuantidade += qty;
-          taskMins = qty * task.fatorMultiplicador;
-        }
-        taskResumo.totalMins += taskMins;
-        catResumo.totalCategoryMins += taskMins;
-        repResumo.totalMins += taskMins;
+        if (task.tipoMedida === 'TEMPO') { const parts = (val as string).split(':').map(Number); taskMins = (parts[0] * 60) + (parts[1] || 0) + (parts[2] || 0) / 60; }
+        else { const qty = parseFloat(val as string) || 0; taskResumo.totalQuantidade += qty; taskMins = qty * task.fatorMultiplicador; }
+        taskResumo.totalMins += taskMins; catResumo.totalCategoryMins += taskMins; repResumo.totalMins += taskMins;
       });
-
-      if (handover.nonRoutineTasks && handover.nonRoutineTasks.length > 0) {
+      if (handover.nonRoutineTasks) {
         handover.nonRoutineTasks.forEach((t: any) => {
            if (!t.nome || !t.tempo) return;
            const catId = t.categoriaId || 'cat_outras';
            const catRef = store.categories.find((c: any) => c.id === catId);
-           const catName = catRef?.nome || '5. OUTROS';
-
            let catResumo = repResumo.categorias.find((r: any) => r.categoryId === catId);
-           if (!catResumo) {
-             catResumo = { categoryId: catId, categoryNome: catName, atividades: [], totalCategoryMins: 0 };
-             repResumo.categorias.push(catResumo);
-           }
-
+           if (!catResumo) { catResumo = { categoryId: catId, categoryNome: catRef?.nome || 'OUTROS', atividades: [], totalCategoryMins: 0, ordem: catRef?.ordem || 99 }; repResumo.categorias.push(catResumo); }
            let taskResumo = catResumo.atividades.find((a: any) => a.nome === t.nome);
-           if (!taskResumo) {
-             taskResumo = { nome: t.nome, tipoInput: t.tipoMedida === 'QTD' ? 'QTY' : 'TIME', totalQuantidade: 0, totalMins: 0 };
-             catResumo.atividades.push(taskResumo);
-           }
-           
+           if (!taskResumo) { taskResumo = { nome: t.nome, tipoInput: t.tipoMedida === 'QTD' ? 'QTY' : 'TIME', totalQuantidade: 0, totalMins: 0, ordem: 999 }; catResumo.atividades.push(taskResumo); }
            let newMins = 0;
-           if (t.tipoMedida === MeasureType.QTD) {
-              const qty = parseFloat(t.tempo) || 0;
-              taskResumo.totalQuantidade += qty;
-              newMins = qty * (t.fatorMultiplicador || 0);
-           } else {
-              taskResumo.totalQuantidade += 1;
-              const parts = (t.tempo as string).split(':').map(Number);
-              newMins = (parts[0] * 60) + (parts[1] || 0) + (parts[2] || 0) / 60;
-           }
-           
-           taskResumo.totalMins += newMins;
-           catResumo.totalCategoryMins += newMins;
-           repResumo.totalMins += newMins;
+           if (t.tipoMedida === MeasureType.QTD) { const qty = parseFloat(t.tempo) || 0; taskResumo.totalQuantidade += qty; newMins = qty * (t.fatorMultiplicador || 0); }
+           else { const parts = (t.tempo as string).split(':').map(Number); newMins = (parts[0] * 60) + (parts[1] || 0) + (parts[2] || 0) / 60; }
+           taskResumo.totalMins += newMins; catResumo.totalCategoryMins += newMins; repResumo.totalMins += newMins;
         });
       }
     });
-
-    // Mapear acumulados para HH:MM:SS antes de salvar
-    const finalResumo = {
-      totalHoras: timeUtils.minutesToHhmmss(repResumo.totalMins),
-      categorias: repResumo.categorias.map((c: any) => ({
-        ...c,
-        totalCategoryFormatted: timeUtils.minutesToHhmmss(c.totalCategoryMins),
-        atividades: c.atividades.map((a: any) => ({
-          ...a,
-          totalFormatted: timeUtils.minutesToHhmmss(a.totalMins)
-        }))
-      }))
-    };
-
+    repResumo.categorias.sort((a: any, b: any) => a.ordem - b.ordem);
+    repResumo.categorias.forEach((c: any) => c.atividades.sort((a: any, b: any) => a.ordem - b.ordem));
+    const finalResumo = { totalHoras: timeUtils.minutesToHhmmss(repResumo.totalMins), categorias: repResumo.categorias.map((c: any) => ({ ...c, totalCategoryFormatted: timeUtils.minutesToHhmmss(c.totalCategoryMins), atividades: c.atividades.map((a: any) => ({ ...a, totalFormatted: timeUtils.minutesToHhmmss(a.totalMins) })) })) };
     saveToStorage(STORAGE_KEYS.REP_RESUMO, finalResumo);
   },
-
   async processarMigracao(handover: ShiftHandover, store: any, replaceId?: string): Promise<void> {
     const repAcompanhamento = getFromStorage<any[]>(STORAGE_KEYS.REP_ACOMPANHAMENTO, []);
     const repDetalhamento = getFromStorage<any[]>(STORAGE_KEYS.REP_DETALHAMENTO, []);
-
     let dataEntry = repAcompanhamento.find((r: any) => r.data === handover.data);
-    if (!dataEntry) {
-      dataEntry = { data: handover.data, turno1: 'Pendente', turno2: 'Pendente', turno3: 'Pendente', turno4: 'Pendente' };
-      repAcompanhamento.push(dataEntry);
-    }
+    if (!dataEntry) { dataEntry = { data: handover.data, turno1: 'Pendente', turno2: 'Pendente', turno3: 'Pendente', turno4: 'Pendente' }; repAcompanhamento.push(dataEntry); }
     const turnoKey = `turno${handover.turnoId}` as keyof typeof dataEntry;
     dataEntry[turnoKey] = 'OK';
-
     const colaboradoresNomes = handover.colaboradores.map(id => store.users.find((u:any) => u.id === id)?.nome).filter(Boolean);
-    
     let hProdTotalMin = 0;
     const atividadesDetalhadas = Object.entries(handover.tarefasExecutadas).map(([taskId, val]) => {
       const task = store.tasks.find((t: any) => t.id === taskId);
       const cat = store.categories.find((c: any) => c.id === task?.categoriaId);
       let mins = 0;
-      if (task?.tipoMedida === 'TEMPO') {
-        const p = val.split(':').map(Number);
-        mins = (p[0]||0) * 60 + (p[1]||0) + (p[2]||0)/60;
-      } else {
-        mins = (parseFloat(val) || 0) * (task?.fatorMultiplicador || 0);
-      }
+      if (task?.tipoMedida === 'TEMPO') { const p = val.split(':').map(Number); mins = (p[0]||0) * 60 + (p[1]||0) + (p[2]||0)/60; }
+      else { mins = (parseFloat(val) || 0) * (task?.fatorMultiplicador || 0); }
       hProdTotalMin += mins;
       const conv = timeUtils.converterMinutosParaHoras(mins);
-      return { 
-        taskNome: task?.nome || 'Desc.', 
-        categoryNome: cat?.nome || 'Geral', 
-        horas: conv.horas, 
-        minutos: conv.minutos,
-        segundos: conv.segundos,
-        formatted: timeUtils.minutesToHhmmss(mins)
-      };
+      return { taskNome: task?.nome || 'Desc.', categoryNome: cat?.nome || 'OUTROS', horas: conv.horas, minutos: conv.minutos, segundos: conv.segundos, formatted: timeUtils.minutesToHhmmss(mins), ordemCat: cat?.ordem || 0, ordemTask: task?.ordem || 0 };
     });
-
-    const hDispTotalMin = handover.colaboradores.reduce((acc, id) => acc + (store.users.find((u:any) => u.id === id)?.jornadaPadrao || 0) * 60, 0);
-    
     (handover.nonRoutineTasks || []).forEach(t => {
-      if (t.tipoMedida === MeasureType.QTD) {
-         hProdTotalMin += (parseFloat(t.tempo) || 0) * (t.fatorMultiplicador || 0);
-      } else {
-         const p = t.tempo.split(':').map(Number);
-         hProdTotalMin += (p[0] * 60) + (p[1] || 0) + (p[2] || 0) / 60;
-      }
+      if (!t.nome || !t.tempo) return;
+      const catRef = store.categories.find((c: any) => c.id === t.categoriaId);
+      let mins = 0;
+      if (t.tipoMedida === MeasureType.QTD) mins = (parseFloat(t.tempo) || 0) * (t.fatorMultiplicador || 0);
+      else { const p = t.tempo.split(':').map(Number); mins = (p[0] * 60) + (p[1] || 0) + (p[2] || 0) / 60; }
+      hProdTotalMin += mins;
+      const conv = timeUtils.converterMinutosParaHoras(mins);
+      atividadesDetalhadas.push({ taskNome: t.nome, categoryNome: catRef?.nome || 'OUTROS', horas: conv.horas, minutos: conv.minutos, segundos: conv.segundos, formatted: timeUtils.minutesToHhmmss(mins), ordemCat: catRef?.ordem || 99, ordemTask: 999 });
     });
-
+    const hDispTotalMin = handover.colaboradores.reduce((acc, id) => acc + (store.users.find((u:any) => u.id === id)?.jornadaPadrao || 0) * 60, 0);
     const performanceCalc = hDispTotalMin > 0 ? (hProdTotalMin / hDispTotalMin) * 100 : 0;
-
+    const tasksBaseOp = store.tasks.filter((t: any) => { const cat = store.categories.find((c: any) => c.id === t.categoriaId); return cat?.tipo === 'operacional' && (!t.baseId || t.baseId === handover.baseId); }).sort((a, b) => { const catA = store.categories.find((c: any) => c.id === a.categoriaId); const catB = store.categories.find((c: any) => c.id === b.categoriaId); if ((catA?.ordem || 0) !== (catB?.ordem || 0)) return (catA?.ordem || 0) - (catB?.ordem || 0); return a.ordem - b.ordem; });
     const record = {
       ...handover,
       id: replaceId || handover.id,
@@ -718,36 +562,25 @@ export const migrationService = {
       horasDisponivel: timeUtils.minutesToHhmmss(hDispTotalMin),
       horasProduzida: timeUtils.minutesToHhmmss(hProdTotalMin),
       percentualPerformance: Math.round(performanceCalc * 100) / 100,
-      tarefasMap: criarMapaTarefas({ ...handover, activities: atividadesDetalhadas }),
-      shelfLife: formatarControle(handover.shelfLifeData.map(i => ({ data: i.dataVencimento }))),
-      locations: formatarControle(handover.locationsData.map(i => ({ quantidade: i.quantidade }))),
-      transito: formatarControle(handover.transitData.map(i => ({ quantidade: i.quantidade }))),
-      saldoCritico: handover.criticalData
-        .filter(c => c.saldoSistema !== null)
-        .map(c => `${c.saldoSistema}|${c.saldoFisico}|${(c.saldoSistema||0)-(c.saldoFisico||0)}`)
-        .join(' | '),
+      tarefasMap: criarMapaTarefas({ ...handover, activities: atividadesDetalhadas }, tasksBaseOp),
+      shelfLife: formatarControle(handover.shelfLifeData),
+      locations: formatarControle(handover.locationsData),
+      transito: formatarControle(handover.transitData),
+      saldoCritico: formatarControle(handover.criticalData),
       observacoes: handover.informacoesImportantes,
-      shelfLifeItems: handover.shelfLifeData.map(i => ({ itemNome: i.partNumber, data: i.dataVencimento })),
-      locationItems: handover.locationsData.map(i => ({ itemNome: i.nomeLocation, quantidade: i.quantidade })),
-      transitItems: handover.transitData.map(i => ({ itemNome: i.nomeTransito, quantidade: i.quantidade })),
-      criticosItems: handover.criticalData.map(i => ({ itemNome: i.partNumber, saldoSistema: i.saldoSistema, saldoFisico: i.saldoFisico, divergencia: (i.saldoSistema||0)-(i.saldoFisico||0) })),
-      activities: atividadesDetalhadas,
+      shelfLifeItems: handover.shelfLifeData,
+      locationItems: handover.locationsData,
+      transitItems: handover.transitData,
+      criticosItems: handover.criticalData,
+      activities: atividadesDetalhadas.sort((a, b) => { if (a.ordemCat !== b.ordemCat) return a.ordemCat - b.ordemCat; return a.ordemTask - b.ordemTask; }),
       outrasTarefas: handover.nonRoutineTasks
     };
-
-    if (replaceId) {
-      const idx = repDetalhamento.findIndex(d => d.id === replaceId);
-      if (idx > -1) repDetalhamento[idx] = record;
-      else repDetalhamento.push(record);
-    } else {
-      repDetalhamento.push(record);
-    }
-
+    if (replaceId) { const idx = repDetalhamento.findIndex(d => d.id === replaceId); if (idx > -1) repDetalhamento[idx] = record; else repDetalhamento.push(record); }
+    else repDetalhamento.push(record);
     saveToStorage(STORAGE_KEYS.REP_ACOMPANHAMENTO, repAcompanhamento);
     saveToStorage(STORAGE_KEYS.REP_DETALHAMENTO, repDetalhamento);
     await this.reprocessarResumo(store);
-    
-    // Ao finalizar com sucesso, limpar o rascunho compartilhado
     await sharedDraftService.clearDraft(handover.baseId, handover.data, handover.turnoId);
+    await baseStatusService.saveBaseStatus(handover.baseId, { obs: handover.informacoesImportantes, locations: handover.locationsData, transit: handover.transitData, shelfLife: handover.shelfLifeData, critical: handover.criticalData });
   }
 };

@@ -402,8 +402,8 @@ const BasesGrid: React.FC<{ bases: Base[], onEdit: (base: Base) => void, onDelet
 );
 
 /**
- * UsuariosTable Atualizado (Solicitação 55.0)
- * Inclui colunas BASE e JORNADA.
+ * UsuariosTable Atualizado
+ * Fix: Provided children via prop to Tooltip to ensure standard React component structure and satisfy strict TooltipProps in some environments.
  */
 interface UsuariosTableProps {
   users: User[];
@@ -519,16 +519,18 @@ const UsersTable: React.FC<UsuariosTableProps> = ({ users, bases, onEdit, onDele
                     </TableCell>
                     <TableCell align="right" sx={{ pr: 2 }}>
                       <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 0.5 }}>
-                        <Tooltip title="Editar">
+                        {/* Fix: Use explicit children prop for Tooltip to satisfy strict type checking */}
+                        <Tooltip title="Editar" children={
                           <IconButton size="small" onClick={() => { console.debug(`[UsuariosTable] Editando usuário: ${user.id}`); onEdit(user); }} sx={{ color: '#9ca3af', '&:hover': { color: '#ea580c', bgcolor: '#fff7ed' } }}>
                             <Edit2 size={16} />
                           </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Excluir">
+                        } />
+                        {/* Fix: Use explicit children prop for Tooltip to satisfy strict type checking */}
+                        <Tooltip title="Excluir" children={
                           <IconButton size="small" onClick={() => { console.debug(`[UsuariosTable] Deletando usuário: ${user.id}`); onDelete(user.id); }} sx={{ color: '#9ca3af', '&:hover': { color: '#ef4444', bgcolor: '#fef2f2' } }}>
                             <Trash2 size={16} />
                           </IconButton>
-                        </Tooltip>
+                        } />
                       </Box>
                     </TableCell>
                   </TableRow>

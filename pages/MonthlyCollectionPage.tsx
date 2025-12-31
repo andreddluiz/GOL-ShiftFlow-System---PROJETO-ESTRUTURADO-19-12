@@ -37,7 +37,7 @@ const MonthlyCollectionPage: React.FC<{baseId?: string}> = ({ baseId }) => {
   const categories = useMemo(() => getMonthlyCategoriesCombinadas(baseId), [getMonthlyCategoriesCombinadas, baseId, initialized]);
   const tasks = useMemo(() => getMonthlyTasksCombinadas(baseId), [getMonthlyTasksCombinadas, baseId, initialized]);
 
-  // Avançar campos com Enter (Solicitação 1)
+  // Avançar campos com Enter
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       const target = e.target as HTMLElement;
@@ -152,7 +152,8 @@ const MonthlyCollectionPage: React.FC<{baseId?: string}> = ({ baseId }) => {
     }
   };
 
-  // Se estiver em modo de edição vindo dos relatórios, liberamos os campos mesmo que status seja FINALIZADO
+  // Ajuste na visibilidade (Solicitação 3): 
+  // Permitimos selecionar qualquer mês, mas isViewOnly é true APENAS para o registro carregado que está finalizado.
   const isViewOnly = coletaAtiva?.status === 'FINALIZADO' && !editId;
   const isEditMode = !!editId;
 
@@ -184,7 +185,7 @@ const MonthlyCollectionPage: React.FC<{baseId?: string}> = ({ baseId }) => {
               </Box>
               <Box>
                 <Typography variant="h5" sx={{ fontWeight: 900, color: '#1f2937' }}>Período de Referência</Typography>
-                <Typography variant="caption" sx={{ fontWeight: 800, color: '#9ca3af', uppercase: true }}>Seleção de competência para indicadores</Typography>
+                <Typography variant="caption" sx={{ fontWeight: 800, color: '#9ca3af', textTransform: 'uppercase' }}>Seleção de competência para indicadores</Typography>
               </Box>
             </Box>
             {coletaAtiva?.status === 'FINALIZADO' && (
@@ -200,9 +201,9 @@ const MonthlyCollectionPage: React.FC<{baseId?: string}> = ({ baseId }) => {
           <Grid container spacing={2} alignItems="center">
             <Grid item xs={12} md={4}>
                <FormControl fullWidth size="small">
-                  <InputLabel>Mês</InputLabel>
+                  <InputLabel children="Mês" />
                   <Select 
-                    disabled={isViewOnly || isEditMode} 
+                    disabled={isEditMode} // Só desabilita o seletor se estiver EDITANDO um histórico fixo vindo do relatório
                     value={mes} 
                     onChange={e => setMes(Number(e.target.value))} 
                     label="Mês"
@@ -214,9 +215,9 @@ const MonthlyCollectionPage: React.FC<{baseId?: string}> = ({ baseId }) => {
             </Grid>
             <Grid item xs={12} md={4}>
                <FormControl fullWidth size="small">
-                  <InputLabel>Ano</InputLabel>
+                  <InputLabel children="Ano" />
                   <Select 
-                    disabled={isViewOnly || isEditMode} 
+                    disabled={isEditMode} 
                     value={ano} 
                     onChange={e => setAno(Number(e.target.value))} 
                     label="Ano"
@@ -235,7 +236,7 @@ const MonthlyCollectionPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                 disabled={isEditMode}
                 sx={{ borderRadius: 3, py: 1.2, fontWeight: 900, boxShadow: 'none' }}
                >
-                 {coletaAtiva ? 'Atualizar Visualização' : 'Iniciar Coleta'}
+                 {coletaAtiva ? 'Trocar Período / Atualizar' : 'Iniciar Coleta'}
                </Button>
             </Grid>
           </Grid>
@@ -292,7 +293,7 @@ const MonthlyCollectionPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                  {!isEditMode && (
                    <>
                     <br />
-                    <Typography variant="caption" sx={{ fontWeight: 600 }}>Para correções, utilize o botão Editar no Histórico de Relatórios.</Typography>
+                    <Typography variant="caption" sx={{ fontWeight: 600 }}>Para correções, utilize o botão Editar no Histórico de Relatórios. Para outros meses, use o seletor acima.</Typography>
                    </>
                  )}
                </Typography>
@@ -349,9 +350,10 @@ const MonthlyCollectionPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                                     size="small"
                                     placeholder="0"
                                     value={valores[task.id] || ''}
-                                    onChange={e => handleValueChange(task.id, e.target.value)}
+                                    onChange={e => handleValueChange(task.id, e.target.value === '' ? '' : String(Math.max(0, Number(e.target.value))))}
                                     slotProps={{
                                       input: {
+                                        min: 0,
                                         sx: { borderRadius: 3, bgcolor: '#f9fafb', fontWeight: 900, textAlign: 'center' }
                                       }
                                     }}
@@ -382,7 +384,7 @@ const MonthlyCollectionPage: React.FC<{baseId?: string}> = ({ baseId }) => {
               startIcon={<ArrowLeft />}
               sx={{ borderRadius: 4, fontWeight: 900, px: 4 }}
              >
-               {isEditMode ? 'Cancelar e Voltar' : 'Voltar aos Relatórios'}
+               {isEditMode ? 'Cancelar e Voltar' : 'Ir para Histórico'}
              </Button>
 
              <Box sx={{ display: 'flex', gap: 2 }}>
@@ -403,7 +405,7 @@ const MonthlyCollectionPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                     startIcon={<CheckCircle />}
                     onClick={() => handleAction(true)}
                    >
-                     {isEditMode ? 'Finalizar e Re-Salvar' : 'Finalizar Coleta Mensal'}
+                     {isEditMode ? 'Finalizar e Re-Salvar' : 'Finalizar Período Selecionado'}
                    </Button>
                  </>
                )}

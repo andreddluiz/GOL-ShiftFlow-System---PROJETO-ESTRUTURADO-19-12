@@ -32,6 +32,7 @@ export interface Base {
   metaAmarelo: number; 
   metaVermelho: number;
   deletada?: boolean;
+  metaHorasDisponiveisAno?: Record<string, number>; // { "01": 160, "02": 160, ... }
 }
 
 export interface User {

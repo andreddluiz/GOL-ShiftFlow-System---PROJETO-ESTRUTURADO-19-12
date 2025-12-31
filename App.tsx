@@ -14,7 +14,6 @@ import {
   Menu,
   X,
   MapPin,
-  FileText,
   Moon,
   Sun
 } from 'lucide-react';
@@ -22,7 +21,6 @@ import { Base, PermissionLevel } from './types';
 import { useStore } from './hooks/useStore';
 
 // Pages
-import DiagnosticPage from './pages/DiagnosticPage';
 import DashboardPage from './pages/DashboardPage';
 import ManagementPage from './pages/ManagementPage';
 import ShiftHandoverPage from './pages/ShiftHandoverPage';
@@ -36,7 +34,7 @@ const App: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isBaseModalOpen, setIsBaseModalOpen] = useState(false);
   
-  // DARK MODE STATE - Solicitação 3
+  // DARK MODE STATE
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     return (localStorage.getItem('gol_shiftflow_theme') as 'light' | 'dark') || 'light';
   });
@@ -97,7 +95,6 @@ const App: React.FC = () => {
 
           <nav className="flex-1 overflow-y-auto py-4">
             <ul className="space-y-2 px-2">
-              <NavItem to="/" icon={<FileText />} label="Diagnóstico" active={isSidebarOpen} />
               <NavItem to="/dashboard" icon={<LayoutDashboard />} label="Indicadores" active={isSidebarOpen} />
               <NavItem to="/shift-handover" icon={<ClipboardCheck />} label="Passagem de Serviço" active={isSidebarOpen} />
               <NavItem to="/monthly-collection" icon={<CalendarDays />} label="Coleta Mensal" active={isSidebarOpen} />
@@ -166,14 +163,14 @@ const App: React.FC = () => {
 
           <div className="flex-1 overflow-y-auto p-6 scrollbar-hide">
             <Routes>
-              <Route path="/" element={<DiagnosticPage />} />
+              <Route path="/" element={<Navigate to="/dashboard" replace />} />
               <Route path="/dashboard" element={<DashboardPage baseId={selectedBase?.id} />} />
               <Route path="/shift-handover" element={<ShiftHandoverPage baseId={selectedBase?.id} />} />
               <Route path="/monthly-collection" element={<MonthlyCollectionPage baseId={selectedBase?.id} />} />
               <Route path="/reports" element={<ReportsPage baseId={selectedBase?.id} />} />
               <Route path="/announcements" element={<AnnouncementsPage baseId={selectedBase?.id} />} />
               <Route path="/management" element={<ManagementPage />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
+              <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Routes>
           </div>
         </main>

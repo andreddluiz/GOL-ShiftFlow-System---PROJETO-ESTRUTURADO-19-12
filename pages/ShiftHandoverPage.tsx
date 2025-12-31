@@ -4,7 +4,7 @@ import {
   CheckCircle, Trash2, Info, Users, Clock, AlertTriangle, ClipboardList,
   X, TrendingUp, Timer, MapPin, Box as BoxIcon, Truck, FlaskConical, AlertOctagon, Plane, Settings,
   Calendar, UserCheck, Activity, BarChart3, MessageSquare, PlusCircle,
-  Edit2, Hash, ChevronDown, CloudCheck, RefreshCw, Save
+  Edit2, Hash, ChevronDown, CloudCheck, RefreshCw, Save, Lock
 } from 'lucide-react';
 import { Box, Typography, Chip, CircularProgress } from '@mui/material';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -18,7 +18,6 @@ import { DatePickerField, TimeInput, hhmmssToMinutes, minutesToHhmmss, ConfirmMo
 import { validationService, migrationService, sharedDraftService, baseStatusService } from '../services';
 
 // Utilitário de Debounce
-// Using any for timeout to avoid NodeJS namespace issues in browser environment
 function debounce<T extends (...args: any[]) => any>(func: T, wait: number): (...args: Parameters<T>) => void {
   let timeout: any;
   return function executedFunction(...args: Parameters<T>) {
@@ -132,6 +131,7 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
   const [searchParams] = useSearchParams();
   const editId = searchParams.get('editId');
   const pageContainerRef = useRef<HTMLDivElement>(null);
+  const prevBaseIdRef = useRef<string | undefined>(baseId);
 
   const { 
     getControlesCombinados, getDefaultLocations, getDefaultTransits, getDefaultCriticals, getDefaultShelfLifes,
@@ -170,9 +170,28 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [statusSalvamento, setStatusSalvamento] = useState<'idle' | 'salvando' | 'salvo'>('idle');
 
+  const isViewOnly = status === 'Finalizado' && !editId;
+
   // Categorias e Tarefas Operacionais
   const opCategories = useMemo(() => allCats.filter(c => c.tipo === 'operacional' && c.status === 'Ativa' && c.visivel !== false && (!c.baseId || c.baseId === baseId)).sort((a,b) => a.ordem - b.ordem), [allCats, baseId]);
   const opTasks = useMemo(() => allTasks.filter(t => t.status === 'Ativa' && t.visivel !== false && (!t.baseId || t.baseId === baseId)), [allTasks, baseId]);
+
+  // Bloqueio de campos
+  const isFormLocked = useMemo(() => {
+    return !dataOperacional || !turnoAtivo || !colaboradoresIds.some(id => id !== null);
+  }, [dataOperacional, turnoAtivo, colaboradoresIds]);
+
+  // Listener de teclado para fechar popups
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (activeAlert && (e.key === 'Enter' || e.key === 'Tab' || e.key === 'Escape')) {
+        e.preventDefault();
+        setActiveAlert(null);
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [activeAlert]);
 
   // Avançar campos com Enter/Tab
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -192,26 +211,35 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
     }
   };
 
-  // Fechar Pop-up com Enter/Tab
-  useEffect(() => {
-    const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      if (activeAlert && (e.key === 'Enter' || e.key === 'Tab')) {
-        e.preventDefault();
-        setActiveAlert(null);
-      }
-    };
-    window.addEventListener('keydown', handleGlobalKeyDown);
-    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [activeAlert]);
-
   // Carregar dados quando Data ou Turno mudam ou Base muda
   useEffect(() => {
-    if (!baseId || !dataOperacional || !turnoAtivo || editId) return;
+    if (!baseId || editId) return;
 
     const loadSharedDraft = async () => {
-      console.debug(`[ShiftHandover] Carregando dados da Base: ${baseId}`);
-      const remote = await sharedDraftService.getDraft(baseId, dataOperacional, turnoAtivo);
+      console.debug(`[ShiftHandover] Carregando dados: Base=${baseId}`);
+      
+      // PERSISTÊNCIA DE SESSÃO: Tentar recuperar data/turno salvos localmente para esta base
+      const sessionKey = `gol_active_session_${baseId}`;
+      const savedSession = localStorage.getItem(sessionKey);
+      let targetData = dataOperacional;
+      let targetTurno = turnoAtivo;
+
+      if (savedSession && !turnoAtivo) {
+        const parsed = JSON.parse(savedSession);
+        targetData = parsed.data;
+        targetTurno = parsed.turno;
+        setDataOperacional(targetData);
+        setTurnoAtivo(targetTurno);
+      }
+
+      if (!targetData || !targetTurno) return;
+
+      const remote = await sharedDraftService.getDraft(baseId, targetData, targetTurno);
+      const isBaseChange = prevBaseIdRef.current !== baseId;
+      prevBaseIdRef.current = baseId;
+
       if (remote) {
+        console.debug(`[ShiftHandover] Rascunho de turno encontrado.`);
         setColaboradoresIds(remote.colaboradoresIds);
         setTarefasValores(remote.tarefasValores);
         setObs(remote.obs);
@@ -222,53 +250,94 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
         setCritical(remote.critical);
         setLastLocalUpdate(remote.updatedAt);
       } else {
-        // Se não houver rascunho específico do turno, tenta carregar o STATUS global da base para Controles e Obs
+        console.debug(`[ShiftHandover] Turno limpo. Buscando dados persistentes da base.`);
         const bStatus = await baseStatusService.getBaseStatus(baseId);
+        
+        // MANUTENÇÃO DE DADOS PERSISTENTES (Notas e Controles)
         if (bStatus) {
            setObs(bStatus.obs || '');
            setLocations(bStatus.locations || []);
            setTransit(bStatus.transit || []);
            setShelfLife(bStatus.shelfLife || []);
            setCritical(bStatus.critical || []);
-        } else {
+           console.debug(`[ShiftHandover] Observações mantidas: ${bStatus.obs?.length > 0}`);
+        }
+
+        if (isBaseChange) {
            resetCamposProducaoExceptTeam();
+        } else {
+           // Apenas limpa a produção se for o mesmo dia/base mas turno novo
+           setTarefasValores({});
+           setNonRoutineTasks([]);
+           setColaboradoresIds([null, null, null, null, null, null]);
         }
       }
     };
     loadSharedDraft();
   }, [baseId, dataOperacional, turnoAtivo, editId]);
 
+  // Salvar sessão ativa localmente para retorno rápido
+  useEffect(() => {
+    if (baseId && dataOperacional && turnoAtivo && !editId) {
+      localStorage.setItem(`gol_active_session_${baseId}`, JSON.stringify({ data: dataOperacional, turno: turnoAtivo }));
+    }
+  }, [baseId, dataOperacional, turnoAtivo, editId]);
+
+  // Carregamento específico para Edição vindo do relatório
+  useEffect(() => {
+    if (editId) {
+       const raw = localStorage.getItem('gol_rep_detalhamento');
+       const registros = raw ? JSON.parse(raw) : [];
+       const registro = registros.find((r: any) => r.id === editId);
+       if (registro) {
+          let dataFormatada = registro.data;
+          // Se a data do registro estiver no formato DD/MM/AAAA, converter para AAAA-MM-DD para o input HTML
+          if (dataFormatada.includes('/')) {
+             const [d, m, y] = dataFormatada.split('/');
+             dataFormatada = `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+          }
+          setDataOperacional(dataFormatada);
+          setTurnoAtivo(registro.turnoId);
+          setColaboradoresIds(registro.colaboradoresIds || [null, null, null, null, null, null]);
+          setTarefasValores(registro.tarefasExecutadas || {});
+          setObs(registro.informacoesImportantes || registro.observacoes || '');
+          setNonRoutineTasks(registro.nonRoutineTasks || registro.outrasTarefas || []);
+          setShelfLife(registro.shelfLifeData || registro.shelfLifeItems || []);
+          setLocations(registro.locationsData || registro.locationItems || []);
+          setTransit(registro.transitData || registro.transitItems || []);
+          setCritical(registro.criticalData || registro.criticosItems || []);
+          setStatus('Rascunho');
+       }
+    }
+  }, [editId]);
+
   // Função para salvar dados manualmente ou via auto-save
   const salvarDadosInternal = useCallback(async () => {
     if (!baseId || !dataOperacional || !turnoAtivo || editId || status === 'Finalizado') return;
     
-    console.debug(`[ShiftHandover] Auto salvando dados para base ${baseId}`);
     setStatusSalvamento('salvando');
-    
     const now = new Date().getTime();
     const content = { dataOperacional, turnoAtivo, colaboradoresIds, tarefasValores, obs, nonRoutineTasks, locations, transit, shelfLife, critical, status };
     
     try {
       await sharedDraftService.saveDraft(baseId, dataOperacional, turnoAtivo, content);
+      // Salva o snapshot da base para persistência entre turnos e usuários
       await baseStatusService.saveBaseStatus(baseId, { obs, locations, transit, shelfLife, critical });
       setLastLocalUpdate(now);
       setStatusSalvamento('salvo');
       setTimeout(() => setStatusSalvamento('idle'), 2000);
     } catch (error) {
-      console.error("[ShiftHandover] Erro no auto-save:", error);
       setStatusSalvamento('idle');
     }
   }, [baseId, dataOperacional, turnoAtivo, colaboradoresIds, tarefasValores, obs, nonRoutineTasks, locations, transit, shelfLife, critical, status, editId]);
 
-  // Debounce do salvamento
   const autoSalvarComDebounce = useMemo(() => debounce(salvarDadosInternal, 2000), [salvarDadosInternal]);
 
-  // Disparar auto salvamento a cada mudança significativa
   useEffect(() => {
     if (initialized) autoSalvarComDebounce();
   }, [colaboradoresIds, tarefasValores, obs, nonRoutineTasks, locations, transit, shelfLife, critical, initialized]);
 
-  // Polling de sincronização com outros terminais
+  // Polling de sincronização
   useEffect(() => {
     if (!baseId || !dataOperacional || !turnoAtivo || editId || status === 'Finalizado') return;
 
@@ -293,66 +362,65 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
     return () => clearInterval(interval);
   }, [baseId, dataOperacional, turnoAtivo, lastLocalUpdate, editId, status]);
 
-  // Inicialização de tarefas dinâmicas
+  // Inicialização de tarefas dinâmicas - Ajustado conforme solicitação 3 para persistência em edição
   useEffect(() => {
-    if (!initialized || !opCategories.length) return;
+    if (!initialized || !opCategories.length || isViewOnly) return;
     
-    if (nonRoutineTasks.length === 0) {
-      const initialDynamicRows: OutraAtividade[] = [];
+    setNonRoutineTasks(prev => {
+      const newState = [...prev];
+      let changed = false;
+      
       opCategories.forEach(cat => {
         if (cat.exibicao === 'suspensa') {
-          for (let i = 0; i < 3; i++) {
-            initialDynamicRows.push({ id: `dyn-${cat.id}-${Date.now()}-${i}`, nome: '', tempo: '', categoriaId: cat.id, tipoMedida: MeasureType.TEMPO });
+          // Conta quantas linhas já existem para esta categoria (carregadas por editId ou já presentes)
+          const currentRowsForCat = newState.filter(t => t.categoriaId === cat.id);
+          
+          // Se tiver menos de 3 linhas, adiciona linhas vazias até completar o mínimo, garantindo persistência das existentes
+          if (currentRowsForCat.length < 3) {
+            changed = true;
+            const needed = 3 - currentRowsForCat.length;
+            for (let i = 0; i < needed; i++) {
+              newState.push({ 
+                id: `dyn-${cat.id}-${Date.now()}-${newState.length}`, 
+                nome: '', 
+                tempo: '', 
+                categoriaId: cat.id, 
+                tipoMedida: MeasureType.TEMPO 
+              });
+            }
           }
         }
       });
-      setNonRoutineTasks(initialDynamicRows);
-    }
-  }, [initialized, opCategories]);
+      
+      return changed ? newState : prev;
+    });
+  }, [initialized, opCategories, isViewOnly]);
 
-  // Carregar rascunho de EDIÇÃO
-  useEffect(() => {
-    if (!baseId || !editId) return;
-    const reportsRaw = localStorage.getItem('gol_rep_detalhamento');
-    if (reportsRaw) {
-      const reports = JSON.parse(reportsRaw);
-      const record = reports.find((r: any) => r.id === editId);
-      if (record) {
-        setDataOperacional(record.data);
-        setTurnoAtivo(record.turnoId);
-        setColaboradoresIds(record.colaboradoresIds || [null, null, null, null, null, null]);
-        setTarefasValores(record.tarefasExecutadas);
-        setObs(record.informacoesImportantes || record.observacoes || '');
-        setNonRoutineTasks(record.nonRoutineTasks || []);
-        setLocations(record.locationsData || []);
-        setTransit(record.transitData || []);
-        setShelfLife(record.shelfLifeData || []);
-        setCritical(record.criticalData || []);
-        setStatus('Rascunho');
-      }
-    }
-  }, [baseId, editId]);
-
+  // GARANTIA DE ITENS PRÉ-CADASTRADOS SEMPRE VISÍVEIS
   useEffect(() => {
     if (!initialized || !baseId) return;
+    
     setLocations(prev => {
       const activeStoreItems = getDefaultLocations(baseId);
       const filtered = prev.filter(p => !p.isPadrao || activeStoreItems.some(i => i.id === p.id));
       const toAdd = activeStoreItems.filter(i => !prev.some(p => p.id === i.id));
       return [...filtered, ...toAdd.map(i => ({ id: i.id, nomeLocation: i.nomeLocation, quantidade: null, dataMaisAntigo: '', isPadrao: true, config: i, corBackground: 'verde' }))];
     });
+
     setTransit(prev => {
       const activeStoreItems = getDefaultTransits(baseId);
       const filtered = prev.filter(p => !p.isPadrao || activeStoreItems.some(i => i.id === p.id));
       const toAdd = activeStoreItems.filter(i => !prev.some(p => p.id === i.id));
       return [...filtered, ...toAdd.map(i => ({ id: i.id, nomeTransito: i.nomeTransito, diasPadrao: i.diasPadrao, quantidade: null, dataSaida: '', isPadrao: true, config: i, corBackground: 'verde' }))];
     });
+
     setCritical(prev => {
       const activeStoreItems = getDefaultCriticals(baseId);
       const filtered = prev.filter(p => !p.isPadrao || activeStoreItems.some(i => i.id === p.id));
       const toAdd = activeStoreItems.filter(i => !prev.some(p => p.id === i.id));
       return [...filtered, ...toAdd.map(i => ({ id: i.id, partNumber: i.partNumber, lote: '', saldoSistema: null, saldoFisico: null, isPadrao: true, config: i, corBackground: 'verde' }))];
     });
+
     setShelfLife(prev => {
       const activeStoreItems = getDefaultShelfLifes(baseId);
       const filtered = prev.filter(p => !p.isPadrao || activeStoreItems.some(i => i.id === p.id));
@@ -483,9 +551,10 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
   };
 
   const handleCriticalFieldChange = (id: string, field: 'partNumber' | 'lote' | 'saldoSistema' | 'saldoFisico', val: any) => {
+    const numericVal = (field === 'saldoSistema' || field === 'saldoFisico') ? Math.max(0, Number(val)) : val;
     setCritical(prev => prev.map(item => {
       if (item.id === id) {
-        const newItem = { ...item, [field]: val };
+        const newItem = { ...item, [field]: numericVal };
         const categoryConfig = activeControls.find(c => c.tipo === 'itens_criticos');
         const diff = Math.abs((newItem.saldoSistema || 0) - (newItem.saldoFisico || 0));
         const cores = item.config?.cores || categoryConfig?.cores;
@@ -510,33 +579,45 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
   };
 
   const resetCamposProducaoExceptTeam = () => {
+    console.debug(`[ShiftHandover] Resetando campos de produção.`);
     setTarefasValores({});
-    // Observações e Controles NÃO são limpos conforme Solicitação FUNCIONALIDADE 1
     setNonRoutineTasks([]);
     setStatus('Rascunho');
     setErrosValidacao([]);
   };
 
   const resetCamposProducao = () => {
-    // Limpar Turno, Equipe e Processos Operacionais
+    console.debug(`[ShiftHandover] Finalização concluída. Limpando apenas campos de produção.`);
     setTurnoAtivo('');
     setColaboradoresIds([null, null, null, null, null, null]);
     resetCamposProducaoExceptTeam();
+    // ✅ GARANTIA ABSOLUTA: Observações (obs) e Controles Diários (locations, etc) NÃO SÃO LIMPOS
+    console.debug(`[ShiftHandover] Observações mantidas: ${obs.length > 0}`);
+    console.debug(`[ShiftHandover] Controles mantidos para o próximo turno.`);
   };
 
   const handleFinalize = async () => {
+    console.debug(`[ShiftHandover] Finalizando passagem.`);
     const errosOutras: string[] = [];
-    nonRoutineTasks.forEach(t => { if (t.nome.trim() !== '' && (!t.tempo || t.tempo === '00:00:00')) errosOutras.push(`Atividades: O valor para "${t.nome}" é obrigatório.`); });
+    
+    // Validação estrita para categorias em formato SUSPENSO (Ajustado para permitir 0)
+    nonRoutineTasks.forEach(t => { 
+      if (t.nome.trim() !== '' && (t.tempo === undefined || t.tempo === null || t.tempo === '')) {
+         const catName = opCategories.find(c => c.id === t.categoriaId)?.nome || 'Tarefas Adicionais';
+         errosOutras.push(`Processos Operacionais - ${catName}: O valor para "${t.nome}" é obrigatório.`); 
+      } 
+    });
+
     const handoverData: ShiftHandover = { id: editId || `sh_${Date.now()}`, baseId: baseId || '', data: dataOperacional, turnoId: turnoAtivo, colaboradores: colaboradoresIds, tarefasExecutadas: tarefasValores, nonRoutineTasks: nonRoutineTasks, locationsData: locations, transitData: transit, shelfLifeData: shelfLife, criticalData: critical, informacoesImportantes: obs, status: 'Finalizado', performance: performance, CriadoEm: new Date().toISOString(), updatedAt: new Date().toISOString() };
     
-    const validacao = validationService.validarPassagem(handoverData, opTasks);
+    const validacao = validationService.validarPassagem(handoverData, opTasks, opCategories);
     const todosErros = [...validacao.camposPendentes, ...errosOutras];
     
     if (todosErros.length > 0) { 
       setErrosValidacao(todosErros); 
       setActiveAlert({ 
         titulo: "Campos Pendentes", 
-        mensagem: "Existem campos obrigatórios não preenchidos na Passagem de Turno:\n\n" + todosErros.join("\n"), 
+        mensagem: "Existem campos obrigatórios não preenchidos na Passagem de Turno:\n\n• " + todosErros.join("\n• "), 
         color: "bg-red-600 dark:bg-red-700" 
       }); 
       return; 
@@ -546,13 +627,13 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
       const respDuplicada = await validationService.validarPassagemDuplicada(dataOperacional, turnoAtivo, baseId || '');
       if (!respDuplicada.valido) {
         const turnoNum = currentBase?.turnos.find(t => t.id === turnoAtivo)?.numero || turnoAtivo;
-        setActiveAlert({ titulo: "PASSAGEM JÁ FINALIZADA", mensagem: respDuplicada.mensagem || `Já existe uma Passagem de Serviço finalizada para o dia ${dataOperacional} no Turno ${turnoNum}. Não é possível finalizar 2 vezes a mesma passagem.`, color: "bg-red-600 dark:bg-red-700" });
+        setActiveAlert({ titulo: "PASSAGEM JÁ FINALIZADA", mensagem: respDuplicada.message || `Já existe uma Passagem de Serviço finalizada para o dia ${dataOperacional} no Turno ${turnoNum}.`, color: "bg-red-600 dark:bg-red-700" });
         return;
       }
     }
     const { colaboradoresDuplicados } = await validationService.verificarColaboradoresEmOutrosTurnos(dataOperacional, turnoAtivo, baseId || '', colaboradoresIds, baseUsers);
     if (colaboradoresDuplicados.length > 0) {
-      setConfirmModal({ open: true, title: 'ATENÇÃO - COLABORADOR DUPLICADO', message: `Os colaboradores '${colaboradoresDuplicados.join(', ')}' já estão registrados in outro turno do dia ${dataOperacional}. Tem certeza que quer considerar o mesmo colaborador in 2 turnos diferentes no mesmo dia?`, type: 'warning', onConfirm: () => proceedToMigrate(handoverData), confirmLabel: 'Sim, Continuar', cancelLabel: 'Não, Cancelar' });
+      setConfirmModal({ open: true, title: 'ATENÇÃO - COLABORADOR DUPLICADO', message: `Os colaboradores '${colaboradoresDuplicados.join(', ')}' já estão registrados em outro turno do dia ${dataOperacional}. Tem certeza que quer considerar o mesmo colaborador em 2 turnos diferentes no mesmo dia?`, type: 'warning', onConfirm: () => proceedToMigrate(handoverData), confirmLabel: 'Sim, Continuar', cancelLabel: 'Não, Cancelar' });
       return;
     }
     if (editId) { setConfirmModal({ open: true, title: 'CONFIRMAR ALTERAÇÃO', message: 'Tem certeza que quer alterar os dados desta passagem de serviço no histórico de relatórios?', type: 'warning', onConfirm: () => proceedToMigrate(handoverData), confirmLabel: 'Sim, Salvar Alterações', cancelLabel: 'Não, Cancelar' }); return; }
@@ -562,11 +643,10 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
   const proceedToMigrate = async (data: ShiftHandover) => {
     try {
       await migrationService.processarMigracao(data, store, editId || undefined);
-      setConfirmModal({ open: true, title: editId ? 'Alteração Salva com Sucesso!' : 'Passagem Finalizada com Sucesso!', message: editId ? 'As informações originais foram substituídas pelas novas no histórico.' : 'Seus dados foram migrados para Relatórios com sucesso.', type: 'success', confirmLabel: 'OK', cancelLabel: undefined, onConfirm: () => { if (editId) navigate('/reports'); else { resetCamposProducao(); setConfirmModal(prev => ({ ...prev, open: false })); window.scrollTo({ top: 0, behavior: 'smooth' }); } } });
+      console.debug(`[ShiftHandover] Migração executada. Notas e Controles preservados na base.`);
+      setConfirmModal({ open: true, title: editId ? 'Alteração Salva com Sucesso!' : 'Passagem Finalizada com Sucesso!', message: editId ? 'As informações originais foram substituídas pelas novas no histórico.' : 'Seus dados foram migrados para Relatórios com sucesso. Notas e Controles foram preservados para o próximo turno.', type: 'success', confirmLabel: 'OK', cancelLabel: undefined, onConfirm: () => { if (editId) navigate('/reports'); else { resetCamposProducao(); setConfirmModal(prev => ({ ...prev, open: false })); window.scrollTo({ top: 0, behavior: 'smooth' }); } } });
     } catch (error) { setActiveAlert({ titulo: "Erro ao Finalizar", mensagem: "Ocorreu um erro ao finalizar a passagem. Tente novamente.", color: "bg-red-700 dark:bg-red-800" }); }
   };
-
-  const isViewOnly = status === 'Finalizado';
 
   const handleDynamicRowTaskChange = (rowId: string, taskName: string, catId: string) => {
     const matchedTask = opTasks.find(t => t.nome === taskName && t.categoriaId === catId);
@@ -584,7 +664,6 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
     }));
   };
 
-  // Marcar in vermelho itens obrigatórios não preenchidos
   const hasErr = (keyword: string) => errosValidacao.some(err => err.includes(keyword));
 
   return (
@@ -599,7 +678,7 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
         <div className="bg-amber-50 dark:bg-amber-900/30 border-l-4 border-amber-500 p-4 rounded-xl flex items-center justify-between">
            <div className="flex items-center space-x-3">
              <Edit2 className="text-amber-600 dark:text-amber-400 w-5 h-5" />
-             <p className="text-sm font-bold text-amber-800 dark:text-amber-200 uppercase tracking-tight">MODO EDIÇÃO: Você está alterando um registro histórico existente.</p>
+             <p className="text-sm font-bold text-amber-800 dark:text-amber-200 uppercase tracking-tight">MODO EDIÇÃO: Alterando registro histórico de {currentBase?.sigla}.</p>
            </div>
            <button onClick={() => navigate('/reports')} className="text-xs font-black text-amber-600 dark:text-amber-400 uppercase hover:underline">Cancelar Edição</button>
         </div>
@@ -632,7 +711,7 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
             <div className="w-16 h-16 bg-orange-50 dark:bg-orange-950/30 rounded-2xl flex items-center justify-center text-orange-600 dark:text-orange-500 shadow-inner"><Plane className="w-8 h-8" /></div>
             <div>
                <h2 className="text-3xl font-black text-gray-800 dark:text-slate-100 tracking-tighter">Passagem de Serviço</h2>
-               <p className="text-gray-400 dark:text-slate-400 font-bold uppercase text-[10px] tracking-widest">{currentBase?.nome} - {dataOperacional}</p>
+               <p className="text-gray-400 dark:text-slate-400 font-bold uppercase text-[10px] tracking-widest">{currentBase?.nome} ({currentBase?.sigla}) — {dataOperacional}</p>
             </div>
          </div>
          <div className="flex items-center space-x-4">
@@ -640,9 +719,9 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                <div className="flex items-center space-x-2 text-[10px] font-black uppercase tracking-widest text-gray-400 dark:text-slate-500">
                   {statusSalvamento === 'salvando' && <><RefreshCw className="w-3 h-3 animate-spin text-orange-500" /> <span>Salvando...</span></>}
                   {statusSalvamento === 'salvo' && <><CloudCheck className="w-3 h-3 text-green-500" /> <span>Salvo</span></>}
-                  {statusSalvamento === 'idle' && <><CloudCheck className="w-3 h-3 text-gray-300" /> <span>Auto-save Ativo</span></>}
+                  {statusSalvamento === 'idle' && <><CloudCheck className="w-3 h-3 text-gray-300" /> <span>Auto-save Isolado</span></>}
                </div>
-               {lastLocalUpdate > 0 && <span className="text-[8px] font-bold text-gray-300 uppercase mt-0.5">Último: {new Date(lastLocalUpdate).toLocaleTimeString()}</span>}
+               {lastLocalUpdate > 0 && <span className="text-[8px] font-bold text-gray-300 uppercase mt-0.5">Sincronizado: {new Date(lastLocalUpdate).toLocaleTimeString()}</span>}
             </div>
             <div className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border ${status === 'Rascunho' ? 'bg-orange-50 dark:bg-orange-950/20 text-orange-600 dark:text-orange-400 border-orange-100 dark:border-orange-900/50' : 'bg-green-50 dark:bg-green-950/20 text-green-600 dark:text-green-400 border-green-100 dark:border-green-900/50'}`}>Status: {status}</div>
          </div>
@@ -651,7 +730,7 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
       <div className="flex flex-col lg:flex-row gap-8 items-start">
         <aside className="w-full lg:w-1/4 lg:sticky lg:top-6 z-20 space-y-4">
            <div className="bg-white dark:bg-slate-800 p-5 rounded-[2rem] shadow-sm border border-gray-100 dark:border-slate-700 space-y-4">
-              <h3 className="font-black text-gray-800 dark:text-slate-100 uppercase tracking-widest flex items-center space-x-2 text-[11px]"><BarChart3 size={14} className="text-orange-500" /> <span>Produção do Turno</span></h3>
+              <h3 className="font-black text-gray-800 dark:text-slate-100 uppercase tracking-widest flex items-center space-x-2 text-[11px]"><BarChart3 size={14} className="text-orange-500" /> <span>Produção {currentBase?.sigla}</span></h3>
               <div className="grid gap-2.5">
                  <KpiItem label="Horas Disp." value={minutesToHhmmss(horasDisponiveis * 60)} icon={<Clock size={14}/>} />
                  <KpiItem label="Horas Prod." value={minutesToHhmmss(horasProduzidas * 60)} icon={<Activity size={14}/>} />
@@ -664,9 +743,9 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
               </div>
            </div>
            <div className="bg-white dark:bg-slate-800 p-8 rounded-[2.5rem] shadow-sm border border-gray-100 dark:border-slate-700 space-y-4">
-              <h3 className="font-black text-gray-800 dark:text-slate-100 uppercase tracking-widest flex items-center space-x-2 text-sm"><MessageSquare size={16} className="text-orange-500" /> <span>Observações</span></h3>
-              <textarea disabled={isViewOnly} value={obs} onChange={e => setObs(e.target.value)} placeholder="Intercorrências importantes..." className="w-full min-h-[250px] p-5 bg-gray-50 dark:bg-slate-900 border-transparent focus:bg-white dark:focus:bg-slate-800 focus:border-orange-100 dark:focus:border-slate-600 outline-none font-medium text-sm dark:text-slate-200 resize-none" />
-              <Typography variant="caption" color="textSecondary" sx={{ fontSize: '9px', fontWeight: 800, textTransform: 'uppercase', display: 'block', px: 1 }}>Estas notas persistem para o próximo turno</Typography>
+              <h3 className="font-black text-gray-800 dark:text-slate-100 uppercase tracking-widest flex items-center space-x-2 text-sm"><MessageSquare size={16} className="text-orange-500" /> <span>Observações {currentBase?.sigla}</span></h3>
+              <textarea disabled={isViewOnly || isFormLocked} value={obs} onChange={e => setObs(e.target.value)} placeholder={isFormLocked ? "Preencha o cabeçalho primeiro..." : "Intercorrências específicas da base..."} className="w-full min-h-[250px] p-5 bg-gray-50 dark:bg-slate-900 border-transparent focus:bg-white dark:focus:bg-slate-800 focus:border-orange-100 dark:focus:border-slate-600 outline-none font-medium text-sm dark:text-slate-200 resize-none disabled:opacity-50" />
+              <Typography variant="caption" color="textSecondary" sx={{ fontSize: '9px', fontWeight: 800, textTransform: 'uppercase', display: 'block', px: 1 }}>Notas isoladas desta unidade operacional</Typography>
            </div>
         </aside>
 
@@ -685,14 +764,14 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
            </section>
 
            <section className={`bg-white dark:bg-slate-800 p-8 rounded-[2.5rem] shadow-sm border transition-all space-y-6 ${hasErr('Equipe') ? 'border-red-500 bg-red-50 dark:bg-red-950/20' : 'border-gray-100 dark:border-slate-700'}`}>
-              <h3 className="font-black text-gray-800 dark:text-slate-100 uppercase tracking-widest flex items-center space-x-2 text-sm"><Users size={16} className="text-orange-500" /> <span>Equipe no Turno</span></h3>
+              <h3 className="font-black text-gray-800 dark:text-slate-100 uppercase tracking-widest flex items-center space-x-2 text-sm"><Users size={16} className="text-orange-500" /> <span>Equipe {currentBase?.sigla}</span></h3>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                  {colaboradoresIds.map((id, idx) => (
                     <select key={idx} disabled={isViewOnly} value={id || ''} onChange={e => handleColaboradorChange(idx, e.target.value || null)} className={`w-full p-4 bg-gray-50 dark:bg-slate-900 dark:text-slate-200 border rounded-2xl font-bold text-xs ${hasErr('Equipe') ? 'border-red-500 ring-2 ring-red-500/20' : 'border-gray-100 dark:border-slate-700'}`}>
                        <option value="">Colaborador {idx+1}...</option>
                        {baseUsers.map(u => (
                          <option key={u.id} value={u.id}>
-                           {u.nome} - {currentBase?.sigla} - {u.jornadaPadrao}h
+                           {u.nome} - {u.jornadaPadrao}h
                          </option>
                        ))}
                     </select>
@@ -700,10 +779,17 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
               </div>
            </section>
 
-           <section className="space-y-12">
-              <div className="px-4">
-                <h2 className="text-2xl font-black text-gray-800 dark:text-slate-100 uppercase tracking-tighter">Controles Diários</h2>
-                <p className="text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-[0.2em] mt-1">Gestão de itens críticos e conformidade técnica (Dados persistem entre turnos).</p>
+           <section className={`space-y-12 transition-all ${isFormLocked ? 'opacity-40 grayscale pointer-events-none' : ''}`}>
+              <div className="px-4 flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-black text-gray-800 dark:text-slate-100 uppercase tracking-tighter">Controles Diários de {currentBase?.sigla}</h2>
+                  <p className="text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-[0.2em] mt-1">Gestão isolada por unidade operacional.</p>
+                </div>
+                {isFormLocked && (
+                  <div className="flex items-center space-x-2 bg-amber-50 text-amber-700 px-4 py-2 rounded-xl text-[10px] font-black uppercase animate-pulse">
+                    <Lock size={12}/> <span>Preencha Data, Turno e Equipe para desbloquear</span>
+                  </div>
+                )}
               </div>
 
               <PanelContainer title="Shelf Life" icon={<FlaskConical size={16} className="text-orange-500" />} onAdd={() => setShelfLife([...shelfLife, { id: `m-${Date.now()}`, partNumber: '', lote: '', dataVencimento: '', isPadrao: false, corBackground: 'verde' }])} isViewOnly={isViewOnly}>
@@ -714,8 +800,8 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                       const dias = getDaysRemaining(row.dataVencimento);
                       return (
                         <tr key={row.id} className={`border-t border-gray-50 dark:border-slate-800 ${getRowStatusClasses(row, dias, 'shelf_life')}`}>
-                          <td className={`px-6 py-4 font-bold uppercase ${hasErr('Controle Shelf Life: PN') && !row.partNumber ? 'bg-red-50/50' : ''}`}>
-                            <input disabled={isViewOnly || row.isPadrao} className={`bg-transparent w-full outline-none ${hasErr('Controle Shelf Life: PN') && !row.partNumber ? 'text-red-600 placeholder-red-300' : ''}`} value={row.partNumber} placeholder="PN Obrigatório" onChange={e => setShelfLife(shelfLife.map(l => l.id === row.id ? {...l, partNumber: e.target.value} : l))} />
+                          <td className={`px-6 py-4 font-bold uppercase ${hasErr('Controle Shelf Life') && !row.partNumber ? 'bg-red-50/50' : ''}`}>
+                            <input disabled={isViewOnly || row.isPadrao} className={`bg-transparent w-full outline-none ${hasErr('Controle Shelf Life') && !row.partNumber ? 'text-red-600 placeholder-red-300' : ''}`} value={row.partNumber} placeholder="PN Obrigatório" onChange={e => setShelfLife(shelfLife.map(l => l.id === row.id ? {...l, partNumber: e.target.value} : l))} />
                           </td>
                           <td className={`px-6 py-4 font-bold ${hasErr('Lote') && !row.lote ? 'bg-red-50/50' : ''}`}>
                             <input disabled={isViewOnly} className={`bg-transparent w-full outline-none ${hasErr('Lote') && !row.lote ? 'text-red-600 placeholder-red-300' : ''}`} value={row.lote} placeholder="Lote Obrigatório" onChange={e => setShelfLife(shelfLife.map(l => l.id === row.id ? {...l, lote: e.target.value} : l))} />
@@ -747,11 +833,11 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                       const dias = getDaysDiff(row.dataMaisAntigo);
                       return (
                         <tr key={row.id} className={`border-t border-gray-50 dark:border-slate-800 ${getRowStatusClasses(row, dias, 'locations')}`}>
-                          <td className={`px-6 py-4 font-bold uppercase ${hasErr('Controle Locations: Nome') && !row.nomeLocation ? 'bg-red-50/50' : ''}`}>
-                            <input disabled={isViewOnly || row.isPadrao} className={`bg-transparent w-full outline-none ${hasErr('Controle Locations: Nome') && !row.nomeLocation ? 'text-red-600 placeholder-red-300' : ''}`} value={row.nomeLocation} placeholder="Nome Obrigatório" onChange={e => setLocations(locations.map(l => l.id === row.id ? {...l, nomeLocation: e.target.value} : l))} />
+                          <td className={`px-6 py-4 font-bold uppercase ${hasErr('Locations') && !row.nomeLocation ? 'bg-red-50/50' : ''}`}>
+                            <input disabled={isViewOnly || row.isPadrao} className={`bg-transparent w-full outline-none ${hasErr('Locations') && !row.nomeLocation ? 'text-red-600 placeholder-red-300' : ''}`} value={row.nomeLocation} placeholder="Nome Obrigatório" onChange={e => setLocations(locations.map(l => l.id === row.id ? {...l, nomeLocation: e.target.value} : l))} />
                           </td>
                           <td className={`px-6 py-4 ${hasErr('Qtd') && row.quantidade === null ? 'bg-red-50/50' : ''}`}>
-                            <input type="number" disabled={isViewOnly} className={`w-20 p-2 rounded-xl font-black text-center bg-gray-50 dark:bg-slate-900 dark:text-slate-200 ${hasErr('Qtd') && row.quantidade === null ? 'border-2 border-red-500' : ''}`} value={row.quantidade ?? ''} onChange={e => setLocations(locations.map(l => l.id === row.id ? {...l, quantidade: e.target.value === '' ? null : Number(e.target.value)} : l))} />
+                            <input type="number" min="0" disabled={isViewOnly} className={`w-20 p-2 rounded-xl font-black text-center bg-gray-50 dark:bg-slate-900 dark:text-slate-200 ${hasErr('Qtd') && row.quantidade === null ? 'border-2 border-red-500' : ''}`} value={row.quantidade ?? ''} onChange={e => setLocations(locations.map(l => l.id === row.id ? {...l, quantidade: e.target.value === '' ? null : Math.max(0, Number(e.target.value))} : l))} />
                           </td>
                           <td className={`px-6 py-4 ${hasErr('Data Antigo') && row.quantidade !== 0 && row.quantidade !== null && !row.dataMaisAntigo ? 'bg-red-50/50' : ''}`}>
                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
@@ -780,11 +866,11 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                       const dias = getDaysDiff(row.dataSaida);
                       return (
                         <tr key={row.id} className={`border-t border-gray-50 dark:border-slate-800 ${getRowStatusClasses(row, dias, 'transito')}`}>
-                          <td className={`px-6 py-4 font-bold uppercase ${hasErr('Controle Trânsito: Tipo') && !row.nomeTransito ? 'bg-red-50/50' : ''}`}>
-                            <input disabled={isViewOnly || row.isPadrao} className={`bg-transparent w-full outline-none ${hasErr('Controle Trânsito: Tipo') && !row.nomeTransito ? 'text-red-600 placeholder-red-300' : ''}`} value={row.nomeTransito} placeholder="Tipo Obrigatório" onChange={e => setTransit(transit.map(l => l.id === row.id ? {...l, nomeTransito: e.target.value} : l))} />
+                          <td className={`px-6 py-4 font-bold uppercase ${hasErr('Trânsito') && !row.nomeTransito ? 'bg-red-50/50' : ''}`}>
+                            <input disabled={isViewOnly || row.isPadrao} className={`bg-transparent w-full outline-none ${hasErr('Trânsito') && !row.nomeTransito ? 'text-red-600 placeholder-red-300' : ''}`} value={row.nomeTransito} placeholder="Tipo Obrigatório" onChange={e => setTransit(transit.map(l => l.id === row.id ? {...l, nomeTransito: e.target.value} : l))} />
                           </td>
                           <td className={`px-6 py-4 ${hasErr('Qtd') && row.quantidade === null ? 'bg-red-50/50' : ''}`}>
-                            <input type="number" disabled={isViewOnly} className={`w-20 p-2 rounded-xl font-black text-center bg-gray-50 dark:bg-slate-900 dark:text-slate-200 ${hasErr('Qtd') && row.quantidade === null ? 'border-2 border-red-500' : ''}`} value={row.quantidade ?? ''} onChange={e => setTransit(transit.map(l => l.id === row.id ? {...l, quantidade: e.target.value === '' ? null : Number(e.target.value)} : l))} />
+                            <input type="number" min="0" disabled={isViewOnly} className={`w-20 p-2 rounded-xl font-black text-center bg-gray-50 dark:bg-slate-900 dark:text-slate-200 ${hasErr('Qtd') && row.quantidade === null ? 'border-2 border-red-500' : ''}`} value={row.quantidade ?? ''} onChange={e => setTransit(transit.map(l => l.id === row.id ? {...l, quantidade: e.target.value === '' ? null : Math.max(0, Number(e.target.value))} : l))} />
                           </td>
                           <td className={`px-6 py-4 ${hasErr('Data Saída') && row.quantidade !== 0 && row.quantidade !== null && !row.dataSaida ? 'bg-red-50/50' : ''}`}>
                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
@@ -793,7 +879,7 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                                </Box>
                                {row.dataSaida && (row.quantidade !== 0 && row.quantidade !== null) && (
                                  <Typography sx={{ fontWeight: 800, fontSize: '14px', color: obterCorDoBackgroundEnvio(row), letterSpacing: '0.5px', whiteSpace: 'nowrap' }}>
-                                   <span className="opacity-40"> - </span> {getEnvioDisplayText(row.dataSaida)}
+                                   <span className="opacity-40"> - </span> {getEnvioDisplayText(row.dataMaisAntigo)}
                                  </Typography>
                                )}
                              </Box>
@@ -823,18 +909,19 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                       const precisaLote = (row.saldoSistema !== 0 || row.saldoFisico !== 0) && (row.saldoSistema !== null && row.saldoFisico !== null);
                       return (
                         <tr key={row.id} className={`border-t border-gray-50 dark:border-slate-800 ${getRowStatusClasses(row, absDiff, 'itens_criticos')}`}>
-                          <td className={`px-6 py-4 font-bold uppercase ${hasErr('Saldo Crítico: PN') && !row.partNumber ? 'bg-red-50/50' : ''}`}>
-                            <input disabled={isViewOnly || row.isPadrao} className={`bg-transparent w-full outline-none ${hasErr('Saldo Crítico: PN') && !row.partNumber ? 'text-red-600' : ''}`} value={row.partNumber} placeholder="PN Obrigatório" onChange={e => handleCriticalFieldChange(row.id, 'partNumber', e.target.value)} />
+                          <td className={`px-6 py-4 font-bold uppercase ${hasErr('Saldo Crítico') && !row.partNumber ? 'bg-red-50/50' : ''}`}>
+                            <input disabled={isViewOnly || row.isPadrao} className={`bg-transparent w-full outline-none ${hasErr('Saldo Crítico') && !row.partNumber ? 'text-red-600' : ''}`} value={row.partNumber} placeholder="PN Obrigatório" onChange={e => handleCriticalFieldChange(row.id, 'partNumber', e.target.value)} />
                           </td>
                           <td className={`px-6 py-4 font-bold uppercase ${hasErr('Lote') && precisaLote && !row.lote ? 'bg-red-50/50' : ''}`}>
-                            <input disabled={isViewOnly} className={`bg-transparent w-full outline-none ${hasErr('Lote') && precisaLote && !row.lote ? 'text-red-600' : ''}`} value={row.lote} placeholder={precisaLote ? "Lote Obrigatório" : "N/S ou Lote"} onChange={e => handleCriticalFieldChange(row.id, 'lote', e.target.value)} />
+                            <input disabled={isViewOnly} className={`bg-transparent w-full outline-none ${hasErr('Lote') && precisaLote && !row.lote ? 'text-red-600' : ''}`} value={row.lote} placeholder={precisaLote ? "Lote Obrigatório" : "N/S or Lote"} onChange={e => handleCriticalFieldChange(row.id, 'lote', e.target.value)} />
                           </td>
                           <td className={`px-6 py-4 text-center ${hasErr('Sistema') && row.saldoSistema === null ? 'bg-red-50/50' : ''}`}>
-                            <input type="number" disabled={isViewOnly} className={`w-16 p-2 rounded-xl font-black text-center bg-white/50 dark:bg-white/10 ${hasErr('Sistema') && row.saldoSistema === null ? 'border-2 border-red-500' : ''}`} value={row.saldoSistema ?? ''} onChange={e => handleCriticalFieldChange(row.id, 'saldoSistema', e.target.value === '' ? null : Number(e.target.value))} />
+                            <input type="number" min="0" disabled={isViewOnly} className={`w-16 p-2 rounded-xl font-black text-center bg-white/50 dark:bg-white/10 ${hasErr('Sistema') && row.saldoSistema === null ? 'border-2 border-red-500' : ''}`} value={row.saldoSistema ?? ''} onChange={e => handleCriticalFieldChange(row.id, 'saldoSistema', e.target.value === '' ? null : Number(e.target.value))} />
                           </td>
                           <td className={`px-6 py-4 text-center ${hasErr('Físico') && row.saldoFisico === null ? 'bg-red-50/50' : ''}`}>
                             <input 
                               type="number" 
+                              min="0"
                               disabled={isViewOnly} 
                               className={`w-16 p-2 rounded-xl font-black text-center bg-white/50 dark:bg-white/10 ${hasErr('Físico') && row.saldoFisico === null ? 'border-2 border-red-500' : ''}`} 
                               value={row.saldoFisico ?? ''} 
@@ -851,10 +938,10 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
               </PanelContainer>
            </section>
 
-           <section className="space-y-12 pb-12">
+           <section className={`space-y-12 pb-12 transition-all ${isFormLocked ? 'opacity-40 grayscale pointer-events-none' : ''}`}>
               <div className="px-4">
                 <h2 className="text-2xl font-black text-gray-800 dark:text-slate-100 uppercase tracking-tighter">Processos Operacionais</h2>
-                <p className="text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-[0.2em] mt-1">Acompanhamento de produtividade por fluxo de trabalho.</p>
+                <p className="text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-[0.2em] mt-1">Acompanhamento de produtividade de {currentBase?.sigla}.</p>
               </div>
               
               <div className="flex flex-col gap-16">
@@ -868,9 +955,9 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                        <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] shadow-sm border border-gray-100 dark:border-slate-700 overflow-hidden divide-y divide-gray-50 dark:divide-slate-700">
                           {cat.exibicao === 'lista' ? (
                             opTasks.filter(t => t.categoriaId === cat.id).map(task => (
-                              <div key={task.id} className={`p-6 flex items-center justify-between hover:bg-orange-50/10 dark:hover:bg-orange-950/10 transition-colors ${hasErr(`Atividades: ${task.nome}`) ? 'bg-red-50 dark:bg-red-950/20' : ''}`}>
+                              <div key={task.id} className={`p-6 flex items-center justify-between hover:bg-orange-50/10 dark:hover:bg-orange-950/10 transition-colors ${hasErr(`Processos Operacionais - ${cat.nome}`) && (tarefasValores[task.id] === undefined || tarefasValores[task.id] === null || tarefasValores[task.id] === '') ? 'bg-red-50 dark:bg-red-950/20' : ''}`}>
                                 <div className="flex flex-col">
-                                  <span className={`text-sm font-black uppercase ${hasErr(`Atividades: ${task.nome}`) ? 'text-red-600' : 'text-gray-700 dark:text-slate-200'}`}>{task.nome}</span>
+                                  <span className={`text-sm font-black uppercase ${hasErr(`Processos Operacionais - ${cat.nome}`) && (tarefasValores[task.id] === undefined || tarefasValores[task.id] === null || tarefasValores[task.id] === '') ? 'text-red-600' : 'text-gray-700 dark:text-slate-200'}`}>{task.nome}</span>
                                   <div className="flex items-center space-x-2">
                                     <span className="text-[10px] font-bold text-gray-300 dark:text-slate-500 uppercase">{task.tipoMedida}</span>
                                     {task.tipoMedida === MeasureType.QTD && (
@@ -879,9 +966,9 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                                   </div>
                                 </div>
                                 {task.tipoMedida === MeasureType.TEMPO ? (
-                                  <TimeInput disabled={isViewOnly} value={tarefasValores[task.id] || ''} onChange={v => setTarefasValores({...tarefasValores, [task.id]: v})} className={`w-32 p-4 bg-gray-50 dark:bg-slate-900 dark:text-orange-400 border-2 rounded-2xl font-black text-center text-orange-600 ${hasErr(`Atividades: ${task.nome}`) ? 'border-red-500 ring-2 ring-red-500/10' : 'border-transparent'}`} />
+                                  <TimeInput disabled={isViewOnly} value={tarefasValores[task.id] || ''} onChange={v => setTarefasValores({...tarefasValores, [task.id]: v})} className={`w-32 p-4 bg-gray-50 dark:bg-slate-900 dark:text-orange-400 border-2 rounded-2xl font-black text-center text-orange-600 ${hasErr(`Processos Operacionais - ${cat.nome}`) && (tarefasValores[task.id] === undefined || tarefasValores[task.id] === null || tarefasValores[task.id] === '') ? 'border-red-500 ring-2 ring-red-500/10' : 'border-transparent'}`} />
                                 ) : (
-                                  <input type="number" disabled={isViewOnly} value={tarefasValores[task.id] || ''} onChange={e => setTarefasValores({...tarefasValores, [task.id]: e.target.value})} placeholder="0" className={`w-24 p-4 bg-gray-50 dark:bg-slate-900 dark:text-slate-200 border-2 rounded-2xl font-black text-center ${hasErr(`Atividades: ${task.nome}`) ? 'border-red-500 ring-2 ring-red-500/10' : 'border-transparent'}`} />
+                                  <input type="number" min="0" disabled={isViewOnly} value={tarefasValores[task.id] || ''} onChange={e => setTarefasValores({...tarefasValores, [task.id]: e.target.value === '' ? '' : String(Math.max(0, Number(e.target.value)))})} placeholder="0" className={`w-24 p-4 bg-gray-50 dark:bg-slate-900 dark:text-slate-200 border-2 rounded-2xl font-black text-center ${hasErr(`Processos Operacionais - ${cat.nome}`) && (tarefasValores[task.id] === undefined || tarefasValores[task.id] === null || tarefasValores[task.id] === '') ? 'border-red-500 ring-2 ring-red-500/10' : 'border-transparent'}`} />
                                 )}
                               </div>
                             ))
@@ -889,7 +976,7 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                             <div className="divide-y divide-gray-50 dark:divide-slate-700">
                                {nonRoutineTasks.filter(t => t.categoriaId === cat.id).map((nr, idx) => {
                                  const isInputVisivel = nr.nome.trim() !== '';
-                                 const isPendente = isInputVisivel && (!nr.tempo || nr.tempo === '00:00:00' || nr.tempo === '0');
+                                 const isPendente = isInputVisivel && (nr.tempo === undefined || nr.tempo === null || nr.tempo === '');
                                  return (
                                    <div key={nr.id} className={`p-6 flex flex-col md:flex-row items-center gap-4 hover:bg-gray-50/50 dark:hover:bg-slate-700/50 transition-colors ${isPendente ? 'bg-red-50/30 dark:bg-red-950/20' : ''}`}>
                                       <div className="flex-1 w-full">
@@ -902,25 +989,23 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                                           placeholder="Escolha na lista ou descreva..." 
                                           className="w-full p-4 bg-gray-50 dark:bg-slate-900 dark:text-slate-200 border-transparent rounded-2xl font-bold text-sm outline-none focus:bg-white dark:focus:bg-slate-800 focus:border-orange-100 dark:focus:border-slate-600 transition-all" 
                                         />
-                                        {isInputVisivel && nr.tipoMedida === MeasureType.QTD && (
-                                          <span className="text-[10px] font-bold text-orange-400 uppercase tracking-tighter italic mt-1 block">Fator Multiplicador: {minutesToHhmmss(nr.fatorMultiplicador || 0)}</span>
-                                        )}
                                       </div>
                                       {isInputVisivel && (
                                         <div className="w-full md:w-auto animate-in fade-in slide-in-from-right-2">
                                           <div className="flex items-center space-x-2 mb-1">
                                             {nr.tipoMedida === MeasureType.QTD ? <Hash size={10} className="text-gray-400" /> : <Timer size={10} className="text-gray-400" />}
                                             <label className={`text-[9px] font-black uppercase tracking-widest block ${isPendente ? 'text-red-500 dark:text-red-400' : 'text-gray-400 dark:text-slate-500'}`}>
-                                              {nr.tipoMedida === MeasureType.QTD ? 'Quantidade' : 'Tempo HH:MM:SS'} {isPendente && '(Obrigatório)'}
+                                              {nr.tipoMedida === MeasureType.QTD ? 'Quantidade' : 'Tempo HH:MM:SS'}
                                             </label>
                                           </div>
                                           
                                           {nr.tipoMedida === MeasureType.QTD ? (
                                             <input 
                                               type="number"
+                                              min="0"
                                               disabled={isViewOnly}
                                               value={nr.tempo}
-                                              onChange={e => setNonRoutineTasks(nonRoutineTasks.map(item => item.id === nr.id ? {...item, tempo: e.target.value} : item))}
+                                              onChange={e => setNonRoutineTasks(nonRoutineTasks.map(item => item.id === nr.id ? {...item, tempo: e.target.value === '' ? '' : String(Math.max(0, Number(e.target.value)))} : item))}
                                               placeholder="0"
                                               className={`w-40 p-4 rounded-2xl font-black text-center transition-all ${isPendente ? 'bg-red-50 dark:bg-red-900/30 border-2 border-red-500' : 'bg-gray-50 dark:bg-slate-900 dark:text-slate-200 border-transparent'}`}
                                             />
@@ -961,11 +1046,11 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
         <div className="fixed bottom-8 right-8 z-40 flex items-center space-x-4">
           <button onClick={salvarDadosInternal} className="bg-gray-800 text-white px-8 py-5 rounded-2xl font-black text-sm uppercase tracking-widest shadow-2xl hover:bg-black transition-all flex items-center space-x-3 border-4 border-white dark:border-slate-800">
             {statusSalvamento === 'salvando' ? <RefreshCw className="animate-spin" /> : <Save />}
-            <span>{statusSalvamento === 'salvando' ? 'Salvando...' : 'Salvar Rascunho'}</span>
+            <span>{statusSalvamento === 'salvando' ? 'Salvando...' : 'Salvar Rascunho Isolado'}</span>
           </button>
           <button onClick={handleFinalize} className="bg-orange-600 text-white px-12 py-5 rounded-2xl font-black text-sm uppercase tracking-widest shadow-2xl hover:scale-105 transition-all flex items-center space-x-3 border-4 border-white dark:border-slate-800">
             <CheckCircle size={20} />
-            <span>{editId ? 'Salvar Alterações no Histórico' : 'Finalizar Passagem de Serviço'}</span>
+            <span>{editId ? 'Salvar Alterações' : 'Finalizar Passagem'}</span>
           </button>
         </div>
       )}

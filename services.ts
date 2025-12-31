@@ -121,27 +121,67 @@ function criarMapaTarefas(detalhe: any, allTasks: Task[]): Record<string, string
   return tarefasMap;
 }
 
+// Função auxiliar para garantir formato DD/MM/AAAA
+function normalizarDataExibicao(dataStr: string): string {
+  if (!dataStr) return '';
+  // Se já estiver no formato DD/MM/AAAA, retorna
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(dataStr)) return dataStr;
+  // Se estiver no formato AAAA-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dataStr)) {
+    const [y, m, d] = dataStr.split('-');
+    return `${d}/${m}/${y}`;
+  }
+  return dataStr;
+}
+
 export const validationService = {
-  validarPassagem: (handover: ShiftHandover, tasks: Task[]) => {
+  validarPassagem: (handover: ShiftHandover, tasks: Task[], categories: Category[]) => {
     const camposPendentes: string[] = [];
-    if (!handover.turnoId) camposPendentes.push("Turno");
-    if (!handover.colaboradores.some(c => c !== null)) camposPendentes.push("Equipe (Pelo menos um colaborador)");
+    
+    // Obrigatoriedade do Cabeçalho - Nomes de grupo atualizados
+    if (!handover.turnoId) camposPendentes.push("Configuração - Turno: Campo obrigatório");
+    if (!handover.colaboradores.some(c => c !== null)) camposPendentes.push("Configuração - Equipe: Pelo menos um colaborador é obrigatório");
+    if (!handover.informacoesImportantes?.trim()) camposPendentes.push("Observações - Notas da Base: Informações importantes são obrigatórias");
+
+    // Obrigatoriedade de Controles Diários - Nomes de grupo atualizados
+    handover.shelfLifeData.forEach((i, idx) => {
+      if (!i.partNumber || !i.lote || !i.dataVencimento) camposPendentes.push(`Controles Diários - Shelf Life: Linha ${idx+1} - PN, Lote e Vencimento são obrigatórios.`);
+    });
+    handover.locationsData.forEach((i, idx) => {
+      if (!i.nomeLocation || i.quantidade === null || (!i.dataMaisAntigo && i.quantidade > 0)) camposPendentes.push(`Controles Diários - Locations: Linha ${idx+1} - Nome, Qtd e Data (se Qtd > 0) são obrigatórios.`);
+    });
+    handover.transitData.forEach((i, idx) => {
+      if (!i.nomeTransito || i.quantidade === null || (!i.dataSaida && i.quantidade > 0)) camposPendentes.push(`Controles Diários - Trânsito: Linha ${idx+1} - Tipo, Qtd e Data (se Qtd > 0) são obrigatórios.`);
+    });
+    handover.criticalData.forEach((i, idx) => {
+      if (!i.partNumber || i.saldoSistema === null || i.saldoFisico === null || (!i.lote && (i.saldoSistema > 0 || i.saldoFisico > 0))) camposPendentes.push(`Controles Diários - Saldo Crítico: Linha ${idx+1} - PN, Lote (se saldo > 0), Sistema e Físico são obrigatórios.`);
+    });
+
+    // Validação de tarefas operacionais em formato LISTA (Ajustado para permitir 0)
     tasks.forEach(task => {
-      if (task.obrigatoriedade && (!handover.tarefasExecutadas[task.id] || handover.tarefasExecutadas[task.id] === '00:00:00')) {
-        camposPendentes.push(`Atividades: ${task.nome}`);
+      const cat = categories.find(c => c.id === task.categoriaId);
+      if (cat?.exibicao === 'lista') {
+        const val = handover.tarefasExecutadas[task.id];
+        // Somente dá erro se o campo for literalmente vazio, null ou undefined. Zero e 00:00:00 são válidos.
+        if (val === undefined || val === null || val === '') {
+          camposPendentes.push(`Processos Operacionais - ${cat.nome}: O campo "${task.nome}" deve ser preenchido.`);
+        }
       }
     });
+
     return { valido: camposPendentes.length === 0, camposPendentes };
   },
   validarPassagemDuplicada: async (data: string, turnoId: string, baseId: string) => {
+    const dataNorm = normalizarDataExibicao(data);
     const repDetalhamento = getFromStorage<any[]>(STORAGE_KEYS.REP_DETALHAMENTO, []);
-    const duplicado = repDetalhamento.some(h => h.baseId === baseId && h.data === data && h.turnoId === turnoId);
-    if (duplicado) return { valido: false, mensagem: "Já existe uma passagem finalizada para este turno nesta data." };
+    const duplicado = repDetalhamento.some(h => h.baseId === baseId && normalizarDataExibicao(h.data) === dataNorm && h.turnoId === turnoId);
+    if (duplicado) return { valido: false, message: "Já existe uma passagem finalizada para este turno nesta data." };
     return { valido: true };
   },
   verificarColaboradoresEmOutrosTurnos: async (data: string, turnoId: string, baseId: string, colaboradoresIds: (string|null)[], allUsers: User[]) => {
+    const dataNorm = normalizarDataExibicao(data);
     const repDetalhamento = getFromStorage<any[]>(STORAGE_KEYS.REP_DETALHAMENTO, []);
-    const outrosTurnosDoDia = repDetalhamento.filter(h => h.baseId === baseId && h.data === data && h.turnoId !== turnoId);
+    const outrosTurnosDoDia = repDetalhamento.filter(h => h.baseId === baseId && normalizarDataExibicao(h.data) === dataNorm && h.turnoId !== turnoId);
     const idsPresentesEmOutros = new Set<string>();
     outrosTurnosDoDia.forEach(h => {
       if (h.colaboradoresIds) {
@@ -166,7 +206,31 @@ export const baseService = {
       data = BASES;
       saveToStorage(STORAGE_KEYS.BASES, data);
     }
-    return data;
+    return data.filter(b => !b.deletada);
+  },
+  async obterIdsBasesValidas(): Promise<string[]> {
+    const bases = await this.getAll();
+    return bases.filter(b => b.status === 'Ativa').map(b => b.id);
+  },
+  async baseExiste(baseId: string): Promise<boolean> {
+    const ids = await this.obterIdsBasesValidas();
+    return ids.includes(baseId);
+  },
+  async obterMetaHoras(baseId: string, mes: number): Promise<number> {
+    const bases = await this.getAll();
+    const base = bases.find(b => b.id === baseId);
+    if (!base) return 160;
+    const mesKey = String(mes).padStart(2, '0');
+    return base.metaHorasDisponiveisAno?.[mesKey] || 160;
+  },
+  async obterMetasTodasAsBases(mes: number): Promise<Record<string, number>> {
+    const bases = await this.getAll();
+    const metas: Record<string, number> = {};
+    const mesKey = String(mes).padStart(2, '0');
+    bases.forEach(b => {
+      metas[b.id] = b.metaHorasDisponiveisAno?.[mesKey] || 160;
+    });
+    return metas;
   },
   async create(data: Omit<Base, 'id'>): Promise<Base> {
     const bases = await this.getAll();
@@ -413,6 +477,7 @@ export const monthlyService = {
     const storeTasks = getFromStorage<Task[]>(STORAGE_KEYS.TASKS, []);
     const storeCats = getFromStorage<Category[]>(STORAGE_KEYS.CATEGORIES, []);
     const storeBases = getFromStorage<Base[]>(STORAGE_KEYS.BASES, []);
+    
     const finishedCollections = collections.filter(c => c.status === 'FINALIZADO');
     const repMensalDetalhado = finishedCollections.map(c => {
       const base = storeBases.find(b => b.id === c.baseId);
@@ -428,44 +493,18 @@ export const monthlyService = {
         const task = storeTasks.find(t => t.id === taskId);
         if (!task) return;
         let mins = 0;
-        if (task.tipoMedida === 'TEMPO') {
-          const p = val.split(':').map(Number);
-          mins = (p[0]||0) * 60 + (p[1]||0) + (p[2]||0)/60;
-        } else {
-          mins = (parseFloat(val) || 0) * task.fatorMultiplicador;
-        }
+        if (task.tipoMedida === 'TEMPO') { const p = val.split(':').map(Number); mins = (p[0]||0) * 60 + (p[1]||0) + (p[2]||0)/60; }
+        else { mins = (parseFloat(val) || 0) * task.fatorMultiplicador; }
         totalMins += mins;
         const formatted = timeUtils.minutesToHhmmss(mins);
         tarefasMap[task.nome.toUpperCase()] = formatted;
         const cat = storeCats.find(ct => ct.id === task.categoriaId);
         activities.push({ taskNome: task.nome, categoryNome: cat?.nome || 'Geral', formatted, ordemCat: cat?.ordem || 99, ordemTask: task.ordem || 99 });
       });
-      return { id: c.id, mesReferencia: `${String(c.mes).padStart(2, '0')}/${c.ano}`, data: `${String(c.mes).padStart(2, '0')}/${c.ano}`, baseNome: base?.nome || c.baseId, baseSigla: base?.sigla || '', totalHoras: timeUtils.minutesToHhmmss(totalMins), tarefasMap, activities: activities.sort((a, b) => { if (a.ordemCat !== b.ordemCat) return a.ordemCat - b.ordemCat; return a.ordemTask - b.ordemTask; }), dataFinalizacao: c.dataFinalizacao, status: 'OK' };
+      const mesRefStr = `${String(c.mes).padStart(2, '0')}/${c.ano}`;
+      return { id: c.id, baseId: c.baseId, mesReferencia: mesRefStr, data: mesRefStr, baseNome: base?.nome || c.baseId, baseSigla: base?.sigla || '', totalHoras: timeUtils.minutesToHhmmss(totalMins), tarefasMap, activities: activities.sort((a, b) => { if (a.ordemCat !== b.ordemCat) return a.ordemCat - b.ordemCat; return a.ordemTask - b.ordemTask; }), dataFinalizacao: c.dataFinalizacao, status: 'OK' };
     }).sort((a, b) => b.mesReferencia.localeCompare(a.mesReferencia));
     saveToStorage(STORAGE_KEYS.REP_MENSAL_DETALHADO, repMensalDetalhado);
-    const repResumo: any = { categorias: [], totalMins: 0 };
-    finishedCollections.forEach(c => {
-      storeTasks.filter(t => { const cat = storeCats.find(ct => ct.id === t.categoriaId); return cat?.tipo === 'mensal'; }).forEach(task => {
-          const cat = storeCats.find(ct => ct.id === task.categoriaId);
-          if (!cat) return;
-          let catResumo = repResumo.categorias.find((r: any) => r.categoryId === cat.id);
-          if (!catResumo) { catResumo = { categoryId: cat.id, categoryNome: cat.nome, atividades: [], totalCategoryMins: 0, ordem: cat.ordem }; repResumo.categorias.push(catResumo); }
-          let taskResumo = catResumo.atividades.find((a: any) => a.nome === task.nome);
-          if (!taskResumo) { taskResumo = { nome: task.nome, tipoInput: task.tipoMedida === 'TEMPO' ? 'TIME' : 'QTY', totalQuantidade: 0, totalMins: 0, ordem: task.ordem }; catResumo.atividades.push(taskResumo); }
-          const val = c.tarefasValores[task.id];
-          if (!val) return;
-          let taskMins = 0;
-          if (task.tipoMedida === 'TEMPO') { const parts = (val as string).split(':').map(Number); taskMins = (parts[0] * 60) + (parts[1] || 0) + (parts[2] || 0) / 60; }
-          else { const qty = parseFloat(val as string) || 0; taskResumo.totalQuantidade += qty; taskMins = qty * task.fatorMultiplicador; }
-          taskResumo.totalMins += taskMins; catResumo.totalCategoryMins += taskMins; repResumo.totalMins += taskMins;
-      });
-    });
-    repResumo.categorias.sort((a: any, b: any) => a.ordem - b.ordem);
-    repResumo.categorias.forEach((c: any) => c.atividades.sort((a: any, b: any) => a.ordem - b.ordem));
-    const finalResumo = { totalHoras: timeUtils.minutesToHhmmss(repResumo.totalMins), categorias: repResumo.categorias.map((c: any) => ({ ...c, totalCategoryFormatted: timeUtils.minutesToHhmmss(c.totalCategoryMins), atividades: c.atividades.map((a: any) => ({ ...a, totalFormatted: timeUtils.minutesToHhmmss(a.totalMins) })) })) };
-    saveToStorage(STORAGE_KEYS.REP_MENSAL_RESUMO, finalResumo);
-    const legacy = repMensalDetalhado.map(d => ({ id: d.id, mesReferencia: d.mesReferencia, status: 'OK', totalGeral: d.totalHoras, dataFinalizacao: d.dataFinalizacao }));
-    saveToStorage(STORAGE_KEYS.REP_MENSAL, legacy);
   }
 };
 
@@ -516,18 +555,37 @@ export const migrationService = {
     repResumo.categorias.sort((a: any, b: any) => a.ordem - b.ordem);
     repResumo.categorias.forEach((c: any) => c.atividades.sort((a: any, b: any) => a.ordem - b.ordem));
     const finalResumo = { totalHoras: timeUtils.minutesToHhmmss(repResumo.totalMins), categorias: repResumo.categorias.map((c: any) => ({ ...c, totalCategoryFormatted: timeUtils.minutesToHhmmss(c.totalCategoryMins), atividades: c.atividades.map((a: any) => ({ ...a, totalFormatted: timeUtils.minutesToHhmmss(a.totalMins) })) })) };
+    finalResumo.categorias = finalResumo.categorias.filter((c: any) => c.totalCategoryMins > 0);
     saveToStorage(STORAGE_KEYS.REP_RESUMO, finalResumo);
   },
   async processarMigracao(handover: ShiftHandover, store: any, replaceId?: string): Promise<void> {
     const repAcompanhamento = getFromStorage<any[]>(STORAGE_KEYS.REP_ACOMPANHAMENTO, []);
     const repDetalhamento = getFromStorage<any[]>(STORAGE_KEYS.REP_DETALHAMENTO, []);
-    let dataEntry = repAcompanhamento.find((r: any) => r.data === handover.data);
-    if (!dataEntry) { dataEntry = { data: handover.data, turno1: 'Pendente', turno2: 'Pendente', turno3: 'Pendente', turno4: 'Pendente' }; repAcompanhamento.push(dataEntry); }
-    const turnoKey = `turno${handover.turnoId}` as keyof typeof dataEntry;
+    
+    // 1. Normalizar data da passagem para DD/MM/AAAA para evitar duplicidade de formato
+    const dataNormalizada = normalizarDataExibicao(handover.data);
+
+    // Obter sigla real da base e o turno real
+    const baseObj = store.bases.find((b: any) => b.id === handover.baseId);
+    const turnoObj = baseObj?.turnos.find((t: any) => t.id === handover.turnoId);
+    const turnoNumero = turnoObj?.numero || 1;
+
+    // 2. Atualizar Acompanhamento (Status de Passagem) - Busca pela data normalizada
+    let dataEntry = repAcompanhamento.find((r: any) => normalizarDataExibicao(r.data) === dataNormalizada && r.baseId === handover.baseId);
+    if (!dataEntry) { 
+      dataEntry = { baseId: handover.baseId, data: dataNormalizada, turno1: 'Pendente', turno2: 'Pendente', turno3: 'Pendente', turno4: 'Pendente' }; 
+      repAcompanhamento.push(dataEntry); 
+    }
+    const turnoKey = `turno${turnoNumero}` as keyof typeof dataEntry;
     dataEntry[turnoKey] = 'OK';
+
     const colaboradoresNomes = handover.colaboradores.map(id => store.users.find((u:any) => u.id === id)?.nome).filter(Boolean);
     let hProdTotalMin = 0;
-    const atividadesDetalhadas = Object.entries(handover.tarefasExecutadas).map(([taskId, val]) => {
+    
+    const atividadesDetalhadas: any[] = [];
+
+    // Processar tarefas rotineiras (lista)
+    Object.entries(handover.tarefasExecutadas).forEach(([taskId, val]) => {
       const task = store.tasks.find((t: any) => t.id === taskId);
       const cat = store.categories.find((c: any) => c.id === task?.categoriaId);
       let mins = 0;
@@ -535,27 +593,40 @@ export const migrationService = {
       else { mins = (parseFloat(val) || 0) * (task?.fatorMultiplicador || 0); }
       hProdTotalMin += mins;
       const conv = timeUtils.converterMinutosParaHoras(mins);
-      return { taskNome: task?.nome || 'Desc.', categoryNome: cat?.nome || 'OUTROS', horas: conv.horas, minutos: conv.minutos, segundos: conv.segundos, formatted: timeUtils.minutesToHhmmss(mins), ordemCat: cat?.ordem || 0, ordemTask: task?.ordem || 0 };
+      atividadesDetalhadas.push({ taskNome: task?.nome || 'Desc.', categoryNome: cat?.nome || 'OUTROS', horas: conv.horas, minutos: conv.minutos, segundos: conv.segundos, formatted: timeUtils.minutesToHhmmss(mins), ordemCat: cat?.ordem || 0, ordemTask: task?.ordem || 0 });
     });
+
+    // 3. Processar tarefas NÃO rotineiras (itens selecionados nas listas suspensas)
+    // GARANTIA: Inclui mesmo que o valor seja 0, desde que tenha nome
     (handover.nonRoutineTasks || []).forEach(t => {
-      if (!t.nome || !t.tempo) return;
+      if (!t.nome || t.nome.trim() === '') return;
       const catRef = store.categories.find((c: any) => c.id === t.categoriaId);
       let mins = 0;
       if (t.tipoMedida === MeasureType.QTD) mins = (parseFloat(t.tempo) || 0) * (t.fatorMultiplicador || 0);
-      else { const p = t.tempo.split(':').map(Number); mins = (p[0] * 60) + (p[1] || 0) + (p[2] || 0) / 60; }
+      else { 
+        if (t.tempo && t.tempo.includes(':')) {
+          const p = t.tempo.split(':').map(Number); 
+          mins = (p[0] * 60) + (p[1] || 0) + (p[2] || 0) / 60; 
+        } else {
+          mins = 0;
+        }
+      }
       hProdTotalMin += mins;
       const conv = timeUtils.converterMinutosParaHoras(mins);
       atividadesDetalhadas.push({ taskNome: t.nome, categoryNome: catRef?.nome || 'OUTROS', horas: conv.horas, minutos: conv.minutos, segundos: conv.segundos, formatted: timeUtils.minutesToHhmmss(mins), ordemCat: catRef?.ordem || 99, ordemTask: 999 });
     });
+
     const hDispTotalMin = handover.colaboradores.reduce((acc, id) => acc + (store.users.find((u:any) => u.id === id)?.jornadaPadrao || 0) * 60, 0);
     const performanceCalc = hDispTotalMin > 0 ? (hProdTotalMin / hDispTotalMin) * 100 : 0;
     const tasksBaseOp = store.tasks.filter((t: any) => { const cat = store.categories.find((c: any) => c.id === t.categoriaId); return cat?.tipo === 'operacional' && (!t.baseId || t.baseId === handover.baseId); }).sort((a, b) => { const catA = store.categories.find((c: any) => c.id === a.categoriaId); const catB = store.categories.find((c: any) => c.id === b.categoriaId); if ((catA?.ordem || 0) !== (catB?.ordem || 0)) return (catA?.ordem || 0) - (catB?.ordem || 0); return a.ordem - b.ordem; });
+    
     const record = {
       ...handover,
       id: replaceId || handover.id,
+      data: dataNormalizada, // 4. Salva no formato padrão DD/MM/AAAA
       colaboradoresIds: handover.colaboradores,
       horaRegistro: new Date().toLocaleTimeString('pt-BR'),
-      turno: `Turno ${handover.turnoId}`,
+      turno: `Turno ${turnoNumero}`,
       colaboradores: colaboradoresNomes,
       nomeColaboradores: colaboradoresNomes.join(', '),
       qtdColaboradores: colaboradoresNomes.length,
@@ -572,11 +643,14 @@ export const migrationService = {
       locationItems: handover.locationsData,
       transitItems: handover.transitData,
       criticosItems: handover.criticalData,
+      baseSigla: baseObj?.sigla || handover.baseId,
       activities: atividadesDetalhadas.sort((a, b) => { if (a.ordemCat !== b.ordemCat) return a.ordemCat - b.ordemCat; return a.ordemTask - b.ordemTask; }),
       outrasTarefas: handover.nonRoutineTasks
     };
+
     if (replaceId) { const idx = repDetalhamento.findIndex(d => d.id === replaceId); if (idx > -1) repDetalhamento[idx] = record; else repDetalhamento.push(record); }
     else repDetalhamento.push(record);
+    
     saveToStorage(STORAGE_KEYS.REP_ACOMPANHAMENTO, repAcompanhamento);
     saveToStorage(STORAGE_KEYS.REP_DETALHAMENTO, repDetalhamento);
     await this.reprocessarResumo(store);

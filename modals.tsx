@@ -20,7 +20,8 @@ import {
   InputLabel, 
   Select, 
   MenuItem,
-  Typography as MuiTypography
+  Typography as MuiTypography,
+  Grid
 } from '@mui/material';
 import dayjs from 'dayjs';
 import customParseFormat from 'dayjs/plugin/customParseFormat';
@@ -39,8 +40,61 @@ interface ModalProps {
 }
 
 /**
+ * CustomLabel para Recharts
+ * Correção: Conversão explícita para número para evitar crash toFixed e suporte total a HH:MM:SS
+ */
+export const CustomLabel: React.FC<{
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  value?: number | string;
+  exibir?: boolean;
+  formato?: 'horas' | 'numero' | 'percentual';
+}> = (props) => {
+  const { x = 0, y = 0, width = 0, value = 0, exibir = false, formato = 'numero' } = props;
+  if (!exibir || value === undefined || value === null) return null;
+
+  // Garantir que o valor é tratado como número (Number() lida com strings numéricas e evita crash se value for null/object)
+  const numValue = Number(value);
+  if (isNaN(numValue)) return null;
+
+  let textoFormatado = '';
+  switch (formato) {
+    case 'horas':
+      // Converte horas decimais para HH:MM:SS
+      const totalSeconds = Math.round(numValue * 3600);
+      const h = Math.floor(totalSeconds / 3600);
+      const m = Math.floor((totalSeconds % 3600) / 60);
+      const s = totalSeconds % 60;
+      textoFormatado = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+      break;
+    case 'percentual':
+      textoFormatado = `${numValue.toFixed(1)}%`;
+      break;
+    case 'numero':
+    default:
+      textoFormatado = numValue.toFixed(1);
+      break;
+  }
+
+  return (
+    <text
+      x={x + width / 2}
+      y={y - 8}
+      fill="currentColor"
+      textAnchor="middle"
+      fontSize={10}
+      fontWeight="900"
+      className="fill-gray-700 dark:fill-gray-300"
+    >
+      {textoFormatado}
+    </text>
+  );
+};
+
+/**
  * Componente de Confirmação Customizado
- * Solicitação 2: Fechar ao pressionar Enter ou navegar por Tab
  */
 export const ConfirmModal: React.FC<{
   isOpen: boolean;
@@ -61,16 +115,10 @@ export const ConfirmModal: React.FC<{
         onConfirm();
         onClose();
       }
-      if (e.key === 'Tab' && !cancelLabel) {
-         // Se só tiver um botão, o Tab fecha o modal pra agilizar
-         e.preventDefault();
-         onConfirm();
-         onClose();
-      }
     };
     window.addEventListener('keydown', handleModalKeys);
     return () => window.removeEventListener('keydown', handleModalKeys);
-  }, [isOpen, onConfirm, onClose, cancelLabel]);
+  }, [isOpen, onConfirm, onClose]);
 
   if (!isOpen) return null;
 
@@ -123,11 +171,14 @@ export const ConfirmModal: React.FC<{
 export const hhmmssToMinutes = (hms: string): number => {
   if (!hms || hms === '00:00:00' || hms === '__:__:__') return 0;
   const cleanHms = hms.replace(/_/g, '0');
-  const parts = cleanHms.split(':').map(v => parseInt(v) || 0);
-  const h = parts[0] || 0;
-  const m = parts[1] || 0;
-  const s = parts[2] || 0;
-  return (h * 60) + m + (s / 60);
+  const partes = cleanHms.split(':').map(v => parseInt(v) || 0);
+  
+  if (partes.length === 3) {
+    return (partes[0] * 60) + partes[1] + (partes[2] / 60);
+  } else if (partes.length === 2) {
+    return (partes[0] * 60) + partes[1];
+  }
+  return partes[0] * 60;
 };
 
 export const minutesToHhmmss = (totalMinutes: number): string => {
@@ -137,7 +188,9 @@ export const minutesToHhmmss = (totalMinutes: number): string => {
   const m = Math.floor((totalSeconds % 3600) / 60);
   const s = totalSeconds % 60;
   const pad = (n: number) => n.toString().padStart(2, '0');
-  return `${pad(h)}:${pad(m)}:${pad(s)}`;
+  // Suporte a horas > 99
+  const hStr = h < 10 ? `0${h}` : h.toString();
+  return `${hStr}:${pad(m)}:${pad(s)}`;
 };
 
 /**
@@ -160,7 +213,8 @@ export const TimeInput: React.FC<{
 
   const handleInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     let val = e.target.value.replace(/\D/g, '');
-    if (val.length > 6) val = val.slice(0, 6);
+    // Permite até 8 dígitos (999.999:59:59) para metas gigantescas
+    if (val.length > 8) val = val.slice(0, 8);
     
     let formatted = val;
     if (val.length >= 5) {
@@ -181,14 +235,16 @@ export const TimeInput: React.FC<{
   };
 
   const handleBlurInternal = () => {
-    if (displayValue && displayValue.length < 8 && displayValue !== "") {
+    if (displayValue && displayValue !== "") {
       const parts = displayValue.split(':');
-      const h = (parts[0] || '0').padStart(2, '0');
-      const m = (parts[1] || '0').padStart(2, '0');
-      const s = (parts[2] || '0').padStart(2, '0');
-      const full = `${h}:${m}:${s}`;
-      setDisplayValue(full);
-      onChange(full);
+      if (parts.length < 3) {
+        const h = (parts[0] || '0').padStart(2, '0');
+        const m = (parts[1] || '0').padStart(2, '0');
+        const s = (parts[2] || '0').padStart(2, '0');
+        const full = `${h}:${m}:${s}`;
+        setDisplayValue(full);
+        onChange(full);
+      }
     }
     if (onBlur) onBlur();
   };
@@ -215,7 +271,7 @@ export const DatePickerField: React.FC<{
   onKeyDown?: (e: React.KeyboardEvent) => void;
   placeholder?: string;
   disabled?: boolean;
-}> = ({ label, value, onChange, onBlur, onKeyDown, placeholder = "DD/MM/AAAA", disabled = false }) => {
+}> = ({ label, value, onChange, onBlur, onKeyDown, placeholder = "DD/MM/YYYY", disabled = false }) => {
   const dateValue = value && dayjs(value as string, 'DD/MM/YYYY').isValid() 
     ? dayjs(value as string, 'DD/MM/YYYY') 
     : null;
@@ -367,14 +423,20 @@ export const BaseModal: React.FC<ModalProps> = ({ isOpen, onClose, onSave, title
     turnos: [],
     metaVerde: 80,
     metaAmarelo: 50,
-    metaVermelho: 30
+    metaVermelho: 30,
+    metaHorasDisponiveisAno: {}
   });
 
   useEffect(() => { 
     if (initialData) {
-      setFormData(initialData);
+      setFormData({
+        ...initialData,
+        metaHorasDisponiveisAno: initialData.metaHorasDisponiveisAno || {}
+      });
     } else {
-      setFormData({ nome: '', sigla: '', status: 'Ativa', turnos: [], metaVerde: 80, metaAmarelo: 50, metaVermelho: 30 });
+      const defaultMetas: Record<string, number> = {};
+      ['01','02','03','04','05','06','07','08','09','10','11','12'].forEach(m => defaultMetas[m] = 160);
+      setFormData({ nome: '', sigla: '', status: 'Ativa', turnos: [], metaVerde: 80, metaAmarelo: 50, metaVermelho: 30, metaHorasDisponiveisAno: defaultMetas });
     }
   }, [initialData, isOpen]);
 
@@ -402,9 +464,26 @@ export const BaseModal: React.FC<ModalProps> = ({ isOpen, onClose, onSave, title
     });
   };
 
+  const handleUpdateMeta = (mes: string, value: number) => {
+    setFormData({
+      ...formData,
+      metaHorasDisponiveisAno: {
+        ...(formData.metaHorasDisponiveisAno || {}),
+        [mes]: value
+      }
+    });
+  };
+
+  const meses = [
+    { mes: '01', nome: 'Jan' }, { mes: '02', nome: 'Fev' }, { mes: '03', nome: 'Mar' },
+    { mes: '04', nome: 'Abr' }, { mes: '05', nome: 'Mai' }, { mes: '06', nome: 'Jun' },
+    { mes: '07', nome: 'Jul' }, { mes: '08', nome: 'Ago' }, { mes: '09', nome: 'Set' },
+    { mes: '10', nome: 'Out' }, { mes: '11', nome: 'Nov' }, { mes: '12', nome: 'Dez' }
+  ];
+
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-[2.5rem] w-full max-w-xl shadow-2xl p-8 animate-in zoom-in-95 max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-[2.5rem] w-full max-w-2xl shadow-2xl p-8 animate-in zoom-in-95 max-h-[95vh] overflow-y-auto scrollbar-hide">
         <div className="flex justify-between items-center mb-8">
            <h3 className="text-2xl font-black text-gray-800 uppercase tracking-tight">{title}</h3>
            <button onClick={onClose} className="p-2 text-gray-400 hover:text-red-500 transition-colors"><X className="w-6 h-6" /></button>
@@ -419,7 +498,29 @@ export const BaseModal: React.FC<ModalProps> = ({ isOpen, onClose, onSave, title
           <div className="space-y-4">
             <div className="flex items-center space-x-2 text-orange-600">
                 <Target className="w-5 h-5" />
-                <span className="text-sm font-black uppercase tracking-widest">Metas de Performance (%)</span>
+                <span className="text-sm font-black uppercase tracking-widest">Meta de Horas Disponíveis por Mês</span>
+            </div>
+            <Grid container spacing={1.5} className="bg-gray-50 p-4 rounded-3xl border border-gray-100">
+              {meses.map(({ mes, nome }) => (
+                <Grid item xs={4} sm={3} md={2} key={mes}>
+                  <div className="space-y-1">
+                    <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest block text-center">{nome}</label>
+                    <input 
+                      type="number" 
+                      className="w-full p-2 bg-white border border-gray-100 rounded-xl font-black text-xs text-center outline-none focus:ring-2 focus:ring-orange-100" 
+                      value={formData.metaHorasDisponiveisAno?.[mes] || 160} 
+                      onChange={e => handleUpdateMeta(mes, parseFloat(e.target.value) || 0)} 
+                    />
+                  </div>
+                </Grid>
+              ))}
+            </Grid>
+          </div>
+
+          <div className="space-y-4">
+            <div className="flex items-center space-x-2 text-orange-600">
+                <Palette className="w-5 h-5" />
+                <span className="text-sm font-black uppercase tracking-widest">Metas Visuais de Performance (%)</span>
             </div>
             <div className="grid grid-cols-3 gap-4 bg-gray-50 p-6 rounded-3xl border border-gray-100">
                <div className="space-y-1">
@@ -602,7 +703,8 @@ export const UserModal: React.FC<ModalProps & { availableBases?: Base[] }> = ({ 
           />
 
           <FormControl fullWidth required>
-            <InputLabel>Base Operacional</InputLabel>
+            {/* Fix: Explicit children for InputLabel to satisfy strict type checking */}
+            <InputLabel children="Base Operacional" />
             <Select
               value={selectedBaseId}
               onChange={(e) => handleFieldChange('selectedBase', e.target.value)}
@@ -617,7 +719,8 @@ export const UserModal: React.FC<ModalProps & { availableBases?: Base[] }> = ({ 
           </FormControl>
 
           <FormControl fullWidth>
-            <InputLabel>Nível de Permissão</InputLabel>
+            {/* Fix: Explicit children for InputLabel to satisfy strict type checking */}
+            <InputLabel children="Nível de Permissão" />
             <Select
               value={formData.permissao}
               onChange={(e) => handleFieldChange('permissao', e.target.value)}
@@ -638,7 +741,8 @@ export const UserModal: React.FC<ModalProps & { availableBases?: Base[] }> = ({ 
             
             <div className="space-y-4">
               <FormControl fullWidth size="small">
-                <InputLabel>Tipo de Jornada</InputLabel>
+                {/* Fix: Explicit children for InputLabel to satisfy strict type checking */}
+                <InputLabel children="Tipo de Jornada" />
                 <Select
                   value={formData.tipoJornada}
                   onChange={(e) => handleFieldChange('tipoJornada', e.target.value)}
@@ -652,7 +756,8 @@ export const UserModal: React.FC<ModalProps & { availableBases?: Base[] }> = ({ 
 
               {formData.tipoJornada === 'predefinida' ? (
                 <FormControl fullWidth size="small">
-                  <InputLabel>Jornada</InputLabel>
+                  {/* Fix: Explicit children for InputLabel to satisfy strict type checking */}
+                  <InputLabel children="Jornada" />
                   <Select
                     value={formData.jornadaPadrao}
                     onChange={(e) => handleFieldChange('jornadaPadrao', e.target.value)}
@@ -682,7 +787,8 @@ export const UserModal: React.FC<ModalProps & { availableBases?: Base[] }> = ({ 
           </MuiBox>
 
           <FormControl fullWidth required>
-            <InputLabel>Status do Usuário</InputLabel>
+            {/* Fix: Explicit children for InputLabel to satisfy strict type checking */}
+            <InputLabel children="Status do Usuário" />
             <Select
               value={formData.status}
               onChange={(e) => handleFieldChange('status', e.target.value)}
@@ -850,9 +956,9 @@ export const ControlItemSettingsModal: React.FC<{ isOpen: boolean; onClose: () =
           <button onClick={onClose} className="p-2 text-gray-300 hover:text-red-500 transition-colors bg-gray-50 rounded-xl"><X className="w-6 h-6" /></button>
         </div>
         <div className="px-8 pt-4 flex space-x-2 bg-white">
-           <TabSelector label="Verde" active={activeLevel === 'verde'} onClick={() => setActiveLevel('verde'} colorClass="bg-green-500" activeText="text-green-600" activeBg="bg-green-50" />
-           <TabSelector label="Amarelo" active={activeLevel === 'amarelo'} onClick={() => setActiveLevel('amarelo'} colorClass="bg-yellow-500" activeText="text-yellow-600" activeBg="bg-yellow-50" />
-           <TabSelector label="Vermelho" active={activeLevel === 'vermelho'} onClick={() => setActiveLevel('vermelho'} colorClass="bg-red-500" activeText="text-red-600" activeBg="bg-red-50" />
+           <TabSelector label="Verde" active={activeLevel === 'verde'} onClick={() => setActiveLevel('verde')} colorClass="bg-green-500" activeText="text-green-600" activeBg="bg-green-50" />
+           <TabSelector label="Amarelo" active={activeLevel === 'amarelo'} onClick={() => setActiveLevel('amarelo')} colorClass="bg-yellow-500" activeText="text-yellow-600" activeBg="bg-yellow-50" />
+           <TabSelector label="Vermelho" active={activeLevel === 'vermelho'} onClick={() => setActiveLevel('vermelho')} colorClass="bg-red-500" activeText="text-red-600" activeBg="bg-red-50" />
         </div>
         <div className="flex-1 overflow-y-auto p-8 pt-6 space-y-6 scrollbar-hide">
            {activeLevel === 'verde' && renderConfigSection('verde', 'border-green-500')}
@@ -868,7 +974,7 @@ export const ControlItemSettingsModal: React.FC<{ isOpen: boolean; onClose: () =
   );
 };
 
-const TabSelector: React.FC<{label: string, active: boolean, onClick: () => void, colorClass: string, activeText: string, activeBg: string}> = ({ label, active, onClick, colorClass, activeText, activeBg }) => (
+const TabSelector: React.FC<{label: string, active: boolean, onClick: () => void, colorClass: string, BirdText: string, activeBg: string}> = ({ label, active, onClick, colorClass, activeText, activeBg }) => (
   <button onClick={onClick} className={`flex-1 py-3 px-4 rounded-xl flex items-center justify-center space-x-2 border transition-all ${active ? `${activeBg} border-transparent shadow-sm` : 'bg-white border-gray-100 text-gray-400 hover:bg-gray-50'}`}>
     <div className={`w-2 h-2 rounded-full ${active ? colorClass : 'bg-gray-300'}`} />
     <span className={`text-[10px] font-black uppercase tracking-widest ${active ? activeText : ''}`}>{label}</span>
@@ -899,7 +1005,8 @@ export const CategoryModal: React.FC<ModalProps> = ({ isOpen, onClose, onSave, t
           
           <MuiBox sx={{ mb: 2 }}>
             <FormControl fullWidth size="small">
-              <InputLabel>Formato de Exibição</InputLabel>
+              {/* Fix: Explicit children for InputLabel to satisfy strict type checking */}
+              <InputLabel children="Formato de Exibição" />
               <Select
                 value={formData.exibicao}
                 onChange={(e) => setFormData({ ...formData, exibicao: e.target.value as any })}

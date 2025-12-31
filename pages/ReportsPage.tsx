@@ -2,21 +2,33 @@
 import { 
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, 
   Paper, Chip, TextField, Box, Typography, Container, CircularProgress, 
-  Button, IconButton, Tooltip, Divider, TablePagination, Tabs, Tab
+  Button, IconButton, Tooltip, Divider, TablePagination, Tabs, Tab,
+  FormControl, InputLabel, Select, MenuItem, Grid
 } from '@mui/material';
 import { 
   Download, BarChart, Copy, Edit2, FileSearch, Sigma, FileText, File as FileIcon, Filter, LayoutList,
-  Printer, Calendar
+  Printer, Calendar, LayoutDashboard, Globe, Clock, UserCheck, MapPin, ChevronRight, Search
 } from 'lucide-react';
 import React, { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
+import { PerformanceTurnoReport } from './PerformanceTurnoReport';
+import { RelatorioProducaoPorBase } from './RelatorioProducaoPorBase';
+import { useStore } from '../hooks/useStore';
+import { PermissionLevel } from '../types';
+
+// Simulação de usuário logado
+const CURRENT_USER = {
+  nome: "Usuário GOL",
+  permissao: PermissionLevel.ADMIN 
+};
 
 // --- UTILITÁRIOS DE FORMATAÇÃO ---
 function hhmmssToMinutes(hms: string): number {
   if (!hms || hms === '00:00:00') return 0;
   const parts = hms.split(':').map(Number);
-  return (parts[0] * 60) + (parts[1] || 0) + (parts[2] || 0) / 60;
+  if (parts.length === 3) return (parts[0] * 60) + (parts[1] || 0) + (parts[2] || 0) / 60;
+  return (parts[0] || 0) * 60;
 }
 
 function minutesToHhmmss(totalMinutes: number): string {
@@ -70,8 +82,23 @@ const ReportSection: React.FC<{ title: string; subtitle: string; children: React
 );
 
 const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
-  const color = status === 'OK' ? 'success' : 'default';
-  return <Chip label={status.toUpperCase()} size="small" color={color} sx={{ fontWeight: 900, fontSize: '0.6rem', height: 22 }} />;
+  const isPendente = status.toUpperCase() === 'PENDENTE';
+  const color = status.toUpperCase() === 'OK' ? 'success' : (isPendente ? 'error' : 'default');
+  
+  return (
+    <Chip 
+      label={status.toUpperCase()} 
+      size="small" 
+      color={color}
+      variant={isPendente ? "filled" : "outlined"}
+      sx={{ 
+        fontWeight: 900, 
+        fontSize: '0.6rem', 
+        height: 22,
+        ...(isPendente && { bgcolor: '#ef4444', color: 'white', border: 'none' })
+      }} 
+    />
+  );
 };
 
 const NoDataRows: React.FC<{ colSpan: number }> = ({ colSpan }) => (
@@ -84,15 +111,32 @@ const NoDataRows: React.FC<{ colSpan: number }> = ({ colSpan }) => (
 
 const ReportsPage: React.FC<{ baseId?: string }> = ({ baseId }) => {
   const navigate = useNavigate();
+  const { bases, initialized, refreshData } = useStore();
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState(0);
 
+  const [filterBaseSelection, setFilterBaseSelection] = useState<string>(baseId || 'all');
   const [acompanhamento, setAcompanhamento] = useState<any[]>([]);
   const [mensalDetalhado, setMensalDetalhado] = useState<any[]>([]);
   const [detalhamento, setDetalhamento] = useState<any[]>([]);
 
-  const [filterInicio, setFilterInicio] = useState(dayjs().startOf('month').format('YYYY-MM-DD'));
-  const [filterFim, setFilterFim] = useState(dayjs().endOf('month').format('YYYY-MM-DD'));
+  // Filtros Globais apenas por Mês/Ano (Solicitação 3)
+  const [filterInicio, setFilterInicio] = useState(dayjs().startOf('month').format('YYYY-MM'));
+  const [filterFim, setFilterFim] = useState(dayjs().format('YYYY-MM'));
+
+  // Filtros específicos para Consolidado (Solicitação 4)
+  const [filtroConsolidadoMes, setFiltroConsolidadoMes] = useState<string>('all');
+  const [filtroConsolidadoMensalMes, setFiltroConsolidadoMensalMes] = useState<string>('all');
+
+  useEffect(() => {
+    if (!initialized) refreshData();
+  }, [initialized, refreshData]);
+
+  useEffect(() => {
+    if (baseId && filterBaseSelection === 'all') {
+      setFilterBaseSelection(baseId);
+    }
+  }, [baseId]);
 
   useEffect(() => {
     const loadData = () => {
@@ -106,62 +150,6 @@ const ReportsPage: React.FC<{ baseId?: string }> = ({ baseId }) => {
     };
     loadData();
   }, []);
-
-  const consolidadoCategorias = useMemo(() => {
-    const map: Record<string, { nome: string, diario: number, mensal: number, total: number }> = {};
-    const diarioFiltrado = detalhamento.filter(row => {
-      const [d, m, y] = row.data.split('/');
-      const date = dayjs(`${y}-${m}-${d}`);
-      return date.isAfter(dayjs(filterInicio).subtract(1, 'day')) && date.isBefore(dayjs(filterFim).add(1, 'day'));
-    });
-
-    const mensalFiltrado = mensalDetalhado.filter(row => {
-      if (!row.mesReferencia) return false;
-      const [m, y] = row.mesReferencia.split('/');
-      const date = dayjs(`${y}-${m}-01`);
-      const start = dayjs(filterInicio).startOf('month');
-      const end = dayjs(filterFim).endOf('month');
-      return (date.isSame(start) || date.isAfter(start)) && (date.isSame(end) || date.isBefore(end));
-    });
-
-    diarioFiltrado.forEach(row => {
-      if (row.activities) {
-        row.activities.forEach((a: any) => {
-          const nome = a.categoryNome.toUpperCase();
-          if (!map[nome]) map[nome] = { nome, diario: 0, mensal: 0, total: 0 };
-          map[nome].diario += hhmmssToMinutes(a.formatted || '00:00:00');
-        });
-      }
-    });
-
-    mensalFiltrado.forEach(row => {
-      if (row.activities) {
-        row.activities.forEach((a: any) => {
-          const nome = a.categoryNome.toUpperCase();
-          if (!map[nome]) map[nome] = { nome, diario: 0, mensal: 0, total: 0 };
-          map[nome].mensal += hhmmssToMinutes(a.formatted || '00:00:00');
-        });
-      }
-    });
-
-    return Object.values(map).map(item => ({
-      ...item,
-      total: item.diario + item.mensal,
-      diarioF: minutesToHhmmss(item.diario),
-      mensalF: minutesToHhmmss(item.mensal),
-      totalF: minutesToHhmmss(item.diario + item.mensal)
-    })).sort((a, b) => b.total - a.total);
-  }, [detalhamento, mensalDetalhado, filterInicio, filterFim]);
-
-  const totaisGeraisConsolidado = useMemo(() => {
-    let d = 0; let m = 0; let t = 0;
-    consolidadoCategorias.forEach(c => {
-      d += hhmmssToMinutes(c.diarioF);
-      m += hhmmssToMinutes(c.mensalF);
-      t += c.total;
-    });
-    return { diario: minutesToHhmmss(d), mensal: minutesToHhmmss(m), total: minutesToHhmmss(t) };
-  }, [consolidadoCategorias]);
 
   const mapaCategoriasMeta = useMemo(() => {
     const map: Record<string, { catNome: string, catOrdem: number, taskOrdem: number }> = {};
@@ -182,33 +170,31 @@ const ReportsPage: React.FC<{ baseId?: string }> = ({ baseId }) => {
     return map;
   }, [detalhamento, mensalDetalhado]);
 
-  const tarefasUnicas = useMemo(() => {
-    const tarefas = new Set<string>();
-    detalhamento.forEach((linha) => { if (linha.tarefasMap) { Object.keys(linha.tarefasMap).forEach(t => tarefas.add(t)); } });
-    return ordenarTarefasPorCategoria(Array.from(tarefas), mapaCategoriasMeta as any);
-  }, [detalhamento, mapaCategoriasMeta]);
+  const isAdmin = CURRENT_USER.permissao === PermissionLevel.ADMIN;
+  const effectiveBaseFilter = isAdmin ? filterBaseSelection : baseId;
 
-  const tarefasUnicasMensais = useMemo(() => {
-    const tarefas = new Set<string>();
-    mensalDetalhado.forEach((linha) => { if (linha.tarefasMap) { Object.keys(linha.tarefasMap).forEach(t => tarefas.add(t)); } });
-    return ordenarTarefasPorCategoria(Array.from(tarefas), mapaCategoriasMeta as any);
-  }, [mensalDetalhado, mapaCategoriasMeta]);
-
+  // Filtros Globais baseados em Competência (Mês/Ano)
   const acompanhamentoFiltrado = useMemo(() => {
     return acompanhamento.filter(row => {
-      const [d, m, y] = row.data.split('/');
-      const date = dayjs(`${y}-${m}-${d}`);
-      return date.isAfter(dayjs(filterInicio).subtract(1, 'day')) && date.isBefore(dayjs(filterFim).add(1, 'day'));
+      const parts = row.data.split('/');
+      const date = dayjs(`${parts[2]}-${parts[1]}`);
+      const withinDate = (date.isSame(dayjs(filterInicio), 'month') || date.isAfter(dayjs(filterInicio), 'month')) && 
+                         (date.isSame(dayjs(filterFim), 'month') || date.isBefore(dayjs(filterFim), 'month'));
+      const withinBase = effectiveBaseFilter === 'all' || row.baseId === effectiveBaseFilter;
+      return withinDate && withinBase;
     });
-  }, [acompanhamento, filterInicio, filterFim]);
+  }, [acompanhamento, filterInicio, filterFim, effectiveBaseFilter]);
 
   const diarioFiltrado = useMemo(() => {
     return detalhamento.filter(row => {
-      const [d, m, y] = row.data.split('/');
-      const date = dayjs(`${y}-${m}-${d}`);
-      return date.isAfter(dayjs(filterInicio).subtract(1, 'day')) && date.isBefore(dayjs(filterFim).add(1, 'day'));
+      const parts = row.data.split('/');
+      const date = dayjs(`${parts[2]}-${parts[1]}`);
+      const withinDate = (date.isSame(dayjs(filterInicio), 'month') || date.isAfter(dayjs(filterInicio), 'month')) && 
+                         (date.isSame(dayjs(filterFim), 'month') || date.isBefore(dayjs(filterFim), 'month'));
+      const withinBase = effectiveBaseFilter === 'all' || row.baseId === effectiveBaseFilter;
+      return withinDate && withinBase;
     });
-  }, [detalhamento, filterInicio, filterFim]);
+  }, [detalhamento, filterInicio, filterFim, effectiveBaseFilter]);
 
   const mensalFiltrado = useMemo(() => {
     return mensalDetalhado.filter(row => {
@@ -217,255 +203,472 @@ const ReportsPage: React.FC<{ baseId?: string }> = ({ baseId }) => {
       const date = dayjs(`${y}-${m}-01`);
       const start = dayjs(filterInicio).startOf('month');
       const end = dayjs(filterFim).endOf('month');
-      return (date.isSame(start) || date.isAfter(start)) && (date.isSame(end) || date.isBefore(end));
+      const withinDate = (date.isSame(start) || date.isAfter(start)) && (date.isSame(end) || date.isBefore(end));
+      const withinBase = effectiveBaseFilter === 'all' || row.baseId === effectiveBaseFilter;
+      return withinDate && withinBase;
     });
-  }, [mensalDetalhado, filterInicio, filterFim]);
+  }, [mensalDetalhado, filterInicio, filterFim, effectiveBaseFilter]);
 
-  const resumoTotaisDiario = useMemo(() => {
-    const map: Record<string, { task: string, category: string, totalMin: number }> = {};
-    const catSumMap: Record<string, number> = {};
-
-    diarioFiltrado.forEach(row => {
-      tarefasUnicas.forEach(t => {
-        const time = row.tarefasMap?.[t] || '00:00:00';
-        const mins = hhmmssToMinutes(time);
-        const cat = mapaCategoriasMeta[t]?.catNome || 'OUTROS';
-        if (!map[t]) map[t] = { task: t, category: cat, totalMin: 0 };
-        map[t].totalMin += mins;
-        catSumMap[cat] = (catSumMap[cat] || 0) + mins;
-      });
+  // Lista de meses disponíveis nos dados filtrados para os filtros de consolidado
+  const mesesDisponiveisDiario = useMemo(() => {
+    const set = new Set<string>();
+    diarioFiltrado.forEach(r => {
+      const parts = r.data.split('/');
+      set.add(`${parts[1]}:${parts[2]}`);
     });
+    return Array.from(set).sort().reverse();
+  }, [diarioFiltrado]);
 
-    const items = Object.values(map).filter(i => i.totalMin > 0).sort((a, b) => {
-        const idxA = CATEGORY_ORDER_PRIORITY.indexOf(a.category.toUpperCase());
-        const idxB = CATEGORY_ORDER_PRIORITY.indexOf(b.category.toUpperCase());
-        if (idxA !== idxB) return idxA - idxB;
-        return a.task.localeCompare(b.task);
+  const mesesDisponiveisMensal = useMemo(() => {
+    const set = new Set<string>();
+    mensalFiltrado.forEach(r => {
+      const parts = r.mesReferencia.split('/');
+      set.add(`${parts[0]}:${parts[1]}`);
     });
+    return Array.from(set).sort().reverse();
+  }, [mensalFiltrado]);
 
-    const finalItems: any[] = [];
-    let currentCat = "";
-    items.forEach(item => {
-      if (item.category !== currentCat) {
-        currentCat = item.category;
-        finalItems.push({ isSubtotal: true, category: currentCat, totalMin: catSumMap[currentCat] || 0 });
-      }
-      finalItems.push(item);
-    });
-    return finalItems;
-  }, [diarioFiltrado, tarefasUnicas, mapaCategoriasMeta]);
-
-  const resumoTotaisMensal = useMemo(() => {
-    const map: Record<string, { task: string, category: string, totalMin: number }> = {};
-    const catSumMap: Record<string, number> = {};
-
-    mensalFiltrado.forEach(row => {
+  const resumoVerticalDiario = useMemo(() => {
+    const resumo: Record<string, { totalCatMins: number, tasks: Record<string, number> }> = {};
+    let totalGeralMins = 0;
+    
+    diarioFiltrado.filter(row => {
+      if (filtroConsolidadoMes === 'all') return true;
+      const parts = row.data.split('/');
+      return `${parts[1]}:${parts[2]}` === filtroConsolidadoMes;
+    }).forEach(row => {
       if (row.activities) {
         row.activities.forEach((act: any) => {
-          const t = act.taskNome.toUpperCase();
-          const cat = act.categoryNome.toUpperCase();
+          const catName = act.categoryNome.toUpperCase();
+          const taskName = act.taskNome.toUpperCase();
           const mins = hhmmssToMinutes(act.formatted || '00:00:00');
-          if (!map[t]) map[t] = { task: t, category: cat, totalMin: 0 };
-          map[t].totalMin += mins;
-          catSumMap[cat] = (catSumMap[cat] || 0) + mins;
+          
+          if (!resumo[catName]) resumo[catName] = { totalCatMins: 0, tasks: {} };
+          resumo[catName].totalCatMins += mins;
+          resumo[catName].tasks[taskName] = (resumo[catName].tasks[taskName] || 0) + mins;
+          totalGeralMins += mins;
         });
       }
     });
 
-    const items = Object.values(map).filter(i => i.totalMin > 0).sort((a, b) => {
-        const idxA = CATEGORY_ORDER_PRIORITY.indexOf(a.category.toUpperCase());
-        const idxB = CATEGORY_ORDER_PRIORITY.indexOf(b.category.toUpperCase());
-        if (idxA !== idxB) return idxA - idxB;
-        return a.task.localeCompare(b.task);
+    const entries = Object.entries(resumo).sort((a, b) => {
+      const idxA = CATEGORY_ORDER_PRIORITY.indexOf(a[0]);
+      const idxB = CATEGORY_ORDER_PRIORITY.indexOf(b[0]);
+      return (idxA === -1 ? 999 : idxA) - (idxB === -1 ? 999 : idxB);
     });
 
-    const finalItems: any[] = [];
-    let currentCat = "";
-    items.forEach(item => {
-      if (item.category !== currentCat) {
-        currentCat = item.category;
-        finalItems.push({ isSubtotal: true, category: currentCat, totalMin: catSumMap[currentCat] || 0 });
+    return { entries, totalGeralMins };
+  }, [diarioFiltrado, filtroConsolidadoMes]);
+
+  const resumoVerticalMensal = useMemo(() => {
+    const resumo: Record<string, { totalCatMins: number, tasks: Record<string, number> }> = {};
+    let totalGeralMins = 0;
+    
+    mensalFiltrado.filter(row => {
+      if (filtroConsolidadoMensalMes === 'all') return true;
+      const parts = row.mesReferencia.split('/');
+      return `${parts[0]}:${parts[1]}` === filtroConsolidadoMensalMes;
+    }).forEach(row => {
+      if (row.activities) {
+        row.activities.forEach((act: any) => {
+          const catName = act.categoryNome.toUpperCase();
+          const taskName = act.taskNome.toUpperCase();
+          const mins = hhmmssToMinutes(act.formatted || '00:00:00');
+          
+          if (!resumo[catName]) resumo[catName] = { totalCatMins: 0, tasks: {} };
+          resumo[catName].totalCatMins += mins;
+          resumo[catName].tasks[taskName] = (resumo[catName].tasks[taskName] || 0) + mins;
+          totalGeralMins += mins;
+        });
       }
-      finalItems.push(item);
     });
-    return finalItems;
-  }, [mensalFiltrado]);
 
-  const exportCSV = (tipo: 'diario' | 'mensal') => {
-    const dados = tipo === 'diario' ? diarioFiltrado : mensalFiltrado;
-    const tarefas = tipo === 'diario' ? tarefasUnicas : tarefasUnicasMensais;
-    if (dados.length === 0) return;
-    let headers = tipo === 'diario' ? 'DATA,TURNO,H.PROD.,% PERF.' : 'MES REFERENCIA,BASE,H. TOTAL MENSAL';
-    tarefas.forEach(t => { headers += `,${t.replace(/,/g, '')}`; });
-    headers += ',OBSERVAÇÕES';
-    const rows = dados.map(row => {
-      const basic = tipo === 'diario' ? [row.data, row.turno, row.horasProduzida, `${row.percentualPerformance}%`].join(',') : [row.mesReferencia, row.baseSigla, row.totalHoras].join(',');
-      const taskValues = tarefas.map(t => row.tarefasMap?.[t] || '00:00:00').join(',');
-      const extra = `,${(row.observacoes||'').replace(/,/g,';').replace(/\n/g,' ')}`;
-      return `${basic},${taskValues}${extra}`;
-    }).join('\n');
-    const blob = new Blob([headers + '\n' + rows], { type: 'text/csv;charset=utf-8;' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = `relatorio_${tipo}_gol.csv`; a.click();
-  };
+    const entries = Object.entries(resumo).sort((a, b) => {
+      const idxA = CATEGORY_ORDER_PRIORITY.indexOf(a[0]);
+      const idxB = CATEGORY_ORDER_PRIORITY.indexOf(b[0]);
+      return (idxA === -1 ? 999 : idxA) - (idxB === -1 ? 999 : idxB);
+    });
 
-  if (loading) return <Box sx={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '60vh', gap: 2 }}><CircularProgress color="warning" /><Typography variant="caption" sx={{ fontWeight: 'bold' }}>CARREGANDO DADOS...</Typography></Box>;
+    return { entries, totalGeralMins };
+  }, [mensalFiltrado, filtroConsolidadoMensalMes]);
+
+  const tarefasUnicas = useMemo(() => {
+    const tarefas = new Set<string>();
+    diarioFiltrado.forEach((linha) => { if (linha.tarefasMap) { Object.keys(linha.tarefasMap).forEach(t => tarefas.add(t)); } });
+    return ordenarTarefasPorCategoria(Array.from(tarefas), mapaCategoriasMeta as any);
+  }, [diarioFiltrado, mapaCategoriasMeta]);
+
+  const tarefasUnicasMensais = useMemo(() => {
+    const tarefas = new Set<string>();
+    mensalFiltrado.forEach((linha) => { if (linha.tarefasMap) { Object.keys(linha.tarefasMap).forEach(t => tarefas.add(t)); } });
+    return ordenarTarefasPorCategoria(Array.from(tarefas), mapaCategoriasMeta as any);
+  }, [mensalFiltrado, mapaCategoriasMeta]);
+
+  if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', py: 10 }}><CircularProgress color="warning" /></Box>;
 
   return (
-    <Container maxWidth="xl" sx={{ py: 4 }}>
-      <Box sx={{ mb: 4 }} className="no-print">
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <Box>
-            <Typography variant="h4" sx={{ fontWeight: 900, color: '#374151', mb: 1 }}>Relatórios & Histórico</Typography>
-            <Typography sx={{ fontWeight: 800, fontSize: '0.7rem', color: '#9ca3af', textTransform: 'uppercase' }}>Consolidação integral de produtividade</Typography>
-          </Box>
-          <Box sx={{ display: 'flex', gap: 2, bgcolor: 'white', p: 2, borderRadius: 4, border: '1px solid #f3f4f6', alignItems: 'center' }}>
-            <Calendar size={18} className="text-gray-400" />
-            <TextField type="date" label="De" value={filterInicio} onChange={e => setFilterInicio(e.target.value)} size="small" InputLabelProps={{ shrink: true }} />
-            <TextField type="date" label="Até" value={filterFim} onChange={e => setFilterFim(e.target.value)} size="small" InputLabelProps={{ shrink: true }} />
-            <IconButton color="primary" onClick={() => window.print()} title="Imprimir"><Printer size={20}/></IconButton>
-          </Box>
-        </Box>
+    <Container maxWidth={false} sx={{ py: 4, animateIn: 'fade-in' }}>
+      <Box sx={{ mb: 6, display: 'flex', flexDirection: { xs: 'column', md: 'row' }, justifyContent: 'space-between', alignItems: { xs: 'flex-start', md: 'center' }, gap: 3 }}>
+        <div>
+          <Typography variant="h4" sx={{ fontWeight: 950, color: '#1f2937', tracking: '-0.02em' }}>HISTÓRICO OPERACIONAL</Typography>
+          <Typography variant="caption" sx={{ fontWeight: 800, color: '#ea580c', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Relatórios Consolidados e Auditoria de Passagem</Typography>
+        </div>
+        
+        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+          {isAdmin && (
+            <FormControl size="small" sx={{ minWidth: 200 }}>
+              <InputLabel id="base-select-label" sx={{ fontWeight: 800, fontSize: '0.75rem' }} children="BASE PARA RELATÓRIO" />
+              <Select
+                labelId="base-select-label"
+                value={filterBaseSelection}
+                label="BASE PARA RELATÓRIO"
+                onChange={(e) => setFilterBaseSelection(e.target.value)}
+                sx={{ borderRadius: 3, fontWeight: 900, fontSize: '0.75rem', bgcolor: 'white' }}
+              >
+                <MenuItem value="all"><em>Todas as Bases</em></MenuItem>
+                {bases.map(b => (
+                  <MenuItem key={b.id} value={b.id}>{b.sigla} - {b.nome}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
 
-        <Box sx={{ borderBottom: 1, borderColor: 'divider', mt: 3 }}>
-          <Tabs value={activeTab} onChange={(_, v) => setActiveTab(v)} textColor="inherit" indicatorColor="primary">
-            <Tab label="P. DE SERVIÇO" sx={{ fontWeight: 800 }} />
-            <Tab label="HISTÓRICO DETALHADO" sx={{ fontWeight: 800 }} />
-            <Tab label="CONSOLIDADO" sx={{ fontWeight: 800 }} />
-          </Tabs>
+          {/* Filtros Globais ajustados para Mês/Ano (Solicitação 3) */}
+          <TextField type="month" size="small" label="Mês Início" value={filterInicio} onChange={e => setFilterInicio(e.target.value)} InputLabelProps={{ shrink: true }} sx={{ bgcolor: 'white', borderRadius: 2 }} />
+          <TextField type="month" size="small" label="Mês Fim" value={filterFim} onChange={e => setFilterFim(e.target.value)} InputLabelProps={{ shrink: true }} sx={{ bgcolor: 'white', borderRadius: 2 }} />
+          
+          <IconButton sx={{ bgcolor: '#fff', border: '1px solid #e5e7eb', borderRadius: 3 }}><Printer size={18} /></IconButton>
         </Box>
       </Box>
 
-      {activeTab === 0 && (
-        <ReportSection title="Status de Preenchimento" subtitle="Monitoramento de passagens por turno.">
-          <TableContainer component={Paper} sx={{ borderRadius: '1.5rem', boxShadow: 'none', border: '1px solid #f3f4f6' }}>
-            <Table><TableHead sx={{ bgcolor: '#f9fafb' }}><TableRow><TableCell sx={{ fontWeight: 900, fontSize: '0.7rem' }}>DATA OPERACIONAL</TableCell><TableCell align="center" sx={{ fontWeight: 900, fontSize: '0.7rem' }}>TURNO 1</TableCell><TableCell align="center" sx={{ fontWeight: 900, fontSize: '0.7rem' }}>TURNO 2</TableCell><TableCell align="center" sx={{ fontWeight: 900, fontSize: '0.7rem' }}>TURNO 3</TableCell><TableCell align="center" sx={{ fontWeight: 900, fontSize: '0.7rem' }}>TURNO 4</TableCell></TableRow></TableHead>
-            <TableBody>{acompanhamentoFiltrado.map((row, i) => (<TableRow key={i} hover><TableCell sx={{ fontWeight: 'bold', color: '#4b5563' }}>{row.data}</TableCell><TableCell align="center"><StatusBadge status={row.turno1} /></TableCell><TableCell align="center"><StatusBadge status={row.turno2} /></TableCell><TableCell align="center"><StatusBadge status={row.turno3} /></TableCell><TableCell align="center"><StatusBadge status={row.turno4} /></TableCell></TableRow>))}{acompanhamentoFiltrado.length === 0 && <NoDataRows colSpan={5} />}</TableBody></Table>
+      <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 4 }}>
+        <Tabs value={activeTab} onChange={(_, v) => setActiveTab(v)} variant="scrollable" scrollButtons="auto">
+          <Tab icon={<LayoutDashboard size={16} />} iconPosition="start" label="Acompanhamento" sx={{ fontWeight: 900, fontSize: '0.75rem' }} />
+          <Tab icon={<LayoutList size={16} />} iconPosition="start" label="Detalhamento Diário" sx={{ fontWeight: 900, fontSize: '0.75rem' }} />
+          <Tab icon={<Calendar size={16} />} iconPosition="start" label="Detalhamento Mensal" sx={{ fontWeight: 900, fontSize: '0.75rem' }} />
+          <Tab icon={<BarChart size={16} />} iconPosition="start" label="Performance Turnos" sx={{ fontWeight: 900, fontSize: '0.75rem' }} />
+          <Tab icon={<Globe size={16} />} iconPosition="start" label="Ranking de Bases" sx={{ fontWeight: 900, fontSize: '0.75rem' }} />
+        </Tabs>
+      </Box>
+
+      {activeTab === 0 && (effectiveBaseFilter !== 'all' || isAdmin) && (
+        <ReportSection title="Status de Passagem" subtitle={`Acompanhamento de preenchimento (${effectiveBaseFilter === 'all' ? 'Rede' : bases.find(b => b.id === effectiveBaseFilter)?.sigla})`}>
+          <TableContainer component={Paper} sx={{ borderRadius: 4, border: '1px solid #f3f4f6', boxShadow: 'none' }}>
+            <Table size="small">
+              <TableHead sx={{ bgcolor: '#f9fafb' }}>
+                <TableRow>
+                  <TableCell sx={{ fontWeight: 900, py: 2 }}>DATA</TableCell>
+                  <TableCell sx={{ fontWeight: 900 }}>TURNO 1</TableCell>
+                  <TableCell sx={{ fontWeight: 900 }}>TURNO 2</TableCell>
+                  <TableCell sx={{ fontWeight: 900 }}>TURNO 3</TableCell>
+                  <TableCell sx={{ fontWeight: 900 }}>TURNO 4</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {acompanhamentoFiltrado.length > 0 ? acompanhamentoFiltrado.map((row, idx) => (
+                  <TableRow key={idx} hover>
+                    <TableCell sx={{ fontWeight: 800 }}>{row.data}</TableCell>
+                    <TableCell><StatusBadge status={row.turno1} /></TableCell>
+                    <TableCell><StatusBadge status={row.turno2} /></TableCell>
+                    <TableCell><StatusBadge status={row.turno3} /></TableCell>
+                    <TableCell><StatusBadge status={row.turno4} /></TableCell>
+                  </TableRow>
+                )) : <NoDataRows colSpan={5} />}
+              </TableBody>
+            </Table>
           </TableContainer>
         </ReportSection>
       )}
 
       {activeTab === 1 && (
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {/* 1. RESUMO DIÁRIO */}
-          <Box>
-            <ReportSection title="1. Resumo de Totais por Categoria (Diário)" subtitle="Produtividade diária acumulada por fluxo.">
-              <TableContainer component={Paper} sx={{ borderRadius: '1rem', border: '1px solid #f3f4f6' }}>
-                <Table size="small">
-                  <TableHead sx={{ bgcolor: '#0f172a' }}><TableRow><TableCell sx={{ color: '#fff', fontWeight: 900, fontSize: '0.7rem' }}>FLUXO / TAREFA</TableCell><TableCell align="right" sx={{ color: '#f97316', fontWeight: 900, fontSize: '0.7rem' }}>TOTAL HORAS</TableCell></TableRow></TableHead>
-                  <TableBody>
-                    {resumoTotaisDiario.map((row, i) => (
-                      <TableRow key={i} sx={{ bgcolor: row.isSubtotal ? '#f8fafc' : 'transparent' }}>
-                        <TableCell sx={{ fontWeight: row.isSubtotal ? 950 : 800, pl: row.isSubtotal ? 2 : 4, fontSize: '0.75rem', color: row.isSubtotal ? '#1e293b' : '#64748b' }}>{row.isSubtotal ? `TOTAL ${row.category}` : row.task}</TableCell>
-                        <TableCell align="right" sx={{ fontWeight: 950, fontSize: '0.75rem', color: row.isSubtotal ? '#1e293b' : '#f97316' }}>{minutesToHhmmss(row.totalMin)}</TableCell>
-                      </TableRow>
-                    ))}
-                    {resumoTotaisDiario.length === 0 && <NoDataRows colSpan={2} />}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            </ReportSection>
-          </Box>
-
-          {/* 2. DETALHAMENTO DIÁRIO */}
-          <Box>
-            <ReportSection title="2. Detalhamento Diário" subtitle="Matriz de atividades por turno." actions={<Button startIcon={<Download size={16}/>} onClick={() => exportCSV('diario')} size="small" variant="contained" color="warning" sx={{ fontWeight: 900, borderRadius: 2 }}>Exportar CSV</Button>}>
-              <TableContainer component={Paper} sx={{ borderRadius: '1rem', border: '1px solid #f3f4f6', overflowX: 'auto' }}>
-                <Table size="small" sx={{ minWidth: 1500 }}>
-                  <TableHead sx={{ bgcolor: '#f9fafb' }}>
-                    <TableRow>
-                      <TableCell sx={{ fontWeight: 900, fontSize: '0.65rem' }}>DATA</TableCell>
-                      <TableCell sx={{ fontWeight: 900, fontSize: '0.65rem' }}>TURNO</TableCell>
-                      <TableCell align="right" sx={{ fontWeight: 900, fontSize: '0.65rem' }}>H.PROD.</TableCell>
-                      {tarefasUnicas.map(t => <TableCell key={t} align="center" sx={{ fontSize: '0.65rem', fontWeight: 900, borderLeft: '1px solid #f3f4f6', color: '#ea580c' }}>{t}</TableCell>)}
-                      <TableCell sx={{ fontWeight: 900, fontSize: '0.65rem', borderLeft: '1px solid #f3f4f6' }}>OBS</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {diarioFiltrado.map((row) => (
-                      <TableRow key={row.id} hover>
-                        <TableCell sx={{ fontWeight: 800 }}>{row.data}</TableCell>
-                        <TableCell><Chip label={row.turno} size="small" variant="outlined" sx={{ fontWeight: 900, fontSize: '0.6rem' }} color="warning" /></TableCell>
-                        <TableCell align="right" sx={{ fontWeight: 900, color: '#f97316' }}>{row.horasProduzida}</TableCell>
-                        {tarefasUnicas.map(t => <TableCell key={t} align="center" sx={{ fontSize: '0.7rem', borderLeft: '1px solid #f9fafb' }}>{row.tarefasMap?.[t] || '00:00:00'}</TableCell>)}
-                        <TableCell sx={{ fontSize: '0.65rem', minWidth: 200 }}>{row.observacoes || '-'}</TableCell>
-                      </TableRow>
-                    ))}
-                    {diarioFiltrado.length === 0 && <NoDataRows colSpan={4 + tarefasUnicas.length} />}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            </ReportSection>
-          </Box>
-
-          <Divider sx={{ borderStyle: 'dashed', my: 2 }} />
-
-          {/* 3. RESUMO MENSAL */}
-          <Box>
-            <ReportSection title="3. Resumo Mensal por Categoria" subtitle="Acumulado da competência mensal por fluxo.">
-              <TableContainer component={Paper} sx={{ borderRadius: '1rem', border: '1px solid #f3f4f6' }}>
-                <Table size="small">
-                  <TableHead sx={{ bgcolor: '#0f172a' }}><TableRow><TableCell sx={{ color: '#fff', fontWeight: 900, fontSize: '0.7rem' }}>FLUXO / TAREFA</TableCell><TableCell align="right" sx={{ color: '#0284c7', fontWeight: 900, fontSize: '0.7rem' }}>TOTAL HORAS</TableCell></TableRow></TableHead>
-                  <TableBody>
-                    {resumoTotaisMensal.map((row, i) => (
-                      <TableRow key={i} sx={{ bgcolor: row.isSubtotal ? '#f8fafc' : 'transparent' }}>
-                        <TableCell sx={{ fontWeight: row.isSubtotal ? 950 : 800, pl: row.isSubtotal ? 2 : 4, fontSize: '0.75rem', color: row.isSubtotal ? '#1e293b' : '#64748b' }}>{row.isSubtotal ? `TOTAL ${row.category}` : row.task}</TableCell>
-                        <TableCell align="right" sx={{ fontWeight: 950, fontSize: '0.75rem', color: row.isSubtotal ? '#1e293b' : '#0284c7' }}>{minutesToHhmmss(row.totalMin)}</TableCell>
-                      </TableRow>
-                    ))}
-                    {resumoTotaisMensal.length === 0 && <NoDataRows colSpan={2} />}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            </ReportSection>
-          </Box>
-
-          {/* 4. DETALHAMENTO MENSAL */}
-          <Box>
-            <ReportSection title="4. Detalhamento Mensal" subtitle="Coleta consolidada por base e competência." actions={<Button startIcon={<Download size={16}/>} onClick={() => exportCSV('mensal')} size="small" variant="contained" color="primary" sx={{ fontWeight: 900, borderRadius: 2 }}>Exportar CSV</Button>}>
-              <TableContainer component={Paper} sx={{ borderRadius: '1rem', border: '1px solid #f3f4f6', overflowX: 'auto' }}>
-                <Table size="small" sx={{ minWidth: 1500 }}>
-                  <TableHead sx={{ bgcolor: '#f9fafb' }}>
-                    <TableRow>
-                      <TableCell sx={{ fontWeight: 900, fontSize: '0.65rem' }}>MÊS</TableCell>
-                      <TableCell sx={{ fontWeight: 900, fontSize: '0.65rem' }}>BASE</TableCell>
-                      <TableCell align="right" sx={{ fontWeight: 900, fontSize: '0.65rem' }}>H. TOTAL</TableCell>
-                      {tarefasUnicasMensais.map(t => <TableCell key={t} align="center" sx={{ fontSize: '0.65rem', fontWeight: 900, borderLeft: '1px solid #f3f4f6', color: '#0284c7' }}>{t}</TableCell>)}
-                      <TableCell align="center" className="no-print">AÇÕES</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {mensalFiltrado.map((row) => (
-                      <TableRow key={row.id} hover>
-                        <TableCell sx={{ fontWeight: 800 }}>{row.mesReferencia}</TableCell>
-                        <TableCell><Chip label={row.baseSigla} size="small" sx={{ fontWeight: 900, fontSize: '0.6rem', bgcolor: '#0284c7', color: 'white' }} /></TableCell>
-                        <TableCell align="right" sx={{ fontWeight: 900, color: '#0284c7' }}>{row.totalHoras}</TableCell>
-                        {tarefasUnicasMensais.map(t => <TableCell key={t} align="center" sx={{ fontSize: '0.7rem', borderLeft: '1px solid #f9fafb' }}>{row.tarefasMap?.[t] || '00:00:00'}</TableCell>)}
-                        <TableCell align="center" className="no-print">
-                          <IconButton size="small" onClick={() => navigate(`/monthly-collection?editId=${row.id}`)} sx={{ color: '#0284c7' }}><Edit2 size={12} /></IconButton>
+        <>
+          <ReportSection title="Produção Diária Detalhada" subtitle={`Visão granular por tarefa e turno (${effectiveBaseFilter === 'all' ? 'Rede' : bases.find(b => b.id === effectiveBaseFilter)?.sigla})`}>
+            <TableContainer component={Paper} sx={{ borderRadius: 4, border: '1px solid #f3f4f6', boxShadow: 'none', overflowX: 'auto', mb: 4 }}>
+              <Table size="small" sx={{ minWidth: 2000 }}>
+                <TableHead sx={{ bgcolor: '#f9fafb' }}>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 950, py: 3, position: 'sticky', left: 0, bgcolor: '#f9fafb', zIndex: 10 }}>DATA</TableCell>
+                    <TableCell sx={{ fontWeight: 950, position: 'sticky', left: 80, bgcolor: '#f9fafb', zIndex: 10 }}>TURNO</TableCell>
+                    <TableCell sx={{ fontWeight: 950 }}>EQUIPE</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 950 }}>H. DISP.</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 950 }}>H. PROD.</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 950 }}>PERF.</TableCell>
+                    <TableCell sx={{ fontWeight: 950 }}>OBSERVAÇÕES</TableCell>
+                    {tarefasUnicas.map(t => {
+                      const meta = mapaCategoriasMeta[t.toUpperCase()];
+                      return (
+                        <TableCell key={t} align="center" sx={{ minWidth: 150, p: 1 }}>
+                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.2 }}>
+                            <Typography sx={{ fontSize: '8px', fontWeight: 900, color: '#9ca3af', textTransform: 'uppercase' }}>
+                              {meta?.catNome || 'OUTROS'}
+                            </Typography>
+                            <Typography sx={{ fontSize: '10px', fontWeight: 900, color: '#4b5563', lineHeight: 1.1 }}>
+                              {t.toUpperCase()}
+                            </Typography>
+                          </Box>
                         </TableCell>
-                      </TableRow>
+                      );
+                    })}
+                    <TableCell align="right" sx={{ fontWeight: 950, position: 'sticky', right: 0, bgcolor: '#f9fafb', zIndex: 10 }}>AÇÕES</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {diarioFiltrado.length > 0 ? diarioFiltrado.map((row, idx) => (
+                    <TableRow key={idx} hover>
+                      <TableCell sx={{ fontWeight: 800, position: 'sticky', left: 0, bgcolor: '#fff', zIndex: 5 }}>{row.data}</TableCell>
+                      <TableCell sx={{ fontWeight: 800, position: 'sticky', left: 80, bgcolor: '#fff', zIndex: 5 }}>{row.turno}</TableCell>
+                      <TableCell>
+                        <Tooltip 
+                          title={row.nomeColaboradores || ""}
+                          children={
+                            <Typography sx={{ fontSize: '11px', fontWeight: 700, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {row.nomeColaboradores || "-"}
+                            </Typography>
+                          }
+                        />
+                      </TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 800, color: '#6366f1' }}>{row.horasDisponivel}</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 800, color: '#f97316' }}>{row.horasProduzida}</TableCell>
+                      <TableCell align="right">
+                        <Chip label={`${row.percentualPerformance}%`} size="small" color={row.performance >= 80 ? "success" : "warning"} sx={{ fontWeight: 900, fontSize: '0.65rem' }} />
+                      </TableCell>
+                      <TableCell>
+                        <Tooltip 
+                          title={row.observacoes || row.informacoesImportantes || ""}
+                          children={
+                            <Typography sx={{ fontSize: '11px', fontWeight: 600, maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {row.observacoes || row.informacoesImportantes || "-"}
+                            </Typography>
+                          }
+                        />
+                      </TableCell>
+                      {tarefasUnicas.map(t => (
+                        <TableCell key={t} align="center" sx={{ color: (row.tarefasMap?.[t.toUpperCase()] || '00:00:00') === '00:00:00' ? '#d1d5db' : '#1f2937', fontWeight: 700, fontSize: '11px' }}>
+                          {row.tarefasMap?.[t.toUpperCase()] || '00:00:00'}
+                        </TableCell>
+                      ))}
+                      <TableCell align="right" sx={{ position: 'sticky', right: 0, bgcolor: '#fff', zIndex: 5 }}>
+                        <IconButton size="small" color="primary" onClick={() => navigate(`/shift-handover?editId=${row.id}`)}>
+                          <Edit2 size={16} />
+                        </IconButton>
+                      </TableCell>
+                    </TableRow>
+                  )) : <NoDataRows colSpan={tarefasUnicas.length + 8} />}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </ReportSection>
+
+          {diarioFiltrado.length > 0 && (
+            <ReportSection 
+              title="Consolidado de Atividades" 
+              subtitle="Resumo vertical por categoria e tempo total acumulado"
+              filters={
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                   <Search size={16} className="text-orange-500" />
+                   <FormControl size="small" sx={{ minWidth: 150 }}>
+                      <InputLabel children="Mês/Ano" sx={{ fontSize: '0.65rem', fontWeight: 800 }} />
+                      <Select
+                        value={filtroConsolidadoMes}
+                        onChange={(e) => setFiltroConsolidadoMes(e.target.value)}
+                        label="Mês/Ano"
+                        sx={{ borderRadius: 3, fontWeight: 900, fontSize: '0.7rem', bgcolor: 'white' }}
+                      >
+                        <MenuItem value="all"><em>Todos os Meses</em></MenuItem>
+                        {mesesDisponiveisDiario.map(m => (
+                          <MenuItem key={m} value={m}>{m}</MenuItem>
+                        ))}
+                      </Select>
+                   </FormControl>
+                </Box>
+              }
+            >
+              <TableContainer component={Paper} sx={{ borderRadius: 4, border: '1px solid #f3f4f6', boxShadow: 'none', maxWidth: 800 }}>
+                <Table size="small">
+                  <TableHead sx={{ bgcolor: '#f9fafb' }}>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 950, py: 2 }}>ESTRUTURA DE ATIVIDADE</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 950 }}>TEMPO TOTAL (HH:MM:SS)</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {resumoVerticalDiario.entries.map(([catName, data]) => (
+                      <React.Fragment key={catName}>
+                        <TableRow sx={{ bgcolor: '#fef3c7' }}>
+                          <TableCell sx={{ fontWeight: 900, color: '#92400e', py: 1.5 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <Sigma size={14} />
+                              {catName}
+                            </Box>
+                          </TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 900, color: '#92400e' }}>
+                            {minutesToHhmmss(data.totalCatMins)}
+                          </TableCell>
+                        </TableRow>
+                        {(Object.entries(data.tasks) as [string, number][]).sort((a,b) => b[1] - a[1]).map(([taskName, taskMins]) => (
+                          <TableRow key={taskName} hover>
+                            <TableCell sx={{ pl: 4, py: 1 }}>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <ChevronRight size={12} className="text-gray-400" />
+                                <Typography sx={{ fontSize: '0.75rem', fontWeight: 700, color: '#4b5563' }}>
+                                  {taskName}
+                                </Typography>
+                              </Box>
+                            </TableCell>
+                            <TableCell align="right" sx={{ fontSize: '0.75rem', fontWeight: 800, color: '#1f2937' }}>
+                              {minutesToHhmmss(taskMins)}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </React.Fragment>
                     ))}
-                    {mensalFiltrado.length === 0 && <NoDataRows colSpan={4 + tarefasUnicasMensais.length} />}
+                    <TableRow sx={{ bgcolor: '#111827' }}>
+                      <TableCell sx={{ fontWeight: 950, color: '#fff', py: 2, textTransform: 'uppercase', letterSpacing: '0.1em' }}>TOTAL GERAL ACUMULADO</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 950, color: '#fbbf24', fontSize: '1rem' }}>
+                        {minutesToHhmmss(resumoVerticalDiario.totalGeralMins)}
+                      </TableCell>
+                    </TableRow>
                   </TableBody>
                 </Table>
               </TableContainer>
             </ReportSection>
-          </Box>
-        </Box>
+          )}
+        </>
       )}
 
       {activeTab === 2 && (
-        <ReportSection title="Consolidado Integral por Categoria" subtitle="Soma total de produtividade: Diário + Mensal.">
-          <TableContainer component={Paper} sx={{ borderRadius: '1.5rem', border: '1px solid #f3f4f6' }}>
-            <Table><TableHead sx={{ bgcolor: '#0f172a' }}><TableRow><TableCell sx={{ color: '#fff', fontWeight: 900 }}>CATEGORIA</TableCell><TableCell align="center" sx={{ color: '#fff', fontWeight: 900 }}>DIÁRIO (H)</TableCell><TableCell align="center" sx={{ color: '#fff', fontWeight: 900 }}>MENSAL (H)</TableCell><TableCell align="center" sx={{ color: '#f97316', fontWeight: 900 }}>TOTAL ACUMULADO (H)</TableCell></TableRow></TableHead>
-            <TableBody>
-              {consolidadoCategorias.map((row, i) => (<TableRow key={i} hover><TableCell sx={{ fontWeight: 900, color: '#1e293b' }}>{row.nome}</TableCell><TableCell align="center" sx={{ color: '#64748b', fontWeight: 700 }}>{row.diarioF}</TableCell><TableCell align="center" sx={{ color: '#64748b', fontWeight: 700 }}>{row.mensalF}</TableCell><TableCell align="center" sx={{ fontWeight: 900, bgcolor: '#fff7ed', color: '#ea580c' }}>{row.totalF}</TableCell></TableRow>))}
-              <TableRow sx={{ bgcolor: '#f8fafc' }}><TableCell sx={{ fontWeight: 950, color: '#0f172a' }}>TOTAL GERAL CONSOLIDADO</TableCell><TableCell align="center" sx={{ fontWeight: 950, color: '#0f172a' }}>{totaisGeraisConsolidado.diario}</TableCell><TableCell align="center" sx={{ fontWeight: 950, color: '#0f172a' }}>{totaisGeraisConsolidado.mensal}</TableCell><TableCell align="center" sx={{ fontWeight: 950, bgcolor: '#ea580c', color: '#fff' }}>{totaisGeraisConsolidado.total}</TableCell></TableRow>
-            </TableBody></Table>
-          </TableContainer>
-        </ReportSection>
+        <>
+          <ReportSection title="Produção Mensal Detalhada" subtitle={`Consolidado de metas mensais (${effectiveBaseFilter === 'all' ? 'Rede' : bases.find(b => b.id === effectiveBaseFilter)?.sigla})`}>
+            <TableContainer component={Paper} sx={{ borderRadius: 4, border: '1px solid #f3f4f6', boxShadow: 'none', overflowX: 'auto', mb: 4 }}>
+              <Table size="small" sx={{ minWidth: 1500 }}>
+                <TableHead sx={{ bgcolor: '#f9fafb' }}>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 950, py: 3, position: 'sticky', left: 0, bgcolor: '#f9fafb', zIndex: 10 }}>COMPETÊNCIA</TableCell>
+                    <TableCell sx={{ fontWeight: 950, position: 'sticky', left: 120, bgcolor: '#f9fafb', zIndex: 10 }}>BASE</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 950 }}>TOTAL ACUM.</TableCell>
+                    {tarefasUnicasMensais.map(t => {
+                      const meta = mapaCategoriasMeta[t.toUpperCase()];
+                      return (
+                        <TableCell key={t} align="center" sx={{ minWidth: 150, p: 1 }}>
+                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.2 }}>
+                            <Typography sx={{ fontSize: '8px', fontWeight: 900, color: '#9ca3af', textTransform: 'uppercase' }}>
+                              {meta?.catNome || 'MENSAL'}
+                            </Typography>
+                            <Typography sx={{ fontSize: '10px', fontWeight: 900, color: '#4b5563', lineHeight: 1.1 }}>
+                              {t.toUpperCase()}
+                            </Typography>
+                          </Box>
+                        </TableCell>
+                      );
+                    })}
+                    <TableCell align="right" sx={{ fontWeight: 950, position: 'sticky', right: 0, bgcolor: '#f9fafb', zIndex: 10 }}>AÇÕES</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {mensalFiltrado.length > 0 ? mensalFiltrado.map((row, idx) => (
+                    <TableRow key={idx} hover>
+                      <TableCell sx={{ fontWeight: 800, position: 'sticky', left: 0, bgcolor: '#fff', zIndex: 5 }}>{row.mesReferencia}</TableCell>
+                      <TableCell sx={{ fontWeight: 800, position: 'sticky', left: 120, bgcolor: '#fff', zIndex: 5 }}>{row.baseSigla || row.baseId}</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 900, color: '#f97316' }}>{row.totalHoras}</TableCell>
+                      {tarefasUnicasMensais.map(t => (
+                        <TableCell key={t} align="center" sx={{ color: (row.tarefasMap?.[t.toUpperCase()] || '00:00:00') === '00:00:00' ? '#d1d5db' : '#1f2937', fontWeight: 700, fontSize: '11px' }}>
+                          {row.tarefasMap?.[t.toUpperCase()] || '00:00:00'}
+                        </TableCell>
+                      ))}
+                      <TableCell align="right" sx={{ position: 'sticky', right: 0, bgcolor: '#fff', zIndex: 5 }}>
+                        <IconButton size="small" color="primary" onClick={() => navigate(`/monthly-collection?editId=${row.id}`)}>
+                          <Edit2 size={16} />
+                        </IconButton>
+                      </TableCell>
+                    </TableRow>
+                  )) : <NoDataRows colSpan={tarefasUnicasMensais.length + 4} />}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </ReportSection>
+
+          {mensalFiltrado.length > 0 && (
+            <ReportSection 
+              title="Consolidado de Atividades (Mensal)" 
+              subtitle="Resumo vertical mensal por categoria e tempo acumulado"
+              filters={
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                   <Search size={16} className="text-blue-500" />
+                   <FormControl size="small" sx={{ minWidth: 150 }}>
+                      <InputLabel children="MM:AAAA" sx={{ fontSize: '0.65rem', fontWeight: 800 }} />
+                      <Select
+                        value={filtroConsolidadoMensalMes}
+                        onChange={(e) => setFiltroConsolidadoMensalMes(e.target.value)}
+                        label="MM:AAAA"
+                        sx={{ borderRadius: 3, fontWeight: 900, fontSize: '0.7rem', bgcolor: 'white' }}
+                      >
+                        <MenuItem value="all"><em>Todos os Meses</em></MenuItem>
+                        {mesesDisponiveisMensal.map(m => (
+                          <MenuItem key={m} value={m}>{m.replace(':', '/')}</MenuItem>
+                        ))}
+                      </Select>
+                   </FormControl>
+                </Box>
+              }
+            >
+              <TableContainer component={Paper} sx={{ borderRadius: 4, border: '1px solid #f3f4f6', boxShadow: 'none', maxWidth: 800 }}>
+                <Table size="small">
+                  <TableHead sx={{ bgcolor: '#f9fafb' }}>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 950, py: 2 }}>ESTRUTURA DE ATIVIDADE</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 950 }}>TEMPO TOTAL (HH:MM:SS)</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {resumoVerticalMensal.entries.map(([catName, data]) => (
+                      <React.Fragment key={catName}>
+                        <TableRow sx={{ bgcolor: '#dcfce7' }}>
+                          <TableCell sx={{ fontWeight: 900, color: '#166534', py: 1.5 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <Sigma size={14} />
+                              {catName}
+                            </Box>
+                          </TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 900, color: '#166534' }}>
+                            {minutesToHhmmss(data.totalCatMins)}
+                          </TableCell>
+                        </TableRow>
+                        {(Object.entries(data.tasks) as [string, number][]).sort((a,b) => b[1] - a[1]).map(([taskName, taskMins]) => (
+                          <TableRow key={taskName} hover>
+                            <TableCell sx={{ pl: 4, py: 1 }}>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <ChevronRight size={12} className="text-gray-400" />
+                                <Typography sx={{ fontSize: '0.75rem', fontWeight: 700, color: '#4b5563' }}>
+                                  {taskName}
+                                </Typography>
+                              </Box>
+                            </TableCell>
+                            <TableCell align="right" sx={{ fontSize: '0.75rem', fontWeight: 800, color: '#1f2937' }}>
+                              {minutesToHhmmss(taskMins)}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </React.Fragment>
+                    ))}
+                    <TableRow sx={{ bgcolor: '#111827' }}>
+                      <TableCell sx={{ fontWeight: 950, color: '#fff', py: 2, textTransform: 'uppercase', letterSpacing: '0.1em' }}>TOTAL GERAL MENSAL</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 950, color: '#fbbf24', fontSize: '1rem' }}>
+                        {minutesToHhmmss(resumoVerticalMensal.totalGeralMins)}
+                      </TableCell>
+                    </TableRow>
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </ReportSection>
+          )}
+        </>
       )}
+
+      {activeTab === 3 && (
+        <PerformanceTurnoReport baseId={effectiveBaseFilter === 'all' ? undefined : effectiveBaseFilter} />
+      )}
+      
+      {activeTab === 4 && <RelatorioProducaoPorBase />}
     </Container>
   );
 };

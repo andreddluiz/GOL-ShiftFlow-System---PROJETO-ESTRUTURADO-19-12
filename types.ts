@@ -1,9 +1,9 @@
 
 export enum PermissionLevel {
-  ADMIN = 'Admin',
-  GESTOR = 'Gestor',
-  LIDER = 'Líder',
-  OPERACAO = 'Operação'
+  ADMIN = 'ADMINISTRADOR',
+  LIDER = 'LÍDER',
+  ANALISTA = 'ANALISTA',
+  OPERACAO = 'OPERACIONAL'
 }
 
 export enum MeasureType {
@@ -32,7 +32,53 @@ export interface Base {
   metaAmarelo: number; 
   metaVermelho: number;
   deletada?: boolean;
-  metaHorasDisponiveisAno?: Record<string, number>; // { "01": 160, "02": 160, ... }
+  metaHorasDisponiveisAno?: Record<string, number>; 
+}
+
+export interface UsuarioBase {
+  baseId: string;
+  nivelAcesso: 'OPERACIONAL' | 'ANALISTA' | 'LÍDER' | 'ADMINISTRADOR';
+  dataCriacao: string;
+  dataAtualizacao: string;
+  ativo: boolean;
+}
+
+export interface Usuario {
+  id: string;
+  email: string;
+  senha: string;
+  nome: string;
+  basesAssociadas: UsuarioBase[];
+  ativo: boolean;
+  dataCriacao: string;
+  dataAtualizacao: string;
+}
+
+export interface UsuarioAutenticado {
+  id: string;
+  email: string;
+  nome: string;
+  perfil: string;
+  basesAssociadas: UsuarioBase[];
+  baseAtual: string;
+}
+
+export interface PermissaoItem {
+  id: string;
+  nome: string;
+  descricao: string;
+  categoria: string;
+}
+
+export interface NivelAcessoCustomizado {
+  id: string;
+  nome: string;
+  descricao: string;
+  tipo: 'PADRÃO' | 'CUSTOMIZADO';
+  permissoes: { [key: string]: boolean };
+  dataCriacao: string;
+  dataAtualizacao: string;
+  ativo: boolean;
 }
 
 export interface User {
@@ -51,7 +97,7 @@ export interface Category {
   id: string;
   nome: string;
   tipo: 'operacional' | 'mensal';
-  exibicao: 'lista' | 'suspensa'; // NOVO: Controle de formato de exibição
+  exibicao: 'lista' | 'suspensa'; 
   ordem: number;
   status: 'Ativa' | 'Inativa';
   visivel?: boolean; 
@@ -77,7 +123,7 @@ export interface Task {
 export interface MonthlyCollection {
   id: string;
   baseId: string;
-  mes: number; // 1-12
+  mes: number; 
   ano: number;
   status: 'ABERTO' | 'FINALIZADO';
   tarefasValores: Record<string, string>; 
@@ -229,8 +275,8 @@ export interface OutraAtividade {
   nome: string;
   tempo: string; 
   categoriaId?: string; 
-  tipoMedida?: MeasureType; // NOVO: Para suportar troca dinâmica de input
-  fatorMultiplicador?: number; // NOVO: Para cálculos de performance
+  tipoMedida?: MeasureType; 
+  fatorMultiplicador?: number; 
 }
 
 export interface ShiftHandover {

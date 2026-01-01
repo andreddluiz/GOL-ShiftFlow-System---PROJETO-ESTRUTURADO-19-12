@@ -1,9 +1,9 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Plus, Trash2, Clock, MapPin, Shield, Info, AlertCircle, TrendingUp, Box, Truck, AlertOctagon, Calendar, Layers, Palette, Settings, AlertTriangle, CheckCircle2, Target } from 'lucide-react';
+import { X, Plus, Trash2, Clock, MapPin, Shield, Info, AlertCircle, TrendingUp, Box as LucideBox, Truck, AlertOctagon, Calendar, Layers, Palette, Settings, AlertTriangle, CheckCircle2, Target, Lock } from 'lucide-react';
 import { 
   Base, User, Category, Task, Control, Shift, PermissionLevel, MeasureType,
-  DefaultLocationItem, DefaultTransitItem, DefaultCriticalItem, CustomControlType, ManagedItem, ConditionConfig, PopupConfig 
+  DefaultLocationItem, DefaultTransitItem, DefaultCriticalItem, CustomControlType, ManagedItem, ConditionConfig, PopupConfig, NivelAcessoCustomizado
 } from './types';
 
 // MUI Imports
@@ -21,7 +21,9 @@ import {
   Select, 
   MenuItem,
   Typography as MuiTypography,
-  Grid
+  Grid,
+  OutlinedInput,
+  Chip
 } from '@mui/material';
 import dayjs from 'dayjs';
 import customParseFormat from 'dayjs/plugin/customParseFormat';
@@ -41,7 +43,6 @@ interface ModalProps {
 
 /**
  * CustomLabel para Recharts
- * Correção: Conversão explícita para número para evitar crash toFixed e suporte total a HH:MM:SS
  */
 export const CustomLabel: React.FC<{
   x?: number;
@@ -55,14 +56,12 @@ export const CustomLabel: React.FC<{
   const { x = 0, y = 0, width = 0, value = 0, exibir = false, formato = 'numero' } = props;
   if (!exibir || value === undefined || value === null) return null;
 
-  // Garantir que o valor é tratado como número (Number() lida com strings numéricas e evita crash se value for null/object)
   const numValue = Number(value);
   if (isNaN(numValue)) return null;
 
   let textoFormatado = '';
   switch (formato) {
     case 'horas':
-      // Converte horas decimais para HH:MM:SS
       const totalSeconds = Math.round(numValue * 3600);
       const h = Math.floor(totalSeconds / 3600);
       const m = Math.floor((totalSeconds % 3600) / 60);
@@ -188,7 +187,6 @@ export const minutesToHhmmss = (totalMinutes: number): string => {
   const m = Math.floor((totalSeconds % 3600) / 60);
   const s = totalSeconds % 60;
   const pad = (n: number) => n.toString().padStart(2, '0');
-  // Suporte a horas > 99
   const hStr = h < 10 ? `0${h}` : h.toString();
   return `${hStr}:${pad(m)}:${pad(s)}`;
 };
@@ -213,7 +211,6 @@ export const TimeInput: React.FC<{
 
   const handleInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     let val = e.target.value.replace(/\D/g, '');
-    // Permite até 8 dígitos (999.999:59:59) para metas gigantescas
     if (val.length > 8) val = val.slice(0, 8);
     
     let formatted = val;
@@ -614,13 +611,15 @@ export const BaseModal: React.FC<ModalProps> = ({ isOpen, onClose, onSave, title
   );
 };
 
-export const UserModal: React.FC<ModalProps & { availableBases?: Base[] }> = ({ isOpen, onClose, onSave, title, initialData, availableBases = [] }) => {
+export const UserModal: React.FC<ModalProps & { availableBases?: Base[], availableLevels?: NivelAcessoCustomizado[] }> = ({ 
+  isOpen, onClose, onSave, title, initialData, availableBases = [], availableLevels = [] 
+}) => {
   const [formData, setFormData] = useState<any>({ 
     nome: '', 
     email: '', 
     status: 'Ativo', 
     bases: [], 
-    permissao: PermissionLevel.OPERACAO,
+    permissao: 'OPERACIONAL',
     jornadaPadrao: 6,
     tipoJornada: 'predefinida'
   });
@@ -631,12 +630,14 @@ export const UserModal: React.FC<ModalProps & { availableBases?: Base[] }> = ({ 
       setFormData({
         ...initialData,
         tipoJornada: isPredefined ? 'predefinida' : 'customizada',
-        status: initialData.status || 'Ativo'
+        status: initialData.status || 'Ativo',
+        bases: initialData.bases || [],
+        permissao: initialData.permissao || initialData.basesAssociadas?.[0]?.nivelAcesso || 'OPERACIONAL'
       });
     } else {
       setFormData({ 
         nome: '', email: '', status: 'Ativo', bases: [], 
-        permissao: PermissionLevel.OPERACAO, jornadaPadrao: 6, tipoJornada: 'predefinida' 
+        permissao: 'OPERACIONAL', jornadaPadrao: 6, tipoJornada: 'predefinida' 
       });
     }
   }, [initialData, isOpen]);
@@ -650,8 +651,6 @@ export const UserModal: React.FC<ModalProps & { availableBases?: Base[] }> = ({ 
         tipoJornada: valor,
         jornadaPadrao: valor === 'predefinida' ? 6 : formData.jornadaPadrao
       });
-    } else if (campo === 'selectedBase') {
-      setFormData({ ...formData, bases: valor ? [valor] : [] });
     } else {
       setFormData({ ...formData, [campo]: valor });
     }
@@ -660,7 +659,7 @@ export const UserModal: React.FC<ModalProps & { availableBases?: Base[] }> = ({ 
   const handleLocalSave = () => {
     if (!formData.nome?.trim()) { alert('Nome é obrigatório'); return; }
     if (!formData.email?.trim()) { alert('Email é obrigatório'); return; }
-    if (formData.bases.length === 0) { alert('Base é obrigatória'); return; }
+    if (!formData.bases || formData.bases.length === 0) { alert('Pelo menos uma base é obrigatória'); return; }
     if (!formData.jornadaPadrao) { alert('Jornada é obrigatória'); return; }
     if (!formData.status) { alert('Status é obrigatório'); return; }
 
@@ -670,8 +669,6 @@ export const UserModal: React.FC<ModalProps & { availableBases?: Base[] }> = ({ 
       jornadaPadrao: Number(String(formData.jornadaPadrao).replace(',', '.'))
     });
   };
-
-  const selectedBaseId = formData.bases?.[0] || '';
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
@@ -703,15 +700,26 @@ export const UserModal: React.FC<ModalProps & { availableBases?: Base[] }> = ({ 
           />
 
           <FormControl fullWidth required>
-            {/* Fix: Explicit children for InputLabel to satisfy strict type checking */}
-            <InputLabel children="Base Operacional" />
+            <InputLabel children="Bases Operacionais" />
             <Select
-              value={selectedBaseId}
-              onChange={(e) => handleFieldChange('selectedBase', e.target.value)}
-              label="Base Operacional"
+              multiple
+              value={formData.bases || []}
+              onChange={(e) => handleFieldChange('bases', e.target.value)}
+              input={<OutlinedInput label="Bases Operacionais" />}
+              renderValue={(selected) => (
+                <MuiBox sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                  {(selected as string[]).map((value) => (
+                    <Chip 
+                      key={value} 
+                      label={availableBases.find(b => b.id === value)?.sigla || value} 
+                      size="small" 
+                      sx={{ fontWeight: 800, fontSize: '0.65rem' }}
+                    />
+                  ))}
+                </MuiBox>
+              )}
               sx={{ borderRadius: '1rem' }}
             >
-              <MenuItem value=""><em>Selecione uma base</em></MenuItem>
               {availableBases.map((base) => (
                 <MenuItem key={base.id} value={base.id}>{base.sigla} - {base.nome}</MenuItem>
               ))}
@@ -719,18 +727,29 @@ export const UserModal: React.FC<ModalProps & { availableBases?: Base[] }> = ({ 
           </FormControl>
 
           <FormControl fullWidth>
-            {/* Fix: Explicit children for InputLabel to satisfy strict type checking */}
-            <InputLabel children="Nível de Permissão" />
+            <InputLabel children="Nível de Acesso (Perfil)" />
             <Select
               value={formData.permissao}
               onChange={(e) => handleFieldChange('permissao', e.target.value)}
-              label="Nível de Permissão"
+              label="Nível de Acesso (Perfil)"
               sx={{ borderRadius: '1rem' }}
+              renderValue={(selectedId) => {
+                const nivel = availableLevels.find(n => n.id === selectedId);
+                return nivel ? nivel.nome : selectedId;
+              }}
             >
-              <MenuItem value={PermissionLevel.OPERACAO}>Operação</MenuItem>
-              <MenuItem value={PermissionLevel.LIDER}>Líder</MenuItem>
-              <MenuItem value={PermissionLevel.GESTOR}>Gestor</MenuItem>
-              <MenuItem value={PermissionLevel.ADMIN}>Administrador</MenuItem>
+              {availableLevels && availableLevels.length > 0 ? availableLevels.map((nivel) => (
+                <MenuItem key={nivel.id} value={nivel.id}>
+                  <MuiBox sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                    <MuiTypography sx={{ fontWeight: 800, fontSize: '0.85rem' }}>{nivel.nome}</MuiTypography>
+                    {nivel.tipo === 'PADRÃO' && (
+                      <Chip label="SISTEMA" size="small" sx={{ height: 16, fontSize: '0.5rem', fontWeight: 900, ml: 1, bgcolor: '#f3f4f6' }} />
+                    )}
+                  </MuiBox>
+                </MenuItem>
+              )) : (
+                <MenuItem disabled value="">Nenhum perfil carregado</MenuItem>
+              )}
             </Select>
           </FormControl>
 
@@ -741,7 +760,6 @@ export const UserModal: React.FC<ModalProps & { availableBases?: Base[] }> = ({ 
             
             <div className="space-y-4">
               <FormControl fullWidth size="small">
-                {/* Fix: Explicit children for InputLabel to satisfy strict type checking */}
                 <InputLabel children="Tipo de Jornada" />
                 <Select
                   value={formData.tipoJornada}
@@ -756,7 +774,6 @@ export const UserModal: React.FC<ModalProps & { availableBases?: Base[] }> = ({ 
 
               {formData.tipoJornada === 'predefinida' ? (
                 <FormControl fullWidth size="small">
-                  {/* Fix: Explicit children for InputLabel to satisfy strict type checking */}
                   <InputLabel children="Jornada" />
                   <Select
                     value={formData.jornadaPadrao}
@@ -787,7 +804,6 @@ export const UserModal: React.FC<ModalProps & { availableBases?: Base[] }> = ({ 
           </MuiBox>
 
           <FormControl fullWidth required>
-            {/* Fix: Explicit children for InputLabel to satisfy strict type checking */}
             <InputLabel children="Status do Usuário" />
             <Select
               value={formData.status}
@@ -876,9 +892,9 @@ export const ControlItemSettingsModal: React.FC<{ isOpen: boolean; onClose: () =
 
   if (!isOpen) return null;
 
-  const renderConfigSection = (level: 'verde' | 'amarelo' | 'vermelho', colorClass: string) => (
+  const renderConfigSection = (level: 'verde' | 'amarelo' | 'vermelho', BirdColorClass: string) => (
     <div className={`space-y-5 animate-in fade-in slide-in-from-right-2 duration-200`}>
-       <div className={`p-4 rounded-2xl border-l-4 ${colorClass} bg-gray-50 flex justify-between items-center shadow-sm`}>
+       <div className={`p-4 rounded-2xl border-l-4 ${BirdColorClass} bg-gray-50 flex justify-between items-center shadow-sm`}>
           <div className="flex items-center space-x-3">
              <Palette className="w-5 h-5 text-gray-400" /> 
              <span className="font-black text-[10px] uppercase tracking-widest text-gray-600">Status do Nível {level.toUpperCase()}</span>
@@ -974,7 +990,7 @@ export const ControlItemSettingsModal: React.FC<{ isOpen: boolean; onClose: () =
   );
 };
 
-const TabSelector: React.FC<{label: string, active: boolean, onClick: () => void, colorClass: string, BirdText: string, activeBg: string}> = ({ label, active, onClick, colorClass, activeText, activeBg }) => (
+const TabSelector: React.FC<{label: string, active: boolean, onClick: () => void, colorClass: string, activeText?: string, activeBg: string}> = ({ label, active, onClick, colorClass, activeText = '', activeBg }) => (
   <button onClick={onClick} className={`flex-1 py-3 px-4 rounded-xl flex items-center justify-center space-x-2 border transition-all ${active ? `${activeBg} border-transparent shadow-sm` : 'bg-white border-gray-100 text-gray-400 hover:bg-gray-50'}`}>
     <div className={`w-2 h-2 rounded-full ${active ? colorClass : 'bg-gray-300'}`} />
     <span className={`text-[10px] font-black uppercase tracking-widest ${active ? activeText : ''}`}>{label}</span>
@@ -1005,7 +1021,6 @@ export const CategoryModal: React.FC<ModalProps> = ({ isOpen, onClose, onSave, t
           
           <MuiBox sx={{ mb: 2 }}>
             <FormControl fullWidth size="small">
-              {/* Fix: Explicit children for InputLabel to satisfy strict type checking */}
               <InputLabel children="Formato de Exibição" />
               <Select
                 value={formData.exibicao}

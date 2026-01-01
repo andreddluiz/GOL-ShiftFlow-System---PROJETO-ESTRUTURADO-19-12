@@ -2,14 +2,16 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import {
   Box, Card, CardContent, Typography, Tabs, Tab, TextField, Button, Table, TableBody, TableCell,
-  TableContainer, TableHead, TableRow, Paper, Grid, FormControl, InputLabel, Select, MenuItem, Chip, IconButton
+  TableContainer, TableHead, TableRow, Paper, Grid, FormControl, InputLabel, Select, MenuItem, Chip, Alert
 } from '@mui/material';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, LabelList, ReferenceLine } from 'recharts';
-import { FileDown, FileText, Trophy, Target, ArrowUpDown, Filter, Sigma, Calendar, Clock } from 'lucide-react';
+import { Trophy, Target, ArrowUpDown, Filter, Sigma, Calendar, Clock } from 'lucide-react';
 import dayjs from 'dayjs';
 import { useStore } from '../hooks/useStore';
 import { baseService } from '../services';
 import { CustomLabel, minutesToHhmmss } from '../modals';
+import { authService } from '../services/authService';
+import { dataAccessControlService } from '../services/dataAccessControlService';
 
 interface ProducaoBase {
   baseId: string;
@@ -42,9 +44,9 @@ function buscarDadosReais(chave: string): any[] {
 
 export const RelatorioProducaoPorBase: React.FC = () => {
   const { bases, initialized, refreshData } = useStore();
+  const [usuario] = useState(() => authService.obterUsuarioAutenticado());
   const [abaAtiva, setAbaAtiva] = useState(0);
   
-  // Ajuste de filtros para MM:AAAA (Solicitação 3)
   const [mesInicio, setMesInicio] = useState(dayjs().startOf('year').format('YYYY-MM'));
   const [mesFim, setMesFim] = useState(dayjs().format('YYYY-MM'));
   
@@ -55,9 +57,25 @@ export const RelatorioProducaoPorBase: React.FC = () => {
   const [dadosMensais, setDadosMensais] = useState<any[]>([]);
   const [metasBase, setMetasBase] = useState<Record<string, number>>({});
 
+  // Filtragem de bases permitidas para o seletor
+  const basesAcessiveis = useMemo(() => dataAccessControlService.obterBasesAcessiveis(usuario, bases), [usuario, bases]);
+
   useEffect(() => { if (!initialized) refreshData(); }, [initialized, refreshData]);
-  useEffect(() => { if (bases.length > 0 && basesFiltro.length === 0) setBasesFiltro(bases.map(b => b.id)); }, [bases]);
-  useEffect(() => { setDadosDiarios(buscarDadosReais('gol_rep_detalhamento')); setDadosMensais(buscarDadosReais('gol_rep_mensal_detalhado')); }, []);
+  
+  useEffect(() => { 
+    if (basesAcessiveis.length > 0 && basesFiltro.length === 0) {
+      setBasesFiltro(basesAcessiveis.map(b => b.id)); 
+    }
+  }, [basesAcessiveis]);
+
+  useEffect(() => { 
+    const diariosRaw = buscarDadosReais('gol_rep_detalhamento'); 
+    const mensaisRaw = buscarDadosReais('gol_rep_mensal_detalhado'); 
+    
+    setDadosDiarios(dataAccessControlService.filtrarDadosPorPermissao(diariosRaw, usuario)); 
+    setDadosMensais(dataAccessControlService.filtrarDadosPorPermissao(mensaisRaw, usuario)); 
+  }, [usuario]);
+
   useEffect(() => { const mesNum = dayjs(mesFim).month() + 1; baseService.obterMetasTodasAsBases(mesNum).then(setMetasBase); }, [mesFim]);
 
   const processarDados = (diario: boolean, mensal: boolean) => {
@@ -69,6 +87,7 @@ export const RelatorioProducaoPorBase: React.FC = () => {
       dadosDiarios.filter(d => {
         const parts = d.data.split('/');
         const dDate = dayjs(`${parts[2]}-${parts[1]}-01`);
+        // O dado já vem filtrado por permissão do useEffect anterior, aqui filtramos por seletor
         return basesFiltro.includes(d.baseId) && (dDate.isSame(startLimit) || dDate.isAfter(startLimit)) && (dDate.isSame(endLimit) || dDate.isBefore(endLimit));
       }).forEach(d => {
         const b = bases.find(base => base.id === d.baseId); if (!b) return;
@@ -138,11 +157,24 @@ export const RelatorioProducaoPorBase: React.FC = () => {
           <Grid container spacing={2} alignItems="center">
             <Grid item xs={12} md={3}><TextField label="Mês Início" type="month" value={mesInicio} onChange={e => setMesInicio(e.target.value)} InputLabelProps={{ shrink: true }} fullWidth size="small" /></Grid>
             <Grid item xs={12} md={3}><TextField label="Mês Fim" type="month" value={mesFim} onChange={e => setMesFim(e.target.value)} InputLabelProps={{ shrink: true }} fullWidth size="small" /></Grid>
-            <Grid item xs={12} md={3}><FormControl fullWidth size="small"><InputLabel children="Bases" /><Select multiple value={basesFiltro} onChange={e => setBasesFiltro(e.target.value as string[])} label="Bases" renderValue={s => <Box sx={{ display: 'flex', gap: 0.5 }}>{s.map(v => <Chip key={v} label={bases.find(b => b.id === v)?.sigla} size="small" sx={{ fontWeight: 800, height: 20 }} />)}</Box>}>{bases.map(b => <MenuItem key={b.id} value={b.id}>{b.sigla}</MenuItem>)}</Select></FormControl></Grid>
+            <Grid item xs={12} md={3}>
+              <FormControl fullWidth size="small">
+                <InputLabel children="Bases" />
+                <Select multiple value={basesFiltro} onChange={e => setBasesFiltro(e.target.value as string[])} label="Bases" renderValue={s => <Box sx={{ display: 'flex', gap: 0.5 }}>{s.map(v => <Chip key={v} label={bases.find(b => b.id === v)?.sigla} size="small" sx={{ fontWeight: 800, height: 20 }} />)}</Box>}>
+                  {basesAcessiveis.map(b => <MenuItem key={b.id} value={b.id}>{b.sigla}</MenuItem>)}
+                </Select>
+              </FormControl>
+            </Grid>
             <Grid item xs={12} md={3}><FormControl fullWidth size="small"><InputLabel children="Ordem" /><Select value={ordenacao} onChange={e => setOrdenacao(e.target.value)} label="Ordem"><MenuItem value="producao-desc">Produção (-)</MenuItem><MenuItem value="producao-asc">Produção (+)</MenuItem><MenuItem value="base-az">A-Z</MenuItem></Select></FormControl></Grid>
           </Grid>
         </CardContent>
       </Card>
+
+      {usuario?.perfil !== 'ADMINISTRADOR' && (
+        <Alert severity="info" sx={{ fontWeight: 800, borderRadius: 4 }}>
+          Visualizando relatórios consolidados de suas unidades acessíveis ({basesAcessiveis.length}).
+        </Alert>
+      )}
 
       <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
         <Tabs value={abaAtiva} onChange={(_, v) => setAbaAtiva(v)} textColor="primary" indicatorColor="primary">
@@ -158,7 +190,7 @@ export const RelatorioProducaoPorBase: React.FC = () => {
         <ResumoCard title="Variação" value={resumo.diff} icon={<ArrowUpDown className="text-purple-500" />} />
       </Grid>
 
-      <Card container sx={{ borderRadius: 4, border: '1px solid #f3f4f6', boxShadow: 'none' }}>
+      <Card sx={{ borderRadius: 4, border: '1px solid #f3f4f6', boxShadow: 'none' }}>
         <CardContent>
           <TableContainer component={Paper} sx={{ boxShadow: 'none' }}>
             <Table size="small">
@@ -183,6 +215,9 @@ export const RelatorioProducaoPorBase: React.FC = () => {
                     <TableCell align="right"><Chip label={`${row.performance.toFixed(1)}%`} size="small" color={row.performance >= 80 ? "success" : "warning"} sx={{ fontWeight: 900 }} /></TableCell>
                   </TableRow>
                 ))}
+                {dadosAtivos.length === 0 && (
+                  <TableRow><TableCell colSpan={6} align="center" sx={{ py: 4, fontWeight: 800, color: 'gray' }}>Nenhum dado encontrado para as bases selecionadas.</TableCell></TableRow>
+                )}
               </TableBody>
             </Table>
           </TableContainer>
@@ -210,7 +245,6 @@ export const RelatorioProducaoPorBase: React.FC = () => {
                     {abaAtiva === 0 ? (
                       <>
                         <Bar name="Diária" dataKey="diaria" stackId="a" fill="#FF5A00">
-                          {/* Rótulo dentro da barra (Solicitação 1) */}
                           <LabelList dataKey="diaria" position="insideRight" content={<CustomLabel exibir={exibirRotulos} formato="horas" />} />
                         </Bar>
                         <Bar name="Mensal" dataKey="mensal" stackId="a" fill="#0ea5e9" radius={[0, 4, 4, 0]}>
@@ -233,12 +267,11 @@ export const RelatorioProducaoPorBase: React.FC = () => {
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={dadosAtivos.map(d => ({ name: d.sigla, value: d.performance }))} margin={{ top: 30, right: 30, left: 0, bottom: 10 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                    <XAxis dataKey="name" axisLine={false} tickLine={false} style={{ fontSize: '11px', fontWeight: 900 }} />
+                    <XAxis dataKey="name" axisLine={false} tickLine={false} style={{ fontSize: '10px', fontWeight: 900 }} />
                     <YAxis hide domain={[0, 120]} />
                     <Tooltip />
                     <Bar dataKey="value" radius={[4, 4, 0, 0]}>
                        {dadosAtivos.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.performance >= 80 ? '#10b981' : '#f59e0b'} />)}
-                       {/* Rótulo dentro da barra (Solicitação 1) */}
                        <LabelList dataKey="value" position="insideTop" content={<CustomLabel exibir={exibirRotulos} formato="percentual" />} />
                     </Bar>
                     <ReferenceLine y={100} stroke="#10b981" strokeDasharray="3 3" />

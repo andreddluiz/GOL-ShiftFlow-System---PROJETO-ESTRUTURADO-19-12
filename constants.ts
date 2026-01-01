@@ -39,7 +39,7 @@ export const BASES: Base[] = [
 export const USERS: User[] = [
   { id: 'u1', nome: 'João Silva (POA)', email: 'joao.poa@gol.com.br', bases: ['poa'], permissao: PermissionLevel.OPERACAO, status: 'Ativo', jornadaPadrao: 6 },
   { id: 'u2', nome: 'Maria Santos (POA)', email: 'maria.poa@gol.com.br', bases: ['poa'], permissao: PermissionLevel.LIDER, status: 'Ativo', jornadaPadrao: 6 },
-  { id: 'u5', nome: 'Fernanda Lima (GRU)', email: 'fernanda.gru@gol.com.br', bases: ['gru'], permissao: PermissionLevel.GESTOR, status: 'Ativo', jornadaPadrao: 12 },
+  { id: 'u5', nome: 'Fernanda Lima (GRU)', email: 'fernanda.gru@gol.com.br', bases: ['gru'], permissao: PermissionLevel.ANALISTA, status: 'Ativo', jornadaPadrao: 12 },
 ];
 
 export const CATEGORIES: Category[] = [

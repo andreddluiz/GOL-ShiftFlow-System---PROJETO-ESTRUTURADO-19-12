@@ -1,29 +1,40 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import {
-  Box, Card, CardContent, Typography, TextField, Button, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Grid, FormControl, InputLabel, Select, MenuItem, Chip, IconButton
+  Box, Card, CardContent, Typography, TextField, Button, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Grid, FormControl, InputLabel, Select, MenuItem, Chip, Alert
 } from '@mui/material';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LabelList } from 'recharts';
-import { Clock, TrendingUp, Target, Calendar, Zap } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList } from 'recharts';
+import { Clock, Target, Calendar, Zap } from 'lucide-react';
 import dayjs from 'dayjs';
 import { baseService } from '../services';
 import { CustomLabel, minutesToHhmmss, hhmmssToMinutes } from '../modals';
+import { authService } from '../services/authService';
+import { dataAccessControlService } from '../services/dataAccessControlService';
 
 export const PerformanceTurnoReport: React.FC<{ baseId?: string }> = ({ baseId }) => {
-  // Ajuste de filtro para mês (Solicitação 3)
+  const [usuario] = useState(() => authService.obterUsuarioAutenticado());
   const [mesFiltro, setMesFiltro] = useState(dayjs().format('YYYY-MM'));
   const [turnosFiltro, setTurnosFiltro] = useState<string[]>(['1', '2', '3', '4']);
   const [exibirRotulos, setExibirRotulos] = useState(false);
   const [metaBase, setMetaBase] = useState<number>(160);
 
+  // Validação de acesso à base informada
+  // Fix: Corrected typo from dataAccessControlControlService to dataAccessControlService
+  const isBasePermitida = useMemo(() => baseId ? dataAccessControlService.podeAcessarBase(usuario, baseId) : false, [usuario, baseId]);
+
   useEffect(() => { 
-    if (baseId) { 
+    if (baseId && isBasePermitida) { 
       const mesNum = dayjs(mesFiltro).month() + 1; 
       baseService.obterMetaHoras(baseId, mesNum).then(setMetaBase); 
     } 
-  }, [baseId, mesFiltro]);
+  }, [baseId, mesFiltro, isBasePermitida]);
 
-  const dadosBrutos = useMemo(() => { const raw = localStorage.getItem('gol_rep_detalhamento'); return raw ? JSON.parse(raw) : []; }, []);
+  const dadosBrutos = useMemo(() => { 
+    const raw = localStorage.getItem('gol_rep_detalhamento'); 
+    let parsed = raw ? JSON.parse(raw) : []; 
+    // Filtro de segurança baseado em permissão
+    return dataAccessControlService.filtrarDadosPorPermissao(parsed, usuario);
+  }, [usuario]);
 
   const dadosProcessados = useMemo(() => {
     const map: Record<string, any> = {};
@@ -54,6 +65,10 @@ export const PerformanceTurnoReport: React.FC<{ baseId?: string }> = ({ baseId }
     const mais = [...dadosProcessados].sort((a,b) => b.totalHoras - a.totalHoras)[0];
     return { total: minutesToHhmmss(totalMin), perf: perfMedia.toFixed(1) + '%', top: mais?.label || '-' };
   }, [dadosProcessados]);
+
+  if (baseId && !isBasePermitida) {
+    return <Alert severity="error">Você não possui permissão para visualizar dados desta base.</Alert>;
+  }
 
   return (
     <Box>
@@ -89,7 +104,6 @@ export const PerformanceTurnoReport: React.FC<{ baseId?: string }> = ({ baseId }
                     <YAxis axisLine={false} tickLine={false} style={{ fontSize: '10px' }} />
                     <Tooltip formatter={(v: number) => minutesToHhmmss(v * 60)} />
                     <Bar name="Produção" dataKey="prod" fill="#FF5A00" radius={[4, 4, 0, 0]}>
-                      {/* Rótulo dentro da barra (Solicitação 1) */}
                       <LabelList dataKey="prod" position="insideTop" content={<CustomLabel exibir={exibirRotulos} formato="horas" />} />
                     </Bar>
                   </BarChart>

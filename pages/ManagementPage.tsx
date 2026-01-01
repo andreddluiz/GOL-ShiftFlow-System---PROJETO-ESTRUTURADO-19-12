@@ -3,23 +3,27 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { 
   MapPin, Users as UsersIcon, ClipboardList, CalendarDays,
   Plus, Edit2, Trash2, Globe, Settings2, ShieldAlert,
-  CheckCircle, AlertCircle, RotateCcw, Archive, Search
+  CheckCircle, AlertCircle, RotateCcw, Archive, Search, ShieldCheck, Lock, ChevronRight
 } from 'lucide-react';
 import { 
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, 
-  Paper, IconButton, Tooltip, TextField, Typography, Box, TablePagination, Chip
+  Paper, IconButton, Tooltip, TextField, Typography, Box, TablePagination, Chip,
+  Grid, Card, CardContent, Button, Dialog, DialogTitle, DialogContent, DialogActions,
+  Switch, Alert
 } from '@mui/material';
-import { Base, User, Category, Task } from '../types';
+import { Base, User, Category, Task, Usuario, NivelAcessoCustomizado, PermissaoItem } from '../types';
 import { 
-  baseService, userService, taskService, categoryService 
+  baseService, taskService, categoryService 
 } from '../services';
+import { authService } from '../services/authService';
+import { permissaoCustomizavelService } from '../services/permissaoCustomizavelService';
 import { 
   BaseModal, UserModal, TaskModal, CategoryModal, ConfirmModal, minutesToHhmmss
 } from '../modals';
 import { useStore } from '../hooks/useStore';
 import ManagementControlsAlertsPage from './ManagementControlsAlertsPage';
 
-type ManagementTab = 'bases' | 'users' | 'tasks_op' | 'tasks_month' | 'alerts';
+type ManagementTab = 'bases' | 'users' | 'tasks_op' | 'tasks_month' | 'alerts' | 'permissions';
 type ContextType = 'global' | 'base';
 
 const ManagementPage: React.FC = () => {
@@ -29,9 +33,19 @@ const ManagementPage: React.FC = () => {
   const [showInactive, setShowInactive] = useState(false);
   
   const { 
-    bases, users, tasks, categories, 
+    bases, tasks, categories, 
     refreshData 
   } = useStore();
+
+  const [usuariosUnificados, setUsuariosUnificados] = useState<Usuario[]>([]);
+
+  // Estados para Gestão de Permissões (Restaurado)
+  const [niveis, setNiveis] = useState<NivelAcessoCustomizado[]>([]);
+  const [nivelSelecionado, setNivelSelecionado] = useState<NivelAcessoCustomizado | null>(null);
+  const [dialogNovoPerfilAberto, setDialogNovoPerfilAberto] = useState(false);
+  const [novoPerfilNome, setNovoPerfilNome] = useState('');
+  const [novoPerfilDesc, setNovoPerfilDesc] = useState('');
+  const [duplicarDeId, setDuplicarDeId] = useState('');
 
   const [modalState, setModalState] = useState<{
     open: boolean,
@@ -65,8 +79,22 @@ const ManagementPage: React.FC = () => {
     setTimeout(() => setSnackbar(prev => ({ ...prev, open: false })), 4000);
   };
 
+  const carregarUsuarios = () => {
+    const userLogado = authService.obterUsuarioAutenticado();
+    const data = authService.listarUsuarios(userLogado?.perfil || 'ADMINISTRADOR');
+    setUsuariosUnificados(data);
+  };
+
+  const carregarNiveis = () => {
+    const data = permissaoCustomizavelService.listarNiveis();
+    setNiveis(data);
+    if (data.length > 0 && !nivelSelecionado) setNivelSelecionado(data[0]);
+  };
+
   useEffect(() => {
     refreshData();
+    carregarUsuarios();
+    carregarNiveis();
   }, [managementContext, contextBaseId, activeTab, refreshData]);
 
   const handleSave = async (formData: any) => {
@@ -79,8 +107,41 @@ const ManagementPage: React.FC = () => {
         if (editingItem) await baseService.update(editingItem.id, formData);
         else await baseService.create(formData);
       } else if (type === 'users') {
-        if (editingItem) await userService.update(editingItem.id, formData);
-        else await userService.create(formData);
+        const userLogado = authService.obterUsuarioAutenticado();
+        if (editingItem) {
+          const userUnificado: Usuario = {
+            ...editingItem,
+            ...formData,
+            basesAssociadas: formData.bases.map((bId: string) => ({
+              baseId: bId,
+              nivelAcesso: formData.permissao,
+              ativo: formData.status === 'Ativo',
+              dataCriacao: editingItem.dataCriacao || new Date().toISOString(),
+              dataAtualizacao: new Date().toISOString()
+            })),
+            ativo: formData.status === 'Ativo'
+          };
+          authService.atualizarUsuario(userUnificado, userLogado?.perfil || 'ADMINISTRADOR');
+        } else {
+          const novoUser: any = {
+            ...formData,
+            id: `u-${Date.now()}`,
+            basesAssociadas: formData.bases.map((bId: string) => ({
+              baseId: bId,
+              nivelAcesso: formData.permissao,
+              ativo: formData.status === 'Ativo',
+              dataCriacao: new Date().toISOString(),
+              dataAtualizacao: new Date().toISOString()
+            })),
+            ativo: formData.status === 'Ativo',
+            dataCriacao: new Date().toISOString()
+          };
+          const raw = localStorage.getItem('gol_shiftflow_users_v2');
+          const list = raw ? JSON.parse(raw) : [];
+          list.push(novoUser);
+          localStorage.setItem('gol_shiftflow_users_v2', JSON.stringify(list));
+        }
+        carregarUsuarios();
       } else if (type === 'category_op' || type === 'category_month') {
         if (editingItem) await categoryService.update(editingItem.id, { ...dataWithContext, visivel: editingItem.visivel ?? true });
         else await categoryService.create({ ...dataWithContext, tipo: type === 'category_op' ? 'operacional' : 'mensal', visivel: true });
@@ -101,72 +162,87 @@ const ManagementPage: React.FC = () => {
     }
   };
 
-  const handleArchive = (id: string, type: string, currentItem?: any) => {
-    const isCategory = type.includes('category');
-    const label = isCategory ? 'categoria' : 'tarefa';
-    
-    setConfirmModal({
-      open: true,
-      title: 'Arquivar Item',
-      message: `Deseja arquivar/ocultar a ${label} "${currentItem?.nome || 'este item'}"?\nEla deixará de aparecer na Passagem de Turno, mas continuará disponível para edição no gerenciamento.`,
-      type: 'warning',
-      onConfirm: async () => {
-        try {
-          if (isCategory) {
-            await categoryService.update(id, { visivel: false });
-            showSnackbar('Categoria arquivada com sucesso');
-          } else {
-            await taskService.update(id, { visivel: false });
-            showSnackbar('Tarefa arquivada com sucesso');
-          }
-          await refreshData();
-        } catch (e) {
-          showSnackbar(`Erro ao ocultar ${label}`, 'error');
-        }
-      }
-    });
-  };
-
-  const handleReactivate = async (id: string, type: string) => {
-    const isCategory = type.includes('category');
-    try {
-      if (isCategory) {
-        await categoryService.update(id, { visivel: true });
-        showSnackbar('Categoria reativada!');
-      } else {
-        await taskService.update(id, { visivel: true });
-        showSnackbar('Tarefa reativada!');
-      }
-      await refreshData();
-    } catch (e) {
-      showSnackbar('Erro ao reativar item', 'error');
-    }
-  };
-
   const handleDeletePermanent = (id: string, type: string, currentItem?: any) => {
-    const isCategory = type.includes('category');
-    const isTask = type === 'task_modal';
-    const label = isCategory ? 'categoria' : (isTask ? 'tarefa' : 'item');
-
     setConfirmModal({
       open: true,
       title: 'Remover Permanentemente',
-      message: `Deseja excluir a ${label} "${currentItem?.nome || 'este item'}"?\n\nAtenção: O item será removido das listas de gerenciamento e operação, mas todos os registros históricos feitos até hoje serão preservados nos relatórios.`,
+      message: `Deseja excluir "${currentItem?.nome || 'este item'}"?`,
       type: 'danger',
       onConfirm: async () => {
         try {
           if (type === 'bases') await baseService.delete(id);
-          else if (type === 'users') await userService.delete(id);
-          else if (isCategory) await categoryService.delete(id);
-          else if (isTask) await taskService.delete(id);
+          else if (type === 'users') {
+             const raw = localStorage.getItem('gol_shiftflow_users_v2');
+             const list = raw ? JSON.parse(raw) : [];
+             const filtered = list.filter((u: any) => u.id !== id);
+             localStorage.setItem('gol_shiftflow_users_v2', JSON.stringify(filtered));
+             carregarUsuarios();
+          }
+          else if (type.includes('category')) await categoryService.delete(id);
+          else if (type === 'task_modal') await taskService.delete(id);
           
-          showSnackbar(`${label.charAt(0).toUpperCase() + label.slice(1)} removida com sucesso`);
+          showSnackbar(`Item removido com sucesso`);
           await refreshData();
         } catch (e) {
           showSnackbar('Erro ao excluir item', 'error');
         }
       }
     });
+  };
+
+  // Funções de Gestão de Permissões Restauradas
+  const handleCriarPerfil = () => {
+    if (!novoPerfilNome) return;
+    const novoId = `CUSTOM_${Date.now()}`;
+    
+    if (duplicarDeId) {
+      permissaoCustomizavelService.duplicarNivel(duplicarDeId, novoId, novoPerfilNome);
+    } else {
+      const novoNivel: NivelAcessoCustomizado = {
+        id: novoId,
+        nome: novoPerfilNome,
+        descricao: novoPerfilDesc,
+        tipo: 'CUSTOMIZADO',
+        ativo: true,
+        dataCriacao: new Date().toISOString(),
+        dataAtualizacao: new Date().toISOString(),
+        permissoes: {}
+      };
+      permissaoCustomizavelService.salvarNivel(novoNivel);
+    }
+    
+    carregarNiveis();
+    setDialogNovoPerfilAberto(false);
+    setNovoPerfilNome(''); setNovoPerfilDesc(''); setDuplicarDeId('');
+    showSnackbar('Novo perfil criado com sucesso!');
+  };
+
+  const handleDeletarPerfil = (id: string) => {
+    setConfirmModal({
+        open: true,
+        title: 'Excluir Perfil de Acesso',
+        message: 'Tem certeza que deseja excluir permanentemente este perfil? Usuários associados a ele poderão perder acesso.',
+        type: 'danger',
+        onConfirm: () => {
+            permissaoCustomizavelService.deletarNivel(id);
+            carregarNiveis();
+            setNivelSelecionado(niveis[0]);
+            showSnackbar('Perfil excluído com sucesso');
+        }
+    });
+  };
+
+  const handleTogglePermissao = (permId: string, value: boolean) => {
+    if (!nivelSelecionado || nivelSelecionado.tipo === 'PADRÃO') return;
+    
+    const atualizado = {
+      ...nivelSelecionado,
+      permissoes: { ...nivelSelecionado.permissoes, [permId]: value }
+    };
+    
+    permissaoCustomizavelService.salvarNivel(atualizado);
+    setNivelSelecionado(atualizado);
+    setNiveis(niveis.map(n => n.id === atualizado.id ? atualizado : n));
   };
 
   const filteredCategories = useMemo(() => 
@@ -188,6 +264,8 @@ const ManagementPage: React.FC = () => {
     [tasks, managementContext, contextBaseId, showInactive]
   );
 
+  const permissoesAgrupadas = permissaoCustomizavelService.obterPermissoesPorCategoria();
+
   return (
     <div className="space-y-6 relative min-h-[600px] animate-in fade-in">
       {snackbar.open && (
@@ -199,37 +277,11 @@ const ManagementPage: React.FC = () => {
         </div>
       )}
 
-      {activeTab !== 'alerts' && (
-        <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 flex flex-col md:flex-row gap-4 items-center justify-between">
-           <div className="flex bg-gray-100 p-1 rounded-xl w-full md:w-auto">
-              <button onClick={() => setManagementContext('global')} className={`flex-1 md:flex-none flex items-center justify-center space-x-2 px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${managementContext === 'global' ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}>
-                <Globe className="w-4 h-4" /><span>Global</span>
-              </button>
-              <button onClick={() => setManagementContext('base')} className={`flex-1 md:flex-none flex items-center justify-center space-x-2 px-6 py-2.5 rounded-lg text-sm font-bold transition-all ${managementContext === 'base' ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}>
-                <Settings2 className="w-4 h-4" /><span>Por Base</span>
-              </button>
-           </div>
-           <div className="flex items-center space-x-4">
-             {(activeTab === 'tasks_op' || activeTab === 'tasks_month') && (
-                <label className="flex items-center space-x-2 cursor-pointer p-2 rounded-lg hover:bg-gray-50 group">
-                  <input type="checkbox" className="w-4 h-4 accent-orange-500" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} />
-                  <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest group-hover:text-orange-600 transition-colors">Exibir Arquivados</span>
-                </label>
-             )}
-             {managementContext === 'base' && (activeTab !== 'bases' && activeTab !== 'users') && (
-               <select value={contextBaseId} onChange={(e) => setContextBaseId(e.target.value)} className="w-full md:w-64 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-bold text-gray-700 outline-none focus:ring-2 focus:ring-orange-100 transition-all">
-                 <option value="">Selecione a Base...</option>
-                 {bases.map(b => <option key={b.id} value={b.id}>{b.sigla}</option>)}
-               </select>
-             )}
-           </div>
-        </div>
-      )}
-
       <div className="bg-white rounded-[2.5rem] shadow-sm overflow-hidden border border-gray-100 min-h-[500px]">
         <div className="flex overflow-x-auto border-b border-gray-100 bg-gray-50/50 scrollbar-hide">
           <TabButton active={activeTab === 'bases'} onClick={() => setActiveTab('bases')} icon={<MapPin className="w-4 h-4" />} label="Bases" />
           <TabButton active={activeTab === 'users'} onClick={() => setActiveTab('users')} icon={<UsersIcon className="w-4 h-4" />} label="Usuários" />
+          <TabButton active={activeTab === 'permissions'} onClick={() => setActiveTab('permissions')} icon={<ShieldCheck className="w-4 h-4" />} label="Níveis de Acesso" />
           <TabButton active={activeTab === 'tasks_op'} onClick={() => setActiveTab('tasks_op')} icon={<ClipboardList className="w-4 h-4" />} label="Tarefas Operacionais" />
           <TabButton active={activeTab === 'tasks_month'} onClick={() => setActiveTab('tasks_month'} icon={<CalendarDays className="w-4 h-4" />} label="Tarefas Mensais" />
           <TabButton active={activeTab === 'alerts'} onClick={() => setActiveTab('alerts')} icon={<ShieldAlert className="w-4 h-4" />} label="Controles & Alertas" />
@@ -249,7 +301,146 @@ const ManagementPage: React.FC = () => {
               <div className="flex justify-end">
                 <button onClick={() => setModalState({ open: true, type: 'users', editingItem: null })} className="bg-orange-600 text-white px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-orange-100 hover:bg-orange-700 transition-all">+ Novo Usuário</button>
               </div>
-              <UsersTable users={users} bases={bases} onEdit={i => setModalState({ open: true, type: 'users', editingItem: i })} onDelete={id => handleDeletePermanent(id, 'users')} />
+              <UsersTable users={usuariosUnificados.map(u => ({
+                id: u.id,
+                nome: u.nome,
+                email: u.email,
+                bases: u.basesAssociadas.map(b => b.baseId),
+                permissao: u.basesAssociadas[0]?.nivelAcesso as any,
+                status: u.ativo ? 'Ativo' : 'Inativo',
+                jornadaPadrao: 6 // Fallback
+              }))} bases={bases} onEdit={i => {
+                const fullUser = usuariosUnificados.find(u => u.id === i.id);
+                setModalState({ open: true, type: 'users', editingItem: fullUser });
+              }} onDelete={id => handleDeletePermanent(id, 'users')} />
+            </div>
+          )}
+
+          {activeTab === 'permissions' && (
+            <div className="animate-in fade-in slide-in-from-bottom-2">
+                <Grid container spacing={4}>
+                    <Grid item xs={12} md={4}>
+                    <Card sx={{ borderRadius: 6, border: '1px solid #f3f4f6', boxShadow: 'none' }}>
+                        <CardContent sx={{ p: 3 }}>
+                        <Button 
+                            fullWidth 
+                            variant="contained" 
+                            color="warning" 
+                            startIcon={<Plus size={18}/>} 
+                            onClick={() => setDialogNovoPerfilAberto(true)} 
+                            sx={{ borderRadius: 3, fontWeight: 900, mb: 3 }}
+                        >
+                            Novo Perfil
+                        </Button>
+                        
+                        <Typography sx={{ fontWeight: 950, fontSize: '0.65rem', color: '#9ca3af', textTransform: 'uppercase', mb: 2, px: 1 }}>Perfis do Sistema</Typography>
+                        
+                        <Box className="space-y-2">
+                            {niveis.map(n => (
+                            <Paper 
+                                key={n.id} 
+                                onClick={() => setNivelSelecionado(n)}
+                                sx={{ 
+                                p: 2, cursor: 'pointer', borderRadius: 4, border: '2px solid',
+                                borderColor: nivelSelecionado?.id === n.id ? '#FF5A00' : 'transparent',
+                                bgcolor: nivelSelecionado?.id === n.id ? '#fff7ed' : '#fff',
+                                transition: 'all 0.2s', boxShadow: 'none',
+                                '&:hover': { bgcolor: '#fffcf9' }
+                                }}
+                            >
+                                <div className="flex justify-between items-start">
+                                <div className="flex-1">
+                                    <Typography sx={{ fontWeight: 900, fontSize: '0.85rem' }}>{n.nome}</Typography>
+                                    <Chip label={n.tipo} size="small" sx={{ height: 18, fontSize: '0.6rem', fontWeight: 900, mt: 0.5, bgcolor: n.tipo === 'PADRÃO' ? '#f3f4f6' : '#e0f2fe' }} />
+                                </div>
+                                {n.tipo === 'CUSTOMIZADO' && (
+                                    <IconButton size="small" color="error" onClick={(e) => { e.stopPropagation(); handleDeletarPerfil(n.id); }}>
+                                    <Trash2 size={14}/>
+                                    </IconButton>
+                                )}
+                                </div>
+                            </Paper>
+                            ))}
+                        </Box>
+                        </CardContent>
+                    </Card>
+                    </Grid>
+
+                    <Grid item xs={12} md={8}>
+                    {nivelSelecionado ? (
+                        <Card sx={{ borderRadius: 6, border: '1px solid #f3f4f6', boxShadow: 'none' }}>
+                        <CardContent sx={{ p: 4 }}>
+                            <div className="flex justify-between items-center mb-6">
+                            <div>
+                                <Typography variant="h6" sx={{ fontWeight: 950 }}>{nivelSelecionado.nome}</Typography>
+                                <Typography variant="body2" sx={{ color: '#6b7280', fontWeight: 600 }}>{nivelSelecionado.descricao}</Typography>
+                            </div>
+                            {nivelSelecionado.tipo === 'PADRÃO' && (
+                                <Chip icon={<Lock size={14}/>} label="Perfil Protegido" size="small" sx={{ fontWeight: 900, bgcolor: '#fef3c7', color: '#92400e' }} />
+                            )}
+                            </div>
+
+                            {nivelSelecionado.tipo === 'PADRÃO' && (
+                            <Alert severity="warning" sx={{ mb: 4, borderRadius: 3, fontWeight: 700 }}>
+                                Perfis padrão não podem ser alterados. Crie um perfil customizado para definir novas regras.
+                            </Alert>
+                            )}
+
+                            <Box className="space-y-6">
+                            {Object.entries(permissoesAgrupadas).map(([cat, perms]) => (
+                                <Box key={cat}>
+                                <Typography sx={{ fontWeight: 950, fontSize: '0.7rem', color: '#ea580c', textTransform: 'uppercase', mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+                                    <ChevronRight size={14}/> {cat}
+                                </Typography>
+                                <Grid container spacing={2}>
+                                    {perms.map(p => (
+                                    <Grid item xs={12} sm={6} key={p.id}>
+                                        <Paper sx={{ p: 2.5, borderRadius: 4, border: '1px solid #f3f4f6', boxShadow: 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                        <Box>
+                                            <Typography sx={{ fontWeight: 800, fontSize: '0.8rem' }}>{p.nome}</Typography>
+                                            <Typography variant="caption" sx={{ color: '#9ca3af', fontWeight: 600 }}>{p.descricao}</Typography>
+                                        </Box>
+                                        <Switch 
+                                            color="warning"
+                                            checked={!!nivelSelecionado.permissoes[p.id]} 
+                                            onChange={e => handleTogglePermissao(p.id, e.target.checked)}
+                                            disabled={nivelSelecionado.tipo === 'PADRÃO'}
+                                        />
+                                        </Paper>
+                                    </Grid>
+                                    ))}
+                                </Grid>
+                                </Box>
+                            ))}
+                            </Box>
+                        </CardContent>
+                        </Card>
+                    ) : (
+                        <Box sx={{ p: 10, textAlign: 'center', bgcolor: 'gray.50', borderRadius: 6, border: '2px dashed #e5e7eb' }}>
+                            <ShieldCheck size={48} className="mx-auto mb-4 text-gray-300" />
+                            <Typography sx={{ fontWeight: 800, color: 'gray.400' }}>Selecione um perfil para ver as permissões</Typography>
+                        </Box>
+                    )}
+                    </Grid>
+                </Grid>
+
+                <Dialog open={dialogNovoPerfilAberto} onClose={() => setDialogNovoPerfilAberto(false)} PaperProps={{ sx: { borderRadius: 6, p: 1 } }}>
+                    <DialogTitle sx={{ fontWeight: 950 }}>Criar Novo Perfil de Acesso</DialogTitle>
+                    <DialogContent>
+                    <TextField fullWidth label="Nome do Perfil" margin="normal" value={novoPerfilNome} onChange={e => setNovoPerfilNome(e.target.value)} placeholder="Ex: Supervisor de Campo" sx={{ mt: 1 }} />
+                    <TextField fullWidth label="Descrição" margin="normal" value={novoPerfilDesc} onChange={e => setNovoPerfilDesc(e.target.value)} multiline rows={2} />
+                    
+                    <Typography sx={{ fontWeight: 900, fontSize: '0.65rem', color: '#9ca3af', textTransform: 'uppercase', mt: 3, mb: 1 }}>Basear-se em (Duplicar)</Typography>
+                    <TextField select fullWidth value={duplicarDeId} onChange={e => setDuplicarDeId(e.target.value)} SelectProps={{ native: true }}>
+                        <option value="">Nível Vazio</option>
+                        {niveis.map(n => <option key={n.id} value={n.id}>{n.nome} ({n.tipo})</option>)}
+                    </TextField>
+                    </DialogContent>
+                    <DialogActions sx={{ p: 3 }}>
+                    <Button onClick={() => setDialogNovoPerfilAberto(false)} sx={{ fontWeight: 900 }}>Cancelar</Button>
+                    <Button variant="contained" color="warning" onClick={handleCriarPerfil} sx={{ fontWeight: 900, borderRadius: 3, px: 4 }}>Criar Perfil</Button>
+                    </DialogActions>
+                </Dialog>
             </div>
           )}
           
@@ -270,27 +461,18 @@ const ManagementPage: React.FC = () => {
                        <h4 className="font-black text-gray-700 uppercase tracking-widest text-sm flex items-center space-x-2">
                          <span className={`w-2 h-2 rounded-full ${cat.visivel === false ? 'bg-gray-400' : 'bg-orange-600'}`}></span>
                          <span className={cat.visivel === false ? 'line-through' : ''}>{cat.nome}</span>
-                         {cat.visivel === false && <span className="text-[9px] bg-gray-200 px-1.5 py-0.5 rounded text-gray-500 font-black ml-2 uppercase">Arquivado</span>}
                        </h4>
                        <div className="flex space-x-1">
                           <button onClick={() => setModalState({ open: true, type: activeTab === 'tasks_op' ? 'category_op' : 'category_month', editingItem: cat })} className="p-2 text-gray-400 hover:text-orange-600 transition-colors"><Edit2 className="w-4 h-4" /></button>
-                          {cat.visivel !== false ? (
-                            <button onClick={() => handleArchive(cat.id, activeTab === 'tasks_op' ? 'category_op' : 'category_month', cat)} title="Arquivar" className="p-2 text-gray-400 hover:text-amber-600 transition-colors"><Archive className="w-4 h-4" /></button>
-                          ) : (
-                            <button onClick={() => handleReactivate(cat.id, activeTab === 'tasks_op' ? 'category_op' : 'category_month')} title="Desarquivar" className="p-2 text-orange-600 hover:scale-110 transition-transform"><RotateCcw className="w-4 h-4" /></button>
-                          )}
                           <button onClick={() => handleDeletePermanent(cat.id, activeTab === 'tasks_op' ? 'category_op' : 'category_month', cat)} className="p-2 text-gray-400 hover:text-red-500 transition-colors"><Trash2 className="w-4 h-4" /></button>
                        </div>
                     </div>
                     <div className="space-y-2">
                        {filteredTasks.filter(t => (t.visivel !== false) && t.categoriaId === cat.id).map(task => (
                          <div key={task.id} className="bg-white p-3 rounded-xl border border-gray-100 flex justify-between items-center group shadow-sm transition-all hover:border-orange-100">
-                            <div className="flex flex-col min-w-0 pr-4">
-                              <span className="text-xs font-bold text-gray-600 truncate">{task.nome}</span>
-                            </div>
+                            <span className="text-xs font-bold text-gray-600 truncate">{task.nome}</span>
                             <div className="flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                <button onClick={() => setModalState({ open: true, type: 'task_modal', editingItem: task })} className="p-1.5 text-gray-400 hover:text-orange-600 bg-gray-50 rounded-lg"><Edit2 className="w-3.5 h-3.5" /></button>
-                               <button onClick={() => handleArchive(task.id, 'task_modal', task)} title="Arquivar" className="p-1.5 text-gray-400 hover:text-amber-600 bg-gray-50 rounded-lg"><Archive className="w-3.5 h-3.5" /></button>
                                <button onClick={() => handleDeletePermanent(task.id, 'task_modal', task)} className="p-1.5 text-gray-400 hover:text-red-500 bg-gray-50 rounded-lg"><Trash2 className="w-3.5 h-3.5" /></button>
                             </div>
                          </div>
@@ -308,11 +490,7 @@ const ManagementPage: React.FC = () => {
               </div>
             </div>
           )}
-          {activeTab === 'alerts' && (
-            <div className="animate-in slide-in-from-bottom-4">
-              <ManagementControlsAlertsPage />
-            </div>
-          )}
+          {activeTab === 'alerts' && <ManagementControlsAlertsPage />}
         </div>
       </div>
 
@@ -342,6 +520,7 @@ const ManagementPage: React.FC = () => {
           title={modalState.editingItem ? 'Editar Usuário' : 'Novo Usuário'}
           initialData={modalState.editingItem}
           availableBases={bases}
+          availableLevels={niveis}
         />
       )}
       {modalState.open && (modalState.type === 'category_op' || modalState.type === 'category_month') && (
@@ -401,150 +580,79 @@ const BasesGrid: React.FC<{ bases: Base[], onEdit: (base: Base) => void, onDelet
   </div>
 );
 
-/**
- * UsuariosTable Atualizado
- * Fix: Provided children via prop to Tooltip to ensure standard React component structure and satisfy strict TooltipProps in some environments.
- */
 interface UsuariosTableProps {
-  users: User[];
+  users: any[];
   bases: Base[];
-  onEdit: (user: User) => void;
+  onEdit: (user: any) => void;
   onDelete: (userId: string) => void;
 }
 
-const formatJornada = (val: number) => {
-  return minutesToHhmmss(val * 60);
-};
+const formatJornada = (val: number) => minutesToHhmmss((val || 6) * 60);
 
 const UsersTable: React.FC<UsuariosTableProps> = ({ users, bases, onEdit, onDelete }) => {
-  console.debug(`[UsuariosTable] Renderizando tabela com ${users.length} usuários`);
-  
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [searchTerm, setSearchTerm] = useState('');
 
   const filteredUsers = useMemo(() => {
-    console.debug(`[UsuariosTable] Filtrando usuários por: ${searchTerm}`);
     const lowerSearch = searchTerm.toLowerCase();
-    
-    return users.filter(user => {
-      const baseSigla = bases.find(b => b.id === user.bases[0])?.sigla?.toLowerCase() || '';
-      const jornadaStr = formatJornada(user.jornadaPadrao).toLowerCase();
-      
-      return (
-        user.nome.toLowerCase().includes(lowerSearch) ||
-        user.email.toLowerCase().includes(lowerSearch) ||
-        user.permissao.toLowerCase().includes(lowerSearch) ||
-        baseSigla.includes(lowerSearch) ||
-        jornadaStr.includes(lowerSearch)
-      );
-    });
-  }, [users, bases, searchTerm]);
-
-  const handleChangePage = (_: unknown, newPage: number) => {
-    console.debug(`[UsuariosTable] Página alterada para: ${newPage}`);
-    setPage(newPage);
-  };
-
-  const handleChangeRowsPerPage = (event: React.ChangeEvent<HTMLInputElement>) => {
-    console.debug(`[UsuariosTable] Linhas por página alteradas para: ${event.target.value}`);
-    setRowsPerPage(parseInt(event.target.value, 10));
-    setPage(0);
-  };
+    return users.filter(user => 
+      user.nome.toLowerCase().includes(lowerSearch) ||
+      user.email.toLowerCase().includes(lowerSearch)
+    );
+  }, [users, searchTerm]);
 
   return (
     <Box sx={{ width: '100%' }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', mb: 3, gap: 2 }}>
-        <Box sx={{ position: 'relative', flex: 1 }}>
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
-          <input 
-            type="text"
-            placeholder="Pesquisar por nome, e-mail, cargo, base ou jornada..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-12 pr-4 py-3 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-sm outline-none focus:ring-2 focus:ring-orange-100 transition-all"
-          />
-        </Box>
+      <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+        <Search className="text-gray-400 w-5 h-5 mr-3" />
+        <TextField 
+          fullWidth 
+          variant="standard" 
+          placeholder="Pesquisar usuários..." 
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+        />
       </Box>
 
-      <TableContainer component={Paper} sx={{ borderRadius: '2rem', boxShadow: 'none', border: '1px solid #f3f4f6', overflow: 'hidden' }}>
+      <TableContainer component={Paper} sx={{ borderRadius: '1rem', boxShadow: 'none', border: '1px solid #f3f4f6', overflow: 'hidden' }}>
         <Table>
           <TableHead>
             <TableRow sx={{ backgroundColor: '#f9fafb' }}>
-              <TableCell sx={{ fontWeight: 900, fontSize: '0.7rem', color: '#6b7280', py: 3 }}>NOME</TableCell>
-              <TableCell sx={{ fontWeight: 900, fontSize: '0.7rem', color: '#6b7280' }}>E-MAIL</TableCell>
-              <TableCell sx={{ fontWeight: 900, fontSize: '0.7rem', color: '#6b7280' }}>CARGO</TableCell>
-              <TableCell sx={{ fontWeight: 900, fontSize: '0.7rem', color: '#6b7280' }}>BASE</TableCell>
-              <TableCell sx={{ fontWeight: 900, fontSize: '0.7rem', color: '#6b7280' }}>JORNADA</TableCell>
-              <TableCell sx={{ fontWeight: 900, fontSize: '0.7rem', color: '#6b7280' }}>STATUS</TableCell>
-              <TableCell align="right" sx={{ fontWeight: 900, fontSize: '0.7rem', color: '#6b7280', pr: 4 }}>AÇÕES</TableCell>
+              <TableCell sx={{ fontWeight: 900 }}>NOME</TableCell>
+              <TableCell sx={{ fontWeight: 900 }}>E-MAIL</TableCell>
+              <TableCell sx={{ fontWeight: 900 }}>ACESSO</TableCell>
+              <TableCell sx={{ fontWeight: 900 }}>UNIDADES</TableCell>
+              <TableCell sx={{ fontWeight: 900 }}>STATUS</TableCell>
+              <TableCell align="right" sx={{ fontWeight: 900 }}>AÇÕES</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {filteredUsers
               .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
-              .map((user) => {
-                const baseSigla = bases.find(b => b.id === user.bases[0])?.sigla || '-';
-                return (
-                  <TableRow key={user.id} hover sx={{ '&:last-child td, &:last-child th': { border: 0 } }}>
-                    <TableCell sx={{ py: 2.5 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                        <Box sx={{ w: 32, h: 32, borderRadius: '50%', bgcolor: '#fff7ed', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, color: '#ea580c', fontSize: '0.7rem', width: 32, height: 32 }}>
-                          {user.nome.charAt(0)}
-                        </Box>
-                        <Typography sx={{ fontWeight: 800, fontSize: '0.85rem', color: '#1f2937' }}>{user.nome}</Typography>
-                      </Box>
-                    </TableCell>
-                    <TableCell sx={{ fontSize: '0.8rem', color: '#6b7280', fontWeight: 600 }}>{user.email}</TableCell>
-                    <TableCell>
-                      <Chip 
-                        label={user.permissao.toUpperCase()} 
-                        size="small" 
-                        sx={{ fontWeight: 900, fontSize: '0.6rem', bgcolor: '#f3f4f6', color: '#4b5563', borderRadius: '0.5rem' }} 
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Typography sx={{ fontWeight: 900, fontSize: '0.8rem', color: '#ea580c' }}>{baseSigla}</Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Typography sx={{ fontWeight: 800, fontSize: '0.8rem', color: '#1f2937' }}>{formatJornada(user.jornadaPadrao)}</Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: user.status === 'Ativo' ? '#22c55e' : '#9ca3af' }} />
-                        <Typography sx={{ fontWeight: 900, fontSize: '0.65rem', color: user.status === 'Ativo' ? '#166534' : '#6b7280', textTransform: 'uppercase' }}>
-                          {user.status}
-                        </Typography>
-                      </Box>
-                    </TableCell>
-                    <TableCell align="right" sx={{ pr: 2 }}>
-                      <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 0.5 }}>
-                        {/* Fix: Use explicit children prop for Tooltip to satisfy strict type checking */}
-                        <Tooltip title="Editar" children={
-                          <IconButton size="small" onClick={() => { console.debug(`[UsuariosTable] Editando usuário: ${user.id}`); onEdit(user); }} sx={{ color: '#9ca3af', '&:hover': { color: '#ea580c', bgcolor: '#fff7ed' } }}>
-                            <Edit2 size={16} />
-                          </IconButton>
-                        } />
-                        {/* Fix: Use explicit children prop for Tooltip to satisfy strict type checking */}
-                        <Tooltip title="Excluir" children={
-                          <IconButton size="small" onClick={() => { console.debug(`[UsuariosTable] Deletando usuário: ${user.id}`); onDelete(user.id); }} sx={{ color: '#9ca3af', '&:hover': { color: '#ef4444', bgcolor: '#fef2f2' } }}>
-                            <Trash2 size={16} />
-                          </IconButton>
-                        } />
-                      </Box>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            {filteredUsers.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={7} align="center" sx={{ py: 10 }}>
-                  <Typography variant="caption" sx={{ fontWeight: 800, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-                    Nenhum usuário encontrado para a busca
-                  </Typography>
-                </TableCell>
-              </TableRow>
-            )}
+              .map((user) => (
+                <TableRow key={user.id} hover>
+                  <TableCell sx={{ fontWeight: 800 }}>{user.nome}</TableCell>
+                  <TableCell>{user.email}</TableCell>
+                  <TableCell>
+                    <Chip label={user.permissao} size="small" sx={{ fontWeight: 900, fontSize: '0.6rem' }} />
+                  </TableCell>
+                  <TableCell>
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                      {user.bases.map((bId: string) => (
+                        <Chip key={bId} label={bases.find(b => b.id === bId)?.sigla || bId} size="small" sx={{ height: 20, fontSize: '0.6rem' }} />
+                      ))}
+                    </Box>
+                  </TableCell>
+                  <TableCell>
+                    <Chip label={user.status} color={user.status === 'Ativo' ? 'success' : 'default'} size="small" sx={{ fontWeight: 900, fontSize: '0.6rem' }} />
+                  </TableCell>
+                  <TableCell align="right">
+                    <IconButton size="small" onClick={() => onEdit(user)}><Edit2 size={16}/></IconButton>
+                    <IconButton size="small" color="error" onClick={() => onDelete(user.id)}><Trash2 size={16}/></IconButton>
+                  </TableCell>
+                </TableRow>
+              ))}
           </TableBody>
         </Table>
       </TableContainer>
@@ -555,10 +663,8 @@ const UsersTable: React.FC<UsuariosTableProps> = ({ users, bases, onEdit, onDele
         count={filteredUsers.length}
         rowsPerPage={rowsPerPage}
         page={page}
-        onPageChange={handleChangePage}
-        onRowsPerPageChange={handleChangeRowsPerPage}
-        labelRowsPerPage="Linhas por página:"
-        sx={{ mt: 1, '& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows': { fontWeight: 800, fontSize: '0.7rem', color: '#9ca3af', textTransform: 'uppercase' } }}
+        onPageChange={(_, p) => setPage(p)}
+        onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }}
       />
     </Box>
   );

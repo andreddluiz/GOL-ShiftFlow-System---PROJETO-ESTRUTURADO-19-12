@@ -121,12 +121,9 @@ function criarMapaTarefas(detalhe: any, allTasks: Task[]): Record<string, string
   return tarefasMap;
 }
 
-// Função auxiliar para garantir formato DD/MM/AAAA
 function normalizarDataExibicao(dataStr: string): string {
   if (!dataStr) return '';
-  // Se já estiver no formato DD/MM/AAAA, retorna
   if (/^\d{2}\/\d{2}\/\d{4}$/.test(dataStr)) return dataStr;
-  // Se estiver no formato AAAA-MM-DD
   if (/^\d{4}-\d{2}-\d{2}$/.test(dataStr)) {
     const [y, m, d] = dataStr.split('-');
     return `${d}/${m}/${y}`;
@@ -137,13 +134,10 @@ function normalizarDataExibicao(dataStr: string): string {
 export const validationService = {
   validarPassagem: (handover: ShiftHandover, tasks: Task[], categories: Category[]) => {
     const camposPendentes: string[] = [];
-    
-    // Obrigatoriedade do Cabeçalho - Nomes de grupo atualizados
     if (!handover.turnoId) camposPendentes.push("Configuração - Turno: Campo obrigatório");
     if (!handover.colaboradores.some(c => c !== null)) camposPendentes.push("Configuração - Equipe: Pelo menos um colaborador é obrigatório");
     if (!handover.informacoesImportantes?.trim()) camposPendentes.push("Observações - Notas da Base: Informações importantes são obrigatórias");
 
-    // Obrigatoriedade de Controles Diários - Nomes de grupo atualizados
     handover.shelfLifeData.forEach((i, idx) => {
       if (!i.partNumber || !i.lote || !i.dataVencimento) camposPendentes.push(`Controles Diários - Shelf Life: Linha ${idx+1} - PN, Lote e Vencimento são obrigatórios.`);
     });
@@ -157,12 +151,10 @@ export const validationService = {
       if (!i.partNumber || i.saldoSistema === null || i.saldoFisico === null || (!i.lote && (i.saldoSistema > 0 || i.saldoFisico > 0))) camposPendentes.push(`Controles Diários - Saldo Crítico: Linha ${idx+1} - PN, Lote (se saldo > 0), Sistema e Físico são obrigatórios.`);
     });
 
-    // Validação de tarefas operacionais em formato LISTA (Ajustado para permitir 0)
     tasks.forEach(task => {
       const cat = categories.find(c => c.id === task.categoriaId);
       if (cat?.exibicao === 'lista') {
         const val = handover.tarefasExecutadas[task.id];
-        // Somente dá erro se o campo for literalmente vazio, null ou undefined. Zero e 00:00:00 são válidos.
         if (val === undefined || val === null || val === '') {
           camposPendentes.push(`Processos Operacionais - ${cat.nome}: O campo "${task.nome}" deve ser preenchido.`);
         }
@@ -348,6 +340,7 @@ export const defaultItemsService = {
     const types = await this.getCustomTypes();
     const idx = types.findIndex(t => t.id === data.id);
     if (idx > -1) types[idx] = data; else types.push(data);
+    /* Fix: typo STORAGE_TYPES -> STORAGE_KEYS */
     saveToStorage(STORAGE_KEYS.CUSTOM_TYPES, types);
   },
   async deleteCustomType(id: string): Promise<void> {
@@ -442,19 +435,39 @@ export const controlService = {
 
 export const userService = {
   async getAll(): Promise<User[]> {
-    let data = getFromStorage<User[]>(STORAGE_KEYS.USERS, []);
-    if (data.length === 0) { data = USERS; saveToStorage(STORAGE_KEYS.USERS, data); }
+    let data = getFromStorage<any[]>(STORAGE_KEYS.USERS, []);
+    if (data.length === 0) {
+      // Tenta carregar os usuários de teste do authService se for a primeira vez
+      data = USERS; 
+      saveToStorage(STORAGE_KEYS.USERS, data);
+    }
     return data;
   },
   async create(data: Omit<User, 'id'>): Promise<User> {
     const users = await this.getAll();
-    const newUser = { ...data, id: Math.random().toString(36).substr(2, 9) } as User;
+    const newUser = { 
+      ...data, 
+      id: Math.random().toString(36).substr(2, 9),
+      senha: 'gol123', // Senha padrão para novos usuários do CRUD
+      ativo: data.status === 'Ativo',
+      dataCriacao: new Date().toISOString()
+    } as any;
     saveToStorage(STORAGE_KEYS.USERS, [...users, newUser]);
     return newUser;
   },
   async update(id: string, data: Partial<User>): Promise<void> {
     const users = await this.getAll();
-    const updated = users.map(u => u.id === id ? { ...u, ...data } : u) as User[];
+    const updated = users.map(u => {
+      if (u.id === id) {
+        return { 
+          ...u, 
+          ...data, 
+          ativo: data.status ? data.status === 'Ativo' : u.ativo,
+          dataAtualizacao: new Date().toISOString()
+        };
+      }
+      return u;
+    });
     saveToStorage(STORAGE_KEYS.USERS, updated);
   },
   async delete(id: string): Promise<void> {
@@ -561,16 +574,11 @@ export const migrationService = {
   async processarMigracao(handover: ShiftHandover, store: any, replaceId?: string): Promise<void> {
     const repAcompanhamento = getFromStorage<any[]>(STORAGE_KEYS.REP_ACOMPANHAMENTO, []);
     const repDetalhamento = getFromStorage<any[]>(STORAGE_KEYS.REP_DETALHAMENTO, []);
-    
-    // 1. Normalizar data da passagem para DD/MM/AAAA para evitar duplicidade de formato
     const dataNormalizada = normalizarDataExibicao(handover.data);
-
-    // Obter sigla real da base e o turno real
     const baseObj = store.bases.find((b: any) => b.id === handover.baseId);
     const turnoObj = baseObj?.turnos.find((t: any) => t.id === handover.turnoId);
     const turnoNumero = turnoObj?.numero || 1;
 
-    // 2. Atualizar Acompanhamento (Status de Passagem) - Busca pela data normalizada
     let dataEntry = repAcompanhamento.find((r: any) => normalizarDataExibicao(r.data) === dataNormalizada && r.baseId === handover.baseId);
     if (!dataEntry) { 
       dataEntry = { baseId: handover.baseId, data: dataNormalizada, turno1: 'Pendente', turno2: 'Pendente', turno3: 'Pendente', turno4: 'Pendente' }; 
@@ -581,10 +589,8 @@ export const migrationService = {
 
     const colaboradoresNomes = handover.colaboradores.map(id => store.users.find((u:any) => u.id === id)?.nome).filter(Boolean);
     let hProdTotalMin = 0;
-    
     const atividadesDetalhadas: any[] = [];
 
-    // Processar tarefas rotineiras (lista)
     Object.entries(handover.tarefasExecutadas).forEach(([taskId, val]) => {
       const task = store.tasks.find((t: any) => t.id === taskId);
       const cat = store.categories.find((c: any) => c.id === task?.categoriaId);
@@ -596,8 +602,6 @@ export const migrationService = {
       atividadesDetalhadas.push({ taskNome: task?.nome || 'Desc.', categoryNome: cat?.nome || 'OUTROS', horas: conv.horas, minutos: conv.minutos, segundos: conv.segundos, formatted: timeUtils.minutesToHhmmss(mins), ordemCat: cat?.ordem || 0, ordemTask: task?.ordem || 0 });
     });
 
-    // 3. Processar tarefas NÃO rotineiras (itens selecionados nas listas suspensas)
-    // GARANTIA: Inclui mesmo que o valor seja 0, desde que tenha nome
     (handover.nonRoutineTasks || []).forEach(t => {
       if (!t.nome || t.nome.trim() === '') return;
       const catRef = store.categories.find((c: any) => c.id === t.categoriaId);
@@ -623,7 +627,7 @@ export const migrationService = {
     const record = {
       ...handover,
       id: replaceId || handover.id,
-      data: dataNormalizada, // 4. Salva no formato padrão DD/MM/AAAA
+      data: dataNormalizada,
       colaboradoresIds: handover.colaboradores,
       horaRegistro: new Date().toLocaleTimeString('pt-BR'),
       turno: `Turno ${turnoNumero}`,
@@ -653,7 +657,6 @@ export const migrationService = {
     
     saveToStorage(STORAGE_KEYS.REP_ACOMPANHAMENTO, repAcompanhamento);
     saveToStorage(STORAGE_KEYS.REP_DETALHAMENTO, repDetalhamento);
-    await this.reprocessarResumo(store);
     await sharedDraftService.clearDraft(handover.baseId, handover.data, handover.turnoId);
     await baseStatusService.saveBaseStatus(handover.baseId, { obs: handover.informacoesImportantes, locations: handover.locationsData, transit: handover.transitData, shelfLife: handover.shelfLifeData, critical: handover.criticalData });
   }

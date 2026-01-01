@@ -2,12 +2,12 @@
 import { 
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, 
   Paper, Chip, TextField, Box, Typography, Container, CircularProgress, 
-  Button, IconButton, Tooltip, Divider, TablePagination, Tabs, Tab,
-  FormControl, InputLabel, Select, MenuItem, Grid
+  IconButton, Tooltip, Tabs, Tab,
+  FormControl, InputLabel, Select, MenuItem, Alert
 } from '@mui/material';
 import { 
-  Download, BarChart, Copy, Edit2, FileSearch, Sigma, FileText, File as FileIcon, Filter, LayoutList,
-  Printer, Calendar, LayoutDashboard, Globe, Clock, UserCheck, MapPin, ChevronRight, Search
+  Edit2, Sigma, LayoutList, BarChart,
+  Printer, Calendar, LayoutDashboard, Globe, Clock, MapPin, ChevronRight, Search, Trash2
 } from 'lucide-react';
 import React, { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -15,13 +15,8 @@ import dayjs from 'dayjs';
 import { PerformanceTurnoReport } from './PerformanceTurnoReport';
 import { RelatorioProducaoPorBase } from './RelatorioProducaoPorBase';
 import { useStore } from '../hooks/useStore';
-import { PermissionLevel } from '../types';
-
-// Simulação de usuário logado
-const CURRENT_USER = {
-  nome: "Usuário GOL",
-  permissao: PermissionLevel.ADMIN 
-};
+import { authService } from '../services/authService';
+import { dataAccessControlService } from '../services/dataAccessControlService';
 
 // --- UTILITÁRIOS DE FORMATAÇÃO ---
 function hhmmssToMinutes(hms: string): number {
@@ -112,44 +107,85 @@ const NoDataRows: React.FC<{ colSpan: number }> = ({ colSpan }) => (
 const ReportsPage: React.FC<{ baseId?: string }> = ({ baseId }) => {
   const navigate = useNavigate();
   const { bases, initialized, refreshData } = useStore();
+  const [usuario] = useState(() => authService.obterUsuarioAutenticado());
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState(0);
 
-  const [filterBaseSelection, setFilterBaseSelection] = useState<string>(baseId || 'all');
+  const [filterBaseSelection, setFilterBaseSelection] = useState<string>('all');
   const [acompanhamento, setAcompanhamento] = useState<any[]>([]);
   const [mensalDetalhado, setMensalDetalhado] = useState<any[]>([]);
   const [detalhamento, setDetalhamento] = useState<any[]>([]);
 
-  // Filtros Globais apenas por Mês/Ano (Solicitação 3)
   const [filterInicio, setFilterInicio] = useState(dayjs().startOf('month').format('YYYY-MM'));
   const [filterFim, setFilterFim] = useState(dayjs().format('YYYY-MM'));
 
-  // Filtros específicos para Consolidado (Solicitação 4)
   const [filtroConsolidadoMes, setFiltroConsolidadoMes] = useState<string>('all');
-  const [filtroConsolidadoMensalMes, setFiltroConsolidadoMensalMes] = useState<string>('all');
+  const [filtroConsolidadoMensalMes, setFiltroConsolidatedMensalMes] = useState<string>('all');
+
+  const basesAcessiveis = useMemo(() => dataAccessControlService.obterBasesAcessiveis(usuario, bases), [usuario, bases]);
+
+  const podeExcluir = useMemo(() => {
+    return usuario && ['ANALISTA', 'LÍDER', 'ADMINISTRADOR'].includes(usuario.perfil);
+  }, [usuario]);
+
+  const handleExcluirRegistro = (id: string) => {
+    if (!window.confirm("Deseja realmente invalidar esta passagem de serviço? Ela continuará no histórico com um traço indicando a exclusão.")) return;
+
+    const key = 'gol_rep_detalhamento';
+    const raw = localStorage.getItem(key);
+    if (!raw) return;
+
+    const registros = JSON.parse(raw);
+    const atualizados = registros.map((r: any) => r.id === id ? { ...r, excluido: true } : r);
+    localStorage.setItem(key, JSON.stringify(atualizados));
+    
+    setDetalhamento(dataAccessControlService.filtrarDadosPorPermissao(atualizados.slice().reverse(), usuario));
+  };
+
+  const handleExcluirRegistroMensal = (id: string) => {
+    if (!window.confirm("Deseja realmente invalidar esta coleta mensal? Ela continuará no histórico com um traço indicando a exclusão.")) return;
+
+    const key = 'gol_rep_mensal_detalhado';
+    const raw = localStorage.getItem(key);
+    if (!raw) return;
+
+    const registros = JSON.parse(raw);
+    const atualizados = registros.map((r: any) => r.id === id ? { ...r, excluido: true } : r);
+    localStorage.setItem(key, JSON.stringify(atualizados));
+    
+    setMensalDetalhado(dataAccessControlService.filtrarDadosPorPermissao(atualizados.slice().reverse(), usuario));
+  };
 
   useEffect(() => {
     if (!initialized) refreshData();
   }, [initialized, refreshData]);
 
   useEffect(() => {
-    if (baseId && filterBaseSelection === 'all') {
+    if (baseId) {
       setFilterBaseSelection(baseId);
+    } else if (usuario && usuario.perfil !== 'ADMINISTRADOR') {
+       setFilterBaseSelection('all');
     }
-  }, [baseId]);
+  }, [baseId, usuario]);
 
   useEffect(() => {
     const loadData = () => {
       const a = localStorage.getItem('gol_rep_acompanhamento');
       const d = localStorage.getItem('gol_rep_detalhamento');
       const md = localStorage.getItem('gol_rep_mensal_detalhado');
-      if (a) setAcompanhamento(JSON.parse(a).reverse());
-      if (d) setDetalhamento(JSON.parse(d).reverse());
-      if (md) setMensalDetalhado(JSON.parse(md).reverse());
+      
+      let acompanhamentoData = a ? JSON.parse(a).reverse() : [];
+      let detalhamentoData = d ? JSON.parse(d).reverse() : [];
+      let mensalData = md ? JSON.parse(md).reverse() : [];
+
+      setAcompanhamento(dataAccessControlService.filtrarDadosPorPermissao(acompanhamentoData, usuario));
+      setDetalhamento(dataAccessControlService.filtrarDadosPorPermissao(detalhamentoData, usuario));
+      setMensalDetalhado(dataAccessControlService.filtrarDadosPorPermissao(mensalData, usuario));
+      
       setLoading(false);
     };
     loadData();
-  }, []);
+  }, [usuario]);
 
   const mapaCategoriasMeta = useMemo(() => {
     const map: Record<string, { catNome: string, catOrdem: number, taskOrdem: number }> = {};
@@ -170,10 +206,8 @@ const ReportsPage: React.FC<{ baseId?: string }> = ({ baseId }) => {
     return map;
   }, [detalhamento, mensalDetalhado]);
 
-  const isAdmin = CURRENT_USER.permissao === PermissionLevel.ADMIN;
-  const effectiveBaseFilter = isAdmin ? filterBaseSelection : baseId;
+  const effectiveBaseFilter = filterBaseSelection;
 
-  // Filtros Globais baseados em Competência (Mês/Ano)
   const acompanhamentoFiltrado = useMemo(() => {
     return acompanhamento.filter(row => {
       const parts = row.data.split('/');
@@ -209,7 +243,6 @@ const ReportsPage: React.FC<{ baseId?: string }> = ({ baseId }) => {
     });
   }, [mensalDetalhado, filterInicio, filterFim, effectiveBaseFilter]);
 
-  // Lista de meses disponíveis nos dados filtrados para os filtros de consolidado
   const mesesDisponiveisDiario = useMemo(() => {
     const set = new Set<string>();
     diarioFiltrado.forEach(r => {
@@ -233,6 +266,7 @@ const ReportsPage: React.FC<{ baseId?: string }> = ({ baseId }) => {
     let totalGeralMins = 0;
     
     diarioFiltrado.filter(row => {
+      if (row.excluido) return false;
       if (filtroConsolidadoMes === 'all') return true;
       const parts = row.data.split('/');
       return `${parts[1]}:${parts[2]}` === filtroConsolidadoMes;
@@ -265,6 +299,7 @@ const ReportsPage: React.FC<{ baseId?: string }> = ({ baseId }) => {
     let totalGeralMins = 0;
     
     mensalFiltrado.filter(row => {
+      if (row.excluido) return false;
       if (filtroConsolidadoMensalMes === 'all') return true;
       const parts = row.mesReferencia.split('/');
       return `${parts[0]}:${parts[1]}` === filtroConsolidadoMensalMes;
@@ -315,31 +350,34 @@ const ReportsPage: React.FC<{ baseId?: string }> = ({ baseId }) => {
         </div>
         
         <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
-          {isAdmin && (
-            <FormControl size="small" sx={{ minWidth: 200 }}>
-              <InputLabel id="base-select-label" sx={{ fontWeight: 800, fontSize: '0.75rem' }} children="BASE PARA RELATÓRIO" />
-              <Select
-                labelId="base-select-label"
-                value={filterBaseSelection}
-                label="BASE PARA RELATÓRIO"
-                onChange={(e) => setFilterBaseSelection(e.target.value)}
-                sx={{ borderRadius: 3, fontWeight: 900, fontSize: '0.75rem', bgcolor: 'white' }}
-              >
-                <MenuItem value="all"><em>Todas as Bases</em></MenuItem>
-                {bases.map(b => (
-                  <MenuItem key={b.id} value={b.id}>{b.sigla} - {b.nome}</MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          )}
+          <FormControl size="small" sx={{ minWidth: 200 }}>
+            <InputLabel id="base-select-label" sx={{ fontWeight: 800, fontSize: '0.75rem' }} children="FILTRAR POR UNIDADE" />
+            <Select
+              labelId="base-select-label"
+              value={filterBaseSelection}
+              label="FILTRAR POR UNIDADE"
+              onChange={(e) => setFilterBaseSelection(e.target.value)}
+              sx={{ borderRadius: 3, fontWeight: 900, fontSize: '0.75rem', bgcolor: 'white' }}
+            >
+              <MenuItem value="all"><em>{usuario?.perfil === 'ADMINISTRADOR' ? 'Todas as Bases' : 'Minhas Unidades'}</em></MenuItem>
+              {basesAcessiveis.map(b => (
+                <MenuItem key={b.id} value={b.id}>{b.sigla} - {b.nome}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
 
-          {/* Filtros Globais ajustados para Mês/Ano (Solicitação 3) */}
           <TextField type="month" size="small" label="Mês Início" value={filterInicio} onChange={e => setFilterInicio(e.target.value)} InputLabelProps={{ shrink: true }} sx={{ bgcolor: 'white', borderRadius: 2 }} />
           <TextField type="month" size="small" label="Mês Fim" value={filterFim} onChange={e => setFilterFim(e.target.value)} InputLabelProps={{ shrink: true }} sx={{ bgcolor: 'white', borderRadius: 2 }} />
           
           <IconButton sx={{ bgcolor: '#fff', border: '1px solid #e5e7eb', borderRadius: 3 }}><Printer size={18} /></IconButton>
         </Box>
       </Box>
+
+      {usuario?.perfil !== 'ADMINISTRADOR' && (
+        <Alert severity="info" sx={{ borderRadius: 4, mb: 4, fontWeight: 800 }}>
+          Você tem acesso à visualização de {basesAcessiveis.length} unidade(s). Dados de outras bases não são exibidos por segurança.
+        </Alert>
+      )}
 
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 4 }}>
         <Tabs value={activeTab} onChange={(_, v) => setActiveTab(v)} variant="scrollable" scrollButtons="auto">
@@ -351,8 +389,8 @@ const ReportsPage: React.FC<{ baseId?: string }> = ({ baseId }) => {
         </Tabs>
       </Box>
 
-      {activeTab === 0 && (effectiveBaseFilter !== 'all' || isAdmin) && (
-        <ReportSection title="Status de Passagem" subtitle={`Acompanhamento de preenchimento (${effectiveBaseFilter === 'all' ? 'Rede' : bases.find(b => b.id === effectiveBaseFilter)?.sigla})`}>
+      {activeTab === 0 && (
+        <ReportSection title="Status de Passagem" subtitle={`Acompanhamento de preenchimento (${effectiveBaseFilter === 'all' ? 'Minhas Bases' : bases.find(b => b.id === effectiveBaseFilter)?.sigla})`}>
           <TableContainer component={Paper} sx={{ borderRadius: 4, border: '1px solid #f3f4f6', boxShadow: 'none' }}>
             <Table size="small">
               <TableHead sx={{ bgcolor: '#f9fafb' }}>
@@ -382,7 +420,7 @@ const ReportsPage: React.FC<{ baseId?: string }> = ({ baseId }) => {
 
       {activeTab === 1 && (
         <>
-          <ReportSection title="Produção Diária Detalhada" subtitle={`Visão granular por tarefa e turno (${effectiveBaseFilter === 'all' ? 'Rede' : bases.find(b => b.id === effectiveBaseFilter)?.sigla})`}>
+          <ReportSection title="Produção Diária Detalhada" subtitle={`Visão granular por tarefa e turno (${effectiveBaseFilter === 'all' ? 'Minhas Bases' : bases.find(b => b.id === effectiveBaseFilter)?.sigla})`}>
             <TableContainer component={Paper} sx={{ borderRadius: 4, border: '1px solid #f3f4f6', boxShadow: 'none', overflowX: 'auto', mb: 4 }}>
               <Table size="small" sx={{ minWidth: 2000 }}>
                 <TableHead sx={{ bgcolor: '#f9fafb' }}>
@@ -414,9 +452,17 @@ const ReportsPage: React.FC<{ baseId?: string }> = ({ baseId }) => {
                 </TableHead>
                 <TableBody>
                   {diarioFiltrado.length > 0 ? diarioFiltrado.map((row, idx) => (
-                    <TableRow key={idx} hover>
-                      <TableCell sx={{ fontWeight: 800, position: 'sticky', left: 0, bgcolor: '#fff', zIndex: 5 }}>{row.data}</TableCell>
-                      <TableCell sx={{ fontWeight: 800, position: 'sticky', left: 80, bgcolor: '#fff', zIndex: 5 }}>{row.turno}</TableCell>
+                    <TableRow 
+                      key={idx} 
+                      hover 
+                      sx={{ 
+                        opacity: row.excluido ? 0.5 : 1,
+                        bgcolor: row.excluido ? '#f3f4f6' : 'inherit',
+                        '& .MuiTableCell-root': { textDecoration: row.excluido ? 'line-through' : 'none' }
+                      }}
+                    >
+                      <TableCell sx={{ fontWeight: 800, position: 'sticky', left: 0, bgcolor: row.excluido ? '#f3f4f6' : '#fff', zIndex: 5 }}>{row.data}</TableCell>
+                      <TableCell sx={{ fontWeight: 800, position: 'sticky', left: 80, bgcolor: row.excluido ? '#f3f4f6' : '#fff', zIndex: 5 }}>{row.turno}</TableCell>
                       <TableCell>
                         <Tooltip 
                           title={row.nomeColaboradores || ""}
@@ -430,7 +476,7 @@ const ReportsPage: React.FC<{ baseId?: string }> = ({ baseId }) => {
                       <TableCell align="right" sx={{ fontWeight: 800, color: '#6366f1' }}>{row.horasDisponivel}</TableCell>
                       <TableCell align="right" sx={{ fontWeight: 800, color: '#f97316' }}>{row.horasProduzida}</TableCell>
                       <TableCell align="right">
-                        <Chip label={`${row.percentualPerformance}%`} size="small" color={row.performance >= 80 ? "success" : "warning"} sx={{ fontWeight: 900, fontSize: '0.65rem' }} />
+                        <Chip label={`${row.percentualPerformance}%`} size="small" color={(row.performance || row.percentualPerformance) >= 80 ? "success" : "warning"} sx={{ fontWeight: 900, fontSize: '0.65rem' }} />
                       </TableCell>
                       <TableCell>
                         <Tooltip 
@@ -447,10 +493,17 @@ const ReportsPage: React.FC<{ baseId?: string }> = ({ baseId }) => {
                           {row.tarefasMap?.[t.toUpperCase()] || '00:00:00'}
                         </TableCell>
                       ))}
-                      <TableCell align="right" sx={{ position: 'sticky', right: 0, bgcolor: '#fff', zIndex: 5 }}>
-                        <IconButton size="small" color="primary" onClick={() => navigate(`/shift-handover?editId=${row.id}`)}>
-                          <Edit2 size={16} />
-                        </IconButton>
+                      <TableCell align="right" sx={{ position: 'sticky', right: 0, bgcolor: row.excluido ? '#f3f4f6' : '#fff', zIndex: 5 }}>
+                        <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end' }}>
+                          <IconButton size="small" color="primary" onClick={() => navigate(`/shift-handover?editId=${row.id}`)} disabled={row.excluido}>
+                            <Edit2 size={16} />
+                          </IconButton>
+                          {podeExcluir && !row.excluido && (
+                            <IconButton size="small" color="error" onClick={() => handleExcluirRegistro(row.id)}>
+                              <Trash2 size={16} />
+                            </IconButton>
+                          )}
+                        </Box>
                       </TableCell>
                     </TableRow>
                   )) : <NoDataRows colSpan={tarefasUnicas.length + 8} />}
@@ -458,87 +511,12 @@ const ReportsPage: React.FC<{ baseId?: string }> = ({ baseId }) => {
               </Table>
             </TableContainer>
           </ReportSection>
-
-          {diarioFiltrado.length > 0 && (
-            <ReportSection 
-              title="Consolidado de Atividades" 
-              subtitle="Resumo vertical por categoria e tempo total acumulado"
-              filters={
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                   <Search size={16} className="text-orange-500" />
-                   <FormControl size="small" sx={{ minWidth: 150 }}>
-                      <InputLabel children="Mês/Ano" sx={{ fontSize: '0.65rem', fontWeight: 800 }} />
-                      <Select
-                        value={filtroConsolidadoMes}
-                        onChange={(e) => setFiltroConsolidadoMes(e.target.value)}
-                        label="Mês/Ano"
-                        sx={{ borderRadius: 3, fontWeight: 900, fontSize: '0.7rem', bgcolor: 'white' }}
-                      >
-                        <MenuItem value="all"><em>Todos os Meses</em></MenuItem>
-                        {mesesDisponiveisDiario.map(m => (
-                          <MenuItem key={m} value={m}>{m}</MenuItem>
-                        ))}
-                      </Select>
-                   </FormControl>
-                </Box>
-              }
-            >
-              <TableContainer component={Paper} sx={{ borderRadius: 4, border: '1px solid #f3f4f6', boxShadow: 'none', maxWidth: 800 }}>
-                <Table size="small">
-                  <TableHead sx={{ bgcolor: '#f9fafb' }}>
-                    <TableRow>
-                      <TableCell sx={{ fontWeight: 950, py: 2 }}>ESTRUTURA DE ATIVIDADE</TableCell>
-                      <TableCell align="right" sx={{ fontWeight: 950 }}>TEMPO TOTAL (HH:MM:SS)</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {resumoVerticalDiario.entries.map(([catName, data]) => (
-                      <React.Fragment key={catName}>
-                        <TableRow sx={{ bgcolor: '#fef3c7' }}>
-                          <TableCell sx={{ fontWeight: 900, color: '#92400e', py: 1.5 }}>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                              <Sigma size={14} />
-                              {catName}
-                            </Box>
-                          </TableCell>
-                          <TableCell align="right" sx={{ fontWeight: 900, color: '#92400e' }}>
-                            {minutesToHhmmss(data.totalCatMins)}
-                          </TableCell>
-                        </TableRow>
-                        {(Object.entries(data.tasks) as [string, number][]).sort((a,b) => b[1] - a[1]).map(([taskName, taskMins]) => (
-                          <TableRow key={taskName} hover>
-                            <TableCell sx={{ pl: 4, py: 1 }}>
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                <ChevronRight size={12} className="text-gray-400" />
-                                <Typography sx={{ fontSize: '0.75rem', fontWeight: 700, color: '#4b5563' }}>
-                                  {taskName}
-                                </Typography>
-                              </Box>
-                            </TableCell>
-                            <TableCell align="right" sx={{ fontSize: '0.75rem', fontWeight: 800, color: '#1f2937' }}>
-                              {minutesToHhmmss(taskMins)}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </React.Fragment>
-                    ))}
-                    <TableRow sx={{ bgcolor: '#111827' }}>
-                      <TableCell sx={{ fontWeight: 950, color: '#fff', py: 2, textTransform: 'uppercase', letterSpacing: '0.1em' }}>TOTAL GERAL ACUMULADO</TableCell>
-                      <TableCell align="right" sx={{ fontWeight: 950, color: '#fbbf24', fontSize: '1rem' }}>
-                        {minutesToHhmmss(resumoVerticalDiario.totalGeralMins)}
-                      </TableCell>
-                    </TableRow>
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            </ReportSection>
-          )}
         </>
       )}
 
       {activeTab === 2 && (
         <>
-          <ReportSection title="Produção Mensal Detalhada" subtitle={`Consolidado de metas mensais (${effectiveBaseFilter === 'all' ? 'Rede' : bases.find(b => b.id === effectiveBaseFilter)?.sigla})`}>
+          <ReportSection title="Produção Mensal Detalhada" subtitle={`Consolidado de metas mensais (${effectiveBaseFilter === 'all' ? 'Minhas Bases' : bases.find(b => b.id === effectiveBaseFilter)?.sigla})`}>
             <TableContainer component={Paper} sx={{ borderRadius: 4, border: '1px solid #f3f4f6', boxShadow: 'none', overflowX: 'auto', mb: 4 }}>
               <Table size="small" sx={{ minWidth: 1500 }}>
                 <TableHead sx={{ bgcolor: '#f9fafb' }}>
@@ -566,19 +544,34 @@ const ReportsPage: React.FC<{ baseId?: string }> = ({ baseId }) => {
                 </TableHead>
                 <TableBody>
                   {mensalFiltrado.length > 0 ? mensalFiltrado.map((row, idx) => (
-                    <TableRow key={idx} hover>
-                      <TableCell sx={{ fontWeight: 800, position: 'sticky', left: 0, bgcolor: '#fff', zIndex: 5 }}>{row.mesReferencia}</TableCell>
-                      <TableCell sx={{ fontWeight: 800, position: 'sticky', left: 120, bgcolor: '#fff', zIndex: 5 }}>{row.baseSigla || row.baseId}</TableCell>
+                    <TableRow 
+                      key={idx} 
+                      hover 
+                      sx={{ 
+                        opacity: row.excluido ? 0.5 : 1,
+                        bgcolor: row.excluido ? '#f3f4f6' : 'inherit',
+                        '& .MuiTableCell-root': { textDecoration: row.excluido ? 'line-through' : 'none' }
+                      }}
+                    >
+                      <TableCell sx={{ fontWeight: 800, position: 'sticky', left: 0, bgcolor: row.excluido ? '#f3f4f6' : '#fff', zIndex: 5 }}>{row.mesReferencia}</TableCell>
+                      <TableCell sx={{ fontWeight: 800, position: 'sticky', left: 120, bgcolor: row.excluido ? '#f3f4f6' : '#fff', zIndex: 5 }}>{row.baseSigla || row.baseId}</TableCell>
                       <TableCell align="right" sx={{ fontWeight: 900, color: '#f97316' }}>{row.totalHoras}</TableCell>
                       {tarefasUnicasMensais.map(t => (
                         <TableCell key={t} align="center" sx={{ color: (row.tarefasMap?.[t.toUpperCase()] || '00:00:00') === '00:00:00' ? '#d1d5db' : '#1f2937', fontWeight: 700, fontSize: '11px' }}>
                           {row.tarefasMap?.[t.toUpperCase()] || '00:00:00'}
                         </TableCell>
                       ))}
-                      <TableCell align="right" sx={{ position: 'sticky', right: 0, bgcolor: '#fff', zIndex: 5 }}>
-                        <IconButton size="small" color="primary" onClick={() => navigate(`/monthly-collection?editId=${row.id}`)}>
-                          <Edit2 size={16} />
-                        </IconButton>
+                      <TableCell align="right" sx={{ position: 'sticky', right: 0, bgcolor: row.excluido ? '#f3f4f6' : '#fff', zIndex: 5 }}>
+                        <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end' }}>
+                          <IconButton size="small" color="primary" onClick={() => navigate(`/monthly-collection?editId=${row.id}`)} disabled={row.excluido}>
+                            <Edit2 size={16} />
+                          </IconButton>
+                          {podeExcluir && !row.excluido && (
+                            <IconButton size="small" color="error" onClick={() => handleExcluirRegistroMensal(row.id)}>
+                              <Trash2 size={16} />
+                            </IconButton>
+                          )}
+                        </Box>
                       </TableCell>
                     </TableRow>
                   )) : <NoDataRows colSpan={tarefasUnicasMensais.length + 4} />}
@@ -586,81 +579,6 @@ const ReportsPage: React.FC<{ baseId?: string }> = ({ baseId }) => {
               </Table>
             </TableContainer>
           </ReportSection>
-
-          {mensalFiltrado.length > 0 && (
-            <ReportSection 
-              title="Consolidado de Atividades (Mensal)" 
-              subtitle="Resumo vertical mensal por categoria e tempo acumulado"
-              filters={
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                   <Search size={16} className="text-blue-500" />
-                   <FormControl size="small" sx={{ minWidth: 150 }}>
-                      <InputLabel children="MM:AAAA" sx={{ fontSize: '0.65rem', fontWeight: 800 }} />
-                      <Select
-                        value={filtroConsolidadoMensalMes}
-                        onChange={(e) => setFiltroConsolidadoMensalMes(e.target.value)}
-                        label="MM:AAAA"
-                        sx={{ borderRadius: 3, fontWeight: 900, fontSize: '0.7rem', bgcolor: 'white' }}
-                      >
-                        <MenuItem value="all"><em>Todos os Meses</em></MenuItem>
-                        {mesesDisponiveisMensal.map(m => (
-                          <MenuItem key={m} value={m}>{m.replace(':', '/')}</MenuItem>
-                        ))}
-                      </Select>
-                   </FormControl>
-                </Box>
-              }
-            >
-              <TableContainer component={Paper} sx={{ borderRadius: 4, border: '1px solid #f3f4f6', boxShadow: 'none', maxWidth: 800 }}>
-                <Table size="small">
-                  <TableHead sx={{ bgcolor: '#f9fafb' }}>
-                    <TableRow>
-                      <TableCell sx={{ fontWeight: 950, py: 2 }}>ESTRUTURA DE ATIVIDADE</TableCell>
-                      <TableCell align="right" sx={{ fontWeight: 950 }}>TEMPO TOTAL (HH:MM:SS)</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {resumoVerticalMensal.entries.map(([catName, data]) => (
-                      <React.Fragment key={catName}>
-                        <TableRow sx={{ bgcolor: '#dcfce7' }}>
-                          <TableCell sx={{ fontWeight: 900, color: '#166534', py: 1.5 }}>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                              <Sigma size={14} />
-                              {catName}
-                            </Box>
-                          </TableCell>
-                          <TableCell align="right" sx={{ fontWeight: 900, color: '#166534' }}>
-                            {minutesToHhmmss(data.totalCatMins)}
-                          </TableCell>
-                        </TableRow>
-                        {(Object.entries(data.tasks) as [string, number][]).sort((a,b) => b[1] - a[1]).map(([taskName, taskMins]) => (
-                          <TableRow key={taskName} hover>
-                            <TableCell sx={{ pl: 4, py: 1 }}>
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                <ChevronRight size={12} className="text-gray-400" />
-                                <Typography sx={{ fontSize: '0.75rem', fontWeight: 700, color: '#4b5563' }}>
-                                  {taskName}
-                                </Typography>
-                              </Box>
-                            </TableCell>
-                            <TableCell align="right" sx={{ fontSize: '0.75rem', fontWeight: 800, color: '#1f2937' }}>
-                              {minutesToHhmmss(taskMins)}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </React.Fragment>
-                    ))}
-                    <TableRow sx={{ bgcolor: '#111827' }}>
-                      <TableCell sx={{ fontWeight: 950, color: '#fff', py: 2, textTransform: 'uppercase', letterSpacing: '0.1em' }}>TOTAL GERAL MENSAL</TableCell>
-                      <TableCell align="right" sx={{ fontWeight: 950, color: '#fbbf24', fontSize: '1rem' }}>
-                        {minutesToHhmmss(resumoVerticalMensal.totalGeralMins)}
-                      </TableCell>
-                    </TableRow>
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            </ReportSection>
-          )}
         </>
       )}
 

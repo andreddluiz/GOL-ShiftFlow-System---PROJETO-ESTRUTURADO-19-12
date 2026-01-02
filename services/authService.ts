@@ -57,15 +57,18 @@ class AuthService {
   }
 
   async fazerLogin(credenciais: CredenciaisLogin): Promise<UsuarioAutenticado | null> {
-    // Simula delay de rede
-    await new Promise(r => setTimeout(r, 500));
+    // Simula delay de rede para feedback visual
+    await new Promise(r => setTimeout(r, 600));
     
     const usuarios = this.obterUsuariosDoStorage();
-    const u = usuarios.find(user => user.email === credenciais.email && user.senha === credenciais.senha);
+    const u = usuarios.find(user => 
+      user.email.toLowerCase() === credenciais.email.toLowerCase() && 
+      user.senha === credenciais.senha
+    );
 
     if (!u || u.status === 'Inativo') return null;
 
-    // Calcula o nível de permissão mais alto entre todas as bases associadas
+    // Calcula o nível de permissão mais alto entre todas as bases associadas do usuário
     let perfilSuperior = 'OPERACIONAL';
     const pesos = { 'OPERACIONAL': 0, 'ANALISTA': 1, 'LÍDER': 2, 'ADMINISTRADOR': 3 };
     
@@ -84,13 +87,19 @@ class AuthService {
       baseAtual: u.basesAssociadas[0]?.baseId || ''
     };
 
-    localStorage.setItem(this.chaveSessao, JSON.stringify(usuarioAutenticado));
+    // USANDO SESSION STORAGE: A sessão expira quando fechar o navegador
+    sessionStorage.setItem(this.chaveSessao, JSON.stringify(usuarioAutenticado));
+    // Limpa possível lixo do localStorage antigo
+    localStorage.removeItem(this.chaveSessao);
+    
     return usuarioAutenticado;
   }
 
   async criarConta(dados: { email: string, senha: string, nome: string }): Promise<UsuarioAutenticado | null> {
     const usuarios = this.obterUsuariosDoStorage();
-    if (usuarios.some(u => u.email === dados.email)) throw new Error('E-mail já cadastrado');
+    if (usuarios.some(u => u.email.toLowerCase() === dados.email.toLowerCase())) {
+      throw new Error('E-mail já cadastrado no sistema.');
+    }
 
     const novoUsuario = {
       id: `u-${Date.now()}`,
@@ -98,7 +107,6 @@ class AuthService {
       status: 'Ativo',
       ativo: true,
       dataCriacao: new Date().toISOString(),
-      // Por padrão, novos cadastros ganham acesso Operacional em POA para teste
       basesAssociadas: [{ baseId: 'poa', nivelAcesso: 'OPERACIONAL', ativo: true }]
     };
 
@@ -109,12 +117,14 @@ class AuthService {
   }
 
   fazerLogout(): void {
+    sessionStorage.removeItem(this.chaveSessao);
     localStorage.removeItem(this.chaveSessao);
   }
 
   obterUsuarioAutenticado(): UsuarioAutenticado | null {
     try {
-      const u = localStorage.getItem(this.chaveSessao);
+      // Prioriza session storage para segurança
+      const u = sessionStorage.getItem(this.chaveSessao);
       return u ? JSON.parse(u) : null;
     } catch { return null; }
   }

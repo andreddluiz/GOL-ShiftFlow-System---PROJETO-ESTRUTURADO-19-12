@@ -3,14 +3,12 @@ import React, { useState, useEffect } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, Settings, ClipboardCheck, BarChart3, MessageSquare, 
-  CalendarDays, LogOut, Plane, ChevronRight, Menu, X, MapPin, Moon, Sun, UserCog, ShieldCheck
+  CalendarDays, LogOut, Plane, ChevronRight, Menu, MapPin, Moon, Sun, X
 } from 'lucide-react';
-import { Base, UsuarioAutenticado } from './types';
 import { useStore } from './hooks/useStore';
-import { authService } from './services/authService';
-import { accessControlService } from './services/accessControlService';
+import { useAuth } from './hooks/useAuth';
 
-// Pages
+// Páginas
 import DashboardPage from './pages/DashboardPage';
 import ManagementPage from './pages/ManagementPage';
 import ShiftHandoverPage from './pages/ShiftHandoverPage';
@@ -18,157 +16,177 @@ import MonthlyCollectionPage from './pages/MonthlyCollectionPage';
 import ReportsPage from './pages/ReportsPage';
 import AnnouncementsPage from './pages/AnnouncementsPage';
 import { LoginPage } from './pages/LoginPage';
-import { RotaProtegida } from './components/RotaProtegida';
+import { ProtectedRoute } from './components/ProtectedRoute';
 
 const App: React.FC = () => {
-  const { bases, loading, initialized, refreshData } = useStore();
-  const [usuario, setUsuario] = useState<UsuarioAutenticado | null>(null);
-  const [selectedBase, setSelectedBase] = useState<Base | null>(null);
+  const { user, logout, loading: authLoading } = useAuth();
+  const { bases, initialized, refreshData } = useStore();
+  const [selectedBaseId, setSelectedBaseId] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isBaseModalOpen, setIsBaseModalOpen] = useState(false);
-  const [authChecked, setAuthChecked] = useState(false);
-  
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-    return (localStorage.getItem('gol_shiftflow_theme') as 'light' | 'dark') || 'light';
-  });
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => (localStorage.getItem('theme') as any) || 'light');
 
   useEffect(() => {
-    if (theme === 'dark') document.documentElement.classList.add('dark');
-    else document.documentElement.classList.remove('dark');
-    localStorage.setItem('gol_shiftflow_theme', theme);
+    document.documentElement.classList.toggle('dark', theme === 'dark');
+    localStorage.setItem('theme', theme);
   }, [theme]);
 
+  // Carrega dados iniciais após login
   useEffect(() => {
-    const user = authService.obterUsuarioAutenticado();
-    if (user) setUsuario(user);
-    setAuthChecked(true);
-  }, []);
+    if (user && !initialized) refreshData();
+  }, [user, initialized, refreshData]);
 
+  // Gerenciamento automático de base selecionada
   useEffect(() => {
-    if (!initialized) refreshData(true);
-  }, [initialized, refreshData]);
-
-  useEffect(() => {
-    if (initialized && usuario && !selectedBase && bases.length > 0) {
-      const basesDisponiveis = bases.filter(b => usuario.basesAssociadas.some(ba => ba.baseId === b.id));
-      if (basesDisponiveis.length === 1) setSelectedBase(basesDisponiveis[0]);
-      else if (basesDisponiveis.length > 1) setIsBaseModalOpen(true);
+    if (user && !selectedBaseId && user.bases.length > 0) {
+      if (user.bases.length === 1) setSelectedBaseId(user.bases[0]);
+      else setIsBaseModalOpen(true);
     }
-  }, [initialized, usuario, selectedBase, bases]);
+  }, [user, selectedBaseId]);
 
-  const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
-  const toggleTheme = () => setTheme(prev => prev === 'light' ? 'dark' : 'light');
-  const handleLoginSuccess = (user: UsuarioAutenticado) => setUsuario(user);
-  const handleLogout = () => { authService.fazerLogout(); setUsuario(null); setSelectedBase(null); };
+  if (authLoading) return null; // O ProtectedRoute já lida com o loading visual
 
-  if (!authChecked) return null;
-
-  if (loading && !initialized) {
-    return (
-      <div className="h-screen w-screen flex flex-col items-center justify-center bg-gray-50 dark:bg-slate-900">
-        <Plane className="w-12 h-12 text-orange-500 animate-bounce mb-4" />
-        <p className="text-gray-500 dark:text-slate-400 font-bold animate-pulse">Sincronizando dados operacionais...</p>
-      </div>
-    );
-  }
-
-  if (!usuario) {
-    return (
-      <Router>
-        <Routes>
-          <Route path="/login" element={<LoginPage onLoginSuccess={handleLoginSuccess} />} />
-          <Route path="*" element={<Navigate to="/login" replace />} />
-        </Routes>
-      </Router>
-    );
-  }
-
-  const basesUsuario = bases.filter(b => usuario.basesAssociadas.some(ba => ba.baseId === b.id));
-  const permissoes = accessControlService.obterPermissoes(usuario.perfil);
+  const currentBase = bases.find(b => b.id === selectedBaseId);
 
   return (
     <Router>
-      <div className="flex h-screen bg-gray-100 dark:bg-slate-900 text-gray-800 dark:text-slate-100 overflow-hidden transition-colors duration-300">
-        <aside className={`${isSidebarOpen ? 'w-64' : 'w-20'} bg-orange-600 dark:bg-slate-800 text-white flex flex-col transition-all duration-300 ease-in-out z-30`}>
-          <div className="p-4 flex items-center justify-between border-b border-white/10">
-            <div className={`flex items-center space-x-2 ${!isSidebarOpen && 'justify-center w-full'}`}>
-              <Plane className="w-8 h-8" />
-              {isSidebarOpen && <span className="text-xl font-bold tracking-tighter">ShiftFlow</span>}
-            </div>
-            {isSidebarOpen && <button onClick={toggleSidebar} className="p-1 hover:bg-white/10 rounded transition-colors"><Menu className="w-5 h-5" /></button>}
-          </div>
+      <Routes>
+        {/* Rota de Acesso */}
+        <Route path="/login" element={<LoginPage />} />
 
-          <nav className="flex-1 overflow-y-auto py-4">
-            <ul className="space-y-2 px-2">
-              {permissoes.indicadores && <NavItem to="/dashboard" icon={<LayoutDashboard />} label="Indicadores" active={isSidebarOpen} />}
-              {permissoes.passagemServico && <NavItem to="/shift-handover" icon={<ClipboardCheck />} label="Passagem de Serviço" active={isSidebarOpen} />}
-              {permissoes.coletaMensal && <NavItem to="/monthly-collection" icon={<CalendarDays />} label="Coleta Mensal" active={isSidebarOpen} />}
-              {permissoes.relatorios && <NavItem to="/reports" icon={<BarChart3 />} label="Relatórios" active={isSidebarOpen} />}
-              <NavItem to="/announcements" icon={<MessageSquare />} label="Comunicados" active={isSidebarOpen} />
-              {permissoes.gerenciamento && <NavItem to="/management" icon={<Settings />} label="Gerenciamento" active={isSidebarOpen} />}
-            </ul>
-          </nav>
+        {/* Rotas Protegidas do Sistema */}
+        <Route path="/*" element={
+          <ProtectedRoute>
+            <div className="flex h-screen bg-gray-100 dark:bg-slate-900 transition-colors duration-300">
+              {/* Menu Lateral GOL */}
+              <aside className={`${isSidebarOpen ? 'w-72' : 'w-24'} bg-[#FF5A00] dark:bg-slate-800 text-white flex flex-col transition-all duration-500 z-40 shadow-2xl`}>
+                <div className="p-6 flex items-center justify-between border-b border-white/10">
+                  <div className={`flex items-center space-x-3 ${!isSidebarOpen && 'justify-center w-full'}`}>
+                    <div className="bg-white p-2 rounded-xl text-[#FF5A00] shadow-lg"><Plane size={24} /></div>
+                    {isSidebarOpen && <span className="text-2xl font-black tracking-tighter">ShiftFlow</span>}
+                  </div>
+                </div>
 
-          <div className="p-4 border-t border-white/10 bg-black/10">
-            {isSidebarOpen && (
-              <div className="mb-4">
-                <button onClick={() => setIsBaseModalOpen(true)} className="w-full flex items-center justify-between bg-white dark:bg-slate-700 text-orange-600 dark:text-slate-100 px-3 py-2 rounded-lg text-sm font-semibold hover:bg-orange-50 dark:hover:bg-slate-600 transition-colors">
-                  <div className="flex items-center space-x-2"><MapPin className="w-4 h-4" /><span>Base: {selectedBase?.sigla || 'Selecionar'}</span></div>
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-              </div>
-            )}
-            <div className={`flex items-center ${isSidebarOpen ? 'space-x-3' : 'justify-center'}`}>
-              <div className="w-10 h-10 rounded-full bg-white dark:bg-slate-700 text-orange-600 dark:text-slate-100 flex items-center justify-center font-bold">{usuario.nome.charAt(0)}</div>
-              {isSidebarOpen && <div className="flex-1 overflow-hidden"><p className="text-sm font-semibold truncate">{usuario.nome}</p><p className="text-[10px] text-orange-100 dark:text-slate-400 truncate uppercase font-bold">{usuario.perfil}</p></div>}
-            </div>
-          </div>
-        </aside>
+                <nav className="flex-1 overflow-y-auto py-8 scrollbar-hide px-4">
+                  <ul className="space-y-3">
+                    <NavItem to="/dashboard" icon={<LayoutDashboard />} label="Painel de Controle" open={isSidebarOpen} />
+                    <NavItem to="/shift-handover" icon={<ClipboardCheck />} label="Passagem de Turno" open={isSidebarOpen} />
+                    <NavItem to="/monthly-collection" icon={<CalendarDays />} label="Dados Mensais" open={isSidebarOpen} />
+                    <NavItem to="/reports" icon={<BarChart3 />} label="Histórico & BI" open={isSidebarOpen} />
+                    <NavItem to="/announcements" icon={<MessageSquare />} label="Mural de Avisos" open={isSidebarOpen} />
+                    {user?.permissionLevel === 'ADMINISTRADOR' && (
+                      <NavItem to="/management" icon={<Settings />} label="Configurações" open={isSidebarOpen} />
+                    )}
+                  </ul>
+                </nav>
 
-        <main className="flex-1 flex flex-col min-w-0 overflow-hidden bg-gray-100 dark:bg-slate-900 transition-colors duration-300">
-          <header className="bg-white dark:bg-slate-800 shadow-sm h-16 flex items-center px-6 justify-between shrink-0 border-b dark:border-slate-700 transition-colors duration-300">
-            <div className="flex items-center space-x-4">
-              {!isSidebarOpen && <button onClick={toggleSidebar} className="p-2 text-gray-500 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-700 rounded transition-colors"><Menu className="w-5 h-5" /></button>}
-              <h1 className="text-xl font-semibold text-gray-800 dark:text-slate-100">{selectedBase ? `GOL ShiftFlow - ${selectedBase.nome} (${selectedBase.sigla})` : 'Selecione uma Base'}</h1>
-            </div>
-            <div className="flex items-center space-x-4">
-              <button onClick={toggleTheme} className="p-2 text-gray-500 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-700 rounded transition-colors">{theme === 'light' ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}</button>
-              <button onClick={handleLogout} className="text-gray-500 dark:text-slate-400 hover:text-orange-600 dark:hover:text-orange-500 transition-colors"><LogOut className="w-5 h-5" /></button>
-            </div>
-          </header>
+                <div className="p-6 bg-black/10 border-t border-white/10">
+                  {isSidebarOpen && (
+                    <button 
+                      onClick={() => setIsBaseModalOpen(true)}
+                      className="w-full flex items-center justify-between bg-white/10 hover:bg-white/20 p-3 rounded-2xl mb-6 transition-all border border-white/5"
+                    >
+                      <div className="flex items-center space-x-3"><MapPin size={16}/><span className="text-xs font-black uppercase tracking-widest">{currentBase?.sigla || 'Base...'}</span></div>
+                      <ChevronRight size={14}/>
+                    </button>
+                  )}
+                  <div className="flex items-center space-x-4">
+                    <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-[#FF5A00] font-black text-xl shadow-xl">
+                      {user?.name.charAt(0)}
+                    </div>
+                    {isSidebarOpen && (
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-black truncate">{user?.name}</p>
+                        <p className="text-[8px] font-black text-orange-200 uppercase opacity-70 tracking-widest">{user?.permissionLevel}</p>
+                      </div>
+                    )}
+                    <button onClick={logout} className="p-2 hover:bg-white/10 rounded-xl text-white/50 hover:text-white transition-colors"><LogOut size={18}/></button>
+                  </div>
+                </div>
+              </aside>
 
-          <div className="flex-1 overflow-y-auto p-6 scrollbar-hide">
-            <Routes>
-              <Route path="/" element={<Navigate to="/dashboard" replace />} />
-              <Route path="/dashboard" element={<RotaProtegida><DashboardPage baseId={selectedBase?.id} /></RotaProtegida>} />
-              <Route path="/shift-handover" element={<RotaProtegida><ShiftHandoverPage baseId={selectedBase?.id} /></RotaProtegida>} />
-              <Route path="/monthly-collection" element={<RotaProtegida><MonthlyCollectionPage baseId={selectedBase?.id} /></RotaProtegida>} />
-              <Route path="/reports" element={<RotaProtegida><ReportsPage baseId={selectedBase?.id} /></RotaProtegida>} />
-              <Route path="/announcements" element={<RotaProtegida><AnnouncementsPage baseId={selectedBase?.id} /></RotaProtegida>} />
-              <Route path="/management" element={<RotaProtegida><ManagementPage /></RotaProtegida>} />
-              <Route path="*" element={<Navigate to="/dashboard" replace />} />
-            </Routes>
-          </div>
-        </main>
+              {/* Área de Trabalho */}
+              <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
+                <header className="h-20 bg-white dark:bg-slate-800 border-b dark:border-slate-700 flex items-center justify-between px-8 shrink-0 shadow-sm z-30">
+                  <div className="flex items-center space-x-6">
+                    <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2.5 bg-gray-50 dark:bg-slate-700 rounded-xl text-gray-400 hover:text-[#FF5A00] transition-all"><Menu size={20}/></button>
+                    <div className="h-8 w-px bg-gray-100 dark:bg-slate-700" />
+                    <h2 className="text-sm font-black text-gray-800 dark:text-white uppercase tracking-[0.15em]">
+                      {currentBase ? `Unidade Operacional: ${currentBase.nome}` : 'Aguardando Seleção...'}
+                    </h2>
+                  </div>
+                  <button 
+                    onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
+                    className="p-3 text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-700 rounded-2xl transition-all"
+                  >
+                    {theme === 'light' ? <Moon size={20}/> : <Sun size={20}/>}
+                  </button>
+                </header>
 
-        {isBaseModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-            <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden transform transition-all border dark:border-slate-700">
-              <div className="bg-orange-600 p-6 text-white flex justify-between items-center"><h2 className="text-2xl font-bold">Bem-vindo!</h2>{selectedBase && <button onClick={() => setIsBaseModalOpen(false)} className="hover:bg-orange-700 p-1 rounded"><X className="w-6 h-6" /></button>}</div>
-              <div className="p-8 text-center"><p className="text-gray-600 dark:text-slate-300 mb-6 text-lg">Selecione a base operacional:</p><div className="grid grid-cols-2 md:grid-cols-3 gap-4">{basesUsuario.map(base => (<button key={base.id} onClick={() => { setSelectedBase(base); setIsBaseModalOpen(false); }} className={`p-6 border-2 rounded-xl transition-all group ${selectedBase?.id === base.id ? 'border-orange-600 bg-orange-50 dark:bg-orange-950/20' : 'border-gray-200 dark:border-slate-700 hover:border-orange-300 hover:bg-gray-50 dark:hover:bg-slate-700/50'}`}><MapPin className={`w-8 h-8 mx-auto mb-2 ${selectedBase?.id === base.id ? 'text-orange-600' : 'text-gray-400 group-hover:text-orange-400'}`} /><span className="block font-bold text-lg text-gray-800 dark:text-slate-100">{base.sigla}</span><span className="block text-sm text-gray-500 dark:text-slate-400">{base.nome}</span></button>))}</div></div>
+                <div className="flex-1 overflow-y-auto p-8 scrollbar-hide">
+                  <Routes>
+                    <Route path="/dashboard" element={<DashboardPage baseId={selectedBaseId || undefined} />} />
+                    <Route path="/shift-handover" element={<ShiftHandoverPage baseId={selectedBaseId || undefined} />} />
+                    <Route path="/monthly-collection" element={<MonthlyCollectionPage baseId={selectedBaseId || undefined} />} />
+                    <Route path="/reports" element={<ReportsPage baseId={selectedBaseId || undefined} />} />
+                    <Route path="/announcements" element={<AnnouncementsPage baseId={selectedBaseId || undefined} />} />
+                    <Route path="/management" element={<ManagementPage />} />
+                    <Route path="*" element={<Navigate to="/dashboard" replace />} />
+                  </Routes>
+                </div>
+              </main>
+
+              {/* Seleção de Base (Multi-Base) */}
+              {isBaseModalOpen && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-md p-6">
+                  <div className="bg-white dark:bg-slate-800 rounded-[3rem] shadow-2xl max-w-lg w-full overflow-hidden animate-in zoom-in-95 duration-300">
+                    <div className="bg-[#FF5A00] p-10 text-white relative">
+                      <h3 className="text-3xl font-black tracking-tighter">Onde você está hoje?</h3>
+                      <p className="text-xs font-bold opacity-80 uppercase tracking-widest mt-2">Selecione sua base de atuação</p>
+                      <button onClick={() => setIsBaseModalOpen(false)} className="absolute top-6 right-6 p-2 hover:bg-white/20 rounded-full transition-colors"><X size={24}/></button>
+                    </div>
+                    <div className="p-10 grid grid-cols-2 gap-4">
+                      {bases.filter(b => user?.bases.includes(b.id)).map(base => (
+                        <button 
+                          key={base.id} 
+                          onClick={() => { setSelectedBaseId(base.id); setIsBaseModalOpen(false); }}
+                          className={`flex flex-col items-center p-8 rounded-[2rem] border-4 transition-all group ${selectedBaseId === base.id ? 'border-[#FF5A00] bg-orange-50 dark:bg-slate-700' : 'border-gray-50 dark:border-slate-700 hover:border-orange-100 dark:hover:border-slate-600'}`}
+                        >
+                          <MapPin className={`w-12 h-12 mb-4 ${selectedBaseId === base.id ? 'text-[#FF5A00]' : 'text-gray-200 dark:text-slate-600 group-hover:text-orange-300'}`} />
+                          <span className="font-black text-xl text-gray-800 dark:text-white">{base.sigla}</span>
+                          <span className="text-[10px] font-bold text-gray-400 dark:text-slate-400 uppercase mt-1">{base.nome}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
-          </div>
-        )}
-      </div>
+          </ProtectedRoute>
+        } />
+      </Routes>
     </Router>
   );
 };
 
-interface NavItemProps { to: string; icon: React.ReactNode; label: string; active: boolean; }
-const NavItem: React.FC<NavItemProps> = ({ to, icon, label, active }) => {
+const NavItem: React.FC<{ to: string, icon: React.ReactNode, label: string, open: boolean }> = ({ to, icon, label, open }) => {
   const location = useLocation();
-  const isCurrent = location.pathname === to;
-  return (<li><Link to={to} className={`flex items-center p-3 rounded-lg transition-all ${isCurrent ? 'bg-white dark:bg-slate-700 text-orange-600 dark:text-orange-400 shadow-lg' : 'text-orange-50 dark:text-slate-300 hover:bg-orange-500 dark:hover:bg-slate-700/50'}`}><span className={`${isCurrent ? 'text-orange-600 dark:text-orange-400' : ''}`}>{icon}</span>{active && <span className="ml-3 font-medium">{label}</span>}</Link></li>);
+  const isActive = location.pathname === to;
+  return (
+    <li>
+      <Link 
+        to={to} 
+        className={`flex items-center p-4 rounded-2xl transition-all duration-300 group ${
+          isActive 
+            ? 'bg-white text-[#FF5A00] shadow-xl shadow-black/10' 
+            : 'text-orange-50 hover:bg-white/10'
+        }`}
+      >
+        <span className={`${isActive ? 'scale-110' : 'group-hover:scale-110'} transition-transform duration-300`}>{icon}</span>
+        {open && <span className="ml-4 font-black text-[11px] uppercase tracking-widest">{label}</span>}
+      </Link>
+    </li>
+  );
 };
 
 export default App;

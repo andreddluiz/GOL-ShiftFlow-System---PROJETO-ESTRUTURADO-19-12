@@ -3,7 +3,7 @@ import { create } from 'zustand';
 import { 
   Base, User, Category, Task, Control, ControlType,
   DefaultLocationItem, DefaultTransitItem, DefaultCriticalItem,
-  ShelfLifeItem, CustomControlType, CustomControlItem, ConditionConfig, PopupConfig,
+  ShelfLifeItem, CustomControlType, CustomControlItem,
   MonthlyCollection
 } from '../types';
 import { 
@@ -29,12 +29,10 @@ interface AppState {
   
   refreshData: (showFullLoading?: boolean) => Promise<void>;
   
-  saveDefaultItem: (type: 'shelf' | 'loc' | 'trans' | 'crit' | string, data: any) => Promise<void>;
-  deleteDefaultItem: (type: 'shelf' | 'loc' | 'trans' | 'crit' | string, id: string) => Promise<void>;
-  
+  saveDefaultItem: (type: string, data: any) => Promise<void>;
+  deleteDefaultItem: (type: string, id: string) => Promise<void>;
   saveCustomControlType: (data: CustomControlType) => Promise<void>;
   deleteCustomControlType: (id: string) => Promise<void>;
-
   saveMonthlyCollection: (data: MonthlyCollection) => Promise<void>;
 
   getOpCategoriesCombinadas: (baseId?: string | null) => Category[];
@@ -84,20 +82,22 @@ export const useStore = create<AppState>((set, get) => ({
         monthlyService.getAll()
       ]);
       set({ 
-        bases: bases.filter(b => !b.deletada), 
-        users: users.filter(u => !u.deletada), 
-        tasks: tasks.filter(t => !t.deletada), 
-        categories: cats.filter(c => !c.deletada), 
-        controls, 
-        defaultLocations: defLocs.filter(i => !i.deletada), 
-        defaultTransits: defTrans.filter(i => !i.deletada), 
-        defaultCriticals: defCrit.filter(i => !i.deletada),
-        defaultShelfLifes: defShelf.filter(i => !i.deletada),
-        customControlTypes: custTypes.filter(t => !t.deletada),
-        customControlItems: custItems.filter(i => !i.deletada),
-        monthlyCollections: monthly,
+        bases: (bases || []).filter(b => !b.deletada), 
+        users: (users || []).filter(u => !u.deletada), 
+        tasks: (tasks || []).filter(t => !t.deletada), 
+        categories: (cats || []).filter(c => !c.deletada), 
+        controls: controls || [], 
+        defaultLocations: (defLocs || []).filter(i => !i.deletada), 
+        defaultTransits: (defTrans || []).filter(i => !i.deletada), 
+        defaultCriticals: (defCrit || []).filter(i => !i.deletada),
+        defaultShelfLifes: (defShelf || []).filter(i => !i.deletada),
+        customControlTypes: (custTypes || []).filter(t => !t.deletada),
+        customControlItems: (custItems || []).filter(i => !i.deletada),
+        monthlyCollections: monthly || [],
         initialized: true 
       });
+    } catch (e) {
+      console.error("[Store Refresh Error]", e);
     } finally {
       if (showFullLoading) set({ loading: false });
     }
@@ -138,113 +138,43 @@ export const useStore = create<AppState>((set, get) => ({
 
   getOpCategoriesCombinadas: (baseId) => {
     return get().categories.filter(c => 
-      !c.deletada &&
-      c.tipo === 'operacional' && 
-      c.status === 'Ativa' && 
-      (c.visivel !== false) && 
-      (!c.baseId || c.baseId === baseId)
+      !c.deletada && c.tipo === 'operacional' && c.status === 'Ativa' && (!c.baseId || c.baseId === baseId)
     ).sort((a,b) => a.ordem - b.ordem);
   },
 
   getOpTasksCombinadas: (baseId) => {
-    return get().tasks.filter(t => 
-      !t.deletada &&
-      t.status === 'Ativa' && 
-      (t.visivel !== false) && 
-      (!t.baseId || t.baseId === baseId)
-    );
+    return get().tasks.filter(t => !t.deletada && t.status === 'Ativa' && (!t.baseId || t.baseId === baseId));
   },
 
   getMonthlyCategoriesCombinadas: (baseId) => {
     return get().categories.filter(c => 
-      !c.deletada &&
-      c.tipo === 'mensal' && 
-      c.status === 'Ativa' && 
-      (c.visivel !== false) && 
-      (!c.baseId || c.baseId === baseId)
+      !c.deletada && c.tipo === 'mensal' && c.status === 'Ativa' && (!c.baseId || c.baseId === baseId)
     ).sort((a,b) => a.ordem - b.ordem);
   },
 
   getMonthlyTasksCombinadas: (baseId) => {
     const monthlyCats = get().getMonthlyCategoriesCombinadas(baseId);
     const catIds = new Set(monthlyCats.map(c => c.id));
-    return get().tasks.filter(t => 
-      !t.deletada &&
-      t.status === 'Ativa' && 
-      (t.visivel !== false) && 
-      catIds.has(t.categoriaId)
-    );
+    return get().tasks.filter(t => !t.deletada && t.status === 'Ativa' && catIds.has(t.categoriaId));
   },
 
   getControlesCombinados: (baseId) => {
     const all = get().controls.filter(c => c.status === 'Ativo');
     const globais = all.filter(c => c.baseId === null);
     const locais = all.filter(c => c.baseId === baseId);
-
     const tipos: ControlType[] = ['locations', 'transito', 'shelf_life', 'itens_criticos'];
 
     return tipos.map(tipo => {
-      // Prioridade: Local da Base > Global > Mock Default
       const control = locais.find(l => l.tipo === tipo) || globais.find(g => g.tipo === tipo);
-      
-      const mappedControl = control ? { ...control } : {
-        id: `fallback-${tipo}`,
-        baseId: null,
-        nome: tipo.toUpperCase(),
-        tipo: tipo,
-        descricao: 'Padrão',
-        unidade: 'unidade',
-        status: 'Ativo',
-        alertaConfig: { verde: 30, amarelo: 15, vermelho: 0, permitirPopupVerde: false, permitirPopupAmarelo: true, permitirPopupVermelho: true, mensagemVerde: '', mensagemAmarelo: '', mensagemVermelho: '' }
-      } as Control;
-
-      // Garantir que a estrutura moderna de cores/popups exista para o motor de alertas
-      if (!mappedControl.cores) {
-        mappedControl.cores = {
-          verde: { condicao: 'Valor', operador: '>', valor: mappedControl.alertaConfig.verde || 30, habilitado: true },
-          amarelo: { condicao: 'Valor', operador: 'entre', valor: mappedControl.alertaConfig.amarelo || 15, valorMax: mappedControl.alertaConfig.verde || 30, habilitado: true },
-          vermelho: { condicao: 'Valor', operador: '<=', valor: mappedControl.alertaConfig.vermelho || 15, habilitado: true }
-        };
-      }
-      if (!mappedControl.popups) {
-        mappedControl.popups = {
-          verde: { titulo: 'Status OK', mensagem: mappedControl.alertaConfig.mensagemVerde || 'Dentro do prazo.', habilitado: mappedControl.alertaConfig.permitirPopupVerde },
-          amarelo: { titulo: 'Atenção', mensagem: mappedControl.alertaConfig.mensagemAmarelo || 'Prazo curto (X dias).', habilitado: mappedControl.alertaConfig.permitirPopupAmarelo },
-          vermelho: { titulo: 'ALERTA CRÍTICO', mensagem: mappedControl.alertaConfig.mensagemVermelho || 'Vencimento próximo ou expirado (X dias)!', habilitado: mappedControl.alertaConfig.permitirPopupVermelho }
-        };
-      }
-      
-      return mappedControl;
+      return control ? { ...control } : {
+        id: `fallback-${tipo}`, baseId: null, nome: tipo.toUpperCase(), tipo, status: 'Ativo', alertaConfig: { verde: 30, amarelo: 15, vermelho: 0 }
+      } as any;
     });
   },
 
-  getDefaultLocations: (baseId) => {
-    return get().defaultLocations.filter(i => 
-      !i.deletada && (i.visivel !== false) && (!i.baseId || i.baseId === baseId)
-    );
-  },
-
-  getDefaultTransits: (baseId) => {
-    return get().defaultTransits.filter(i => 
-      !i.deletada && (i.visivel !== false) && (!i.baseId || i.baseId === baseId)
-    );
-  },
-
-  getDefaultCriticals: (baseId) => {
-    return get().defaultCriticals.filter(i => 
-      !i.deletada && (i.visivel !== false) && (!i.baseId || i.baseId === baseId)
-    );
-  },
-
-  getDefaultShelfLifes: (baseId) => {
-    return get().defaultShelfLifes.filter(i => 
-      !i.deletada && (i.visivel !== false) && (!i.baseId || i.baseId === baseId)
-    );
-  },
-
-  getCustomControlItems: (baseId, typeId) => {
-    return get().customControlItems.filter(i => 
-      !i.deletada && (i.visivel !== false) && i.tipoId === typeId && (!i.baseId || i.baseId === baseId)
-    );
-  }
+  getDefaultLocations: (baseId) => get().defaultLocations.filter(i => !i.deletada && (!i.baseId || i.baseId === baseId)),
+  getDefaultTransits: (baseId) => get().defaultTransits.filter(i => !i.deletada && (!i.baseId || i.baseId === baseId)),
+  getDefaultCriticals: (baseId) => get().defaultCriticals.filter(i => !i.deletada && (!i.baseId || i.baseId === baseId)),
+  getDefaultShelfLifes: (baseId) => get().defaultShelfLifes.filter(i => !i.deletada && (!i.baseId || i.baseId === baseId)),
+  getCustomControlItems: (baseId, typeId) => get().customControlItems.filter(i => !i.deletada && i.tipoId === typeId && (!i.baseId || i.baseId === baseId))
 }));

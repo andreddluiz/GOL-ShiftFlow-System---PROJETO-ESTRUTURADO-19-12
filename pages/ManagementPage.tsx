@@ -79,12 +79,10 @@ const ManagementPage: React.FC = () => {
     setTimeout(() => setSnackbar(prev => ({ ...prev, open: false })), 4000);
   };
 
-  /**
-   * Fix for line 84: Expected 0 arguments, but got 1.
-   * Also handled the async nature of listarUsuarios.
-   */
   const carregarUsuarios = () => {
-    authService.listarUsuarios().then(setUsuariosUnificados);
+    const userLogado = authService.obterUsuarioAutenticado();
+    const data = authService.listarUsuarios(userLogado?.perfil || 'ADMINISTRADOR');
+    setUsuariosUnificados(data);
   };
 
   const carregarNiveis = () => {
@@ -109,6 +107,7 @@ const ManagementPage: React.FC = () => {
         if (editingItem) await baseService.update(editingItem.id, formData);
         else await baseService.create(formData);
       } else if (type === 'users') {
+        const userLogado = authService.obterUsuarioAutenticado();
         if (editingItem) {
           const userUnificado: Usuario = {
             ...editingItem,
@@ -122,11 +121,7 @@ const ManagementPage: React.FC = () => {
             })),
             ativo: formData.status === 'Ativo'
           };
-          /**
-           * Fix for line 124: Expected 1 arguments, but got 2.
-           * Also added await for the async call.
-           */
-          await authService.atualizarUsuario(userUnificado);
+          authService.atualizarUsuario(userUnificado, userLogado?.perfil || 'ADMINISTRADOR');
         } else {
           const novoUser: any = {
             ...formData,

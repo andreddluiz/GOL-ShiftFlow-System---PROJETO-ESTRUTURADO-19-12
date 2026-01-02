@@ -1,6 +1,6 @@
 
 import { initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
+// import { getAuth } from "firebase/auth"; // Desativado para restaurar sessão local
 import { getFirestore } from "firebase/firestore";
 
 // Configuração fornecida pelo usuário
@@ -17,7 +17,7 @@ const firebaseConfig = {
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
-export const auth = getAuth(app);
+// export const auth = getAuth(app); // Desativado
 export const db = getFirestore(app);
 
 export default app;

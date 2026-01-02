@@ -3,10 +3,8 @@ import React, { useState, useEffect } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, Settings, ClipboardCheck, BarChart3, MessageSquare, 
-  CalendarDays, LogOut, Plane, ChevronRight, Menu, X, MapPin, Moon, Sun, UserCog, ShieldCheck, AlertCircle
+  CalendarDays, LogOut, Plane, ChevronRight, Menu, X, MapPin, Moon, Sun, UserCog, ShieldCheck
 } from 'lucide-react';
-/* Fix: Added Typography to the @mui/material import list */
-import { CircularProgress, Box, Alert, Button, Snackbar, Typography } from '@mui/material';
 import { Base, UsuarioAutenticado } from './types';
 import { useStore } from './hooks/useStore';
 import { authService } from './services/authService';
@@ -23,7 +21,7 @@ import { LoginPage } from './pages/LoginPage';
 import { RotaProtegida } from './components/RotaProtegida';
 
 const App: React.FC = () => {
-  const { bases, loading, initialized, refreshData, error, clearError } = useStore();
+  const { bases, loading, initialized, refreshData } = useStore();
   const [usuario, setUsuario] = useState<UsuarioAutenticado | null>(null);
   const [selectedBase, setSelectedBase] = useState<Base | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -40,15 +38,10 @@ const App: React.FC = () => {
     localStorage.setItem('gol_shiftflow_theme', theme);
   }, [theme]);
 
-  /**
-   * Observer do Firebase: Mantém o usuário logado entre recarregamentos
-   */
   useEffect(() => {
-    const unsubscribe = authService.observarAutenticacao((user) => {
-      setUsuario(user);
-      setAuthChecked(true);
-    });
-    return () => unsubscribe();
+    const user = authService.obterUsuarioAutenticado();
+    if (user) setUsuario(user);
+    setAuthChecked(true);
   }, []);
 
   useEffect(() => {
@@ -66,53 +59,9 @@ const App: React.FC = () => {
   const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
   const toggleTheme = () => setTheme(prev => prev === 'light' ? 'dark' : 'light');
   const handleLoginSuccess = (user: UsuarioAutenticado) => setUsuario(user);
-  
-  const handleLogout = async () => { 
-    await authService.fazerLogout(); 
-    setUsuario(null); 
-    setSelectedBase(null); 
-  };
+  const handleLogout = () => { authService.fazerLogout(); setUsuario(null); setSelectedBase(null); };
 
-  // Se houver erro crítico de permissão no Firebase
-  if (error && error.includes("PERMISSÃO")) {
-    return (
-      <Box sx={{ h: '100vh', w: '100vw', display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: '#fef2f2', p: 4 }}>
-        <Alert 
-          severity="error" 
-          variant="filled" 
-          sx={{ borderRadius: 6, p: 4, maxWidth: 600, boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)' }}
-          icon={<AlertCircle size={40} />}
-          action={
-            <Button color="inherit" size="small" onClick={() => window.location.reload()} sx={{ fontWeight: 900 }}>
-              Tentar Novamente
-            </Button>
-          }
-        >
-          {/* Typography is now available via import */}
-          <Typography variant="h6" sx={{ fontWeight: 900, mb: 1 }}>Falha Crítica de Backend</Typography>
-          <Typography variant="body2" sx={{ fontWeight: 600, mb: 2 }}>{error}</Typography>
-          <Box sx={{ bgcolor: 'rgba(0,0,0,0.1)', p: 2, borderRadius: 3 }}>
-            <Typography variant="caption" sx={{ fontWeight: 800, display: 'block', mb: 1, textTransform: 'uppercase' }}>Como resolver:</Typography>
-            <Typography variant="caption" sx={{ fontWeight: 500 }}>
-              1. Acesse o Firebase Console.<br />
-              2. Vá em Firestore Database > Rules.<br />
-              3. Configure as permissões para permitir read/write para usuários autenticados.<br />
-              4. Certifique-se de que o banco de dados foi criado no projeto <strong>g-shiftflow</strong>.
-            </Typography>
-          </Box>
-        </Alert>
-      </Box>
-    );
-  }
-
-  // Enquanto verifica o estado de autenticação no Firebase
-  if (!authChecked) {
-    return (
-      <Box sx={{ h: '100vh', w: '100vw', display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: '#f3f4f6' }}>
-        <CircularProgress sx={{ color: '#FF5A00' }} />
-      </Box>
-    );
-  }
+  if (!authChecked) return null;
 
   if (loading && !initialized) {
     return (
@@ -211,13 +160,6 @@ const App: React.FC = () => {
           </div>
         )}
       </div>
-
-      {/* Snackbar para erros não-críticos */}
-      <Snackbar open={!!error && !error.includes("PERMISSÃO")} autoHideDuration={6000} onClose={clearError}>
-        <Alert onClose={clearError} severity="error" sx={{ width: '100%', borderRadius: 4, fontWeight: 800 }}>
-          {error}
-        </Alert>
-      </Snackbar>
     </Router>
   );
 };

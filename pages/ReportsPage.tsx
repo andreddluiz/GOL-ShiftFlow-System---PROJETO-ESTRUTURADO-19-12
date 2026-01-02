@@ -153,7 +153,8 @@ const ReportsPage: React.FC<{ baseId?: string }> = ({ baseId }) => {
     const atualizados = registros.map((r: any) => r.id === id ? { ...r, excluido: true } : r);
     localStorage.setItem(key, JSON.stringify(atualizados));
     
-    setMensalDetalhado(dataAccessControlService.filtrarDadosPorPermissao(atualizados.slice().reverse(), usuario));
+    const displayList = dataAccessControlService.filtrarDadosPorPermissao(atualizados.slice().reverse(), usuario);
+    setMensalDetalhado(displayList);
   };
 
   useEffect(() => {

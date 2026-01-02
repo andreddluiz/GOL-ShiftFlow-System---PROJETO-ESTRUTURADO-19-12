@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Plus, Trash2, Clock, MapPin, Shield, Info, AlertCircle, TrendingUp, Box as LucideBox, Truck, AlertOctagon, Calendar, Layers, Palette, Settings, AlertTriangle, CheckCircle2, Target, Lock } from 'lucide-react';
+import { X, Plus, Trash2, Clock, MapPin, Shield, Info, AlertCircle, TrendingUp, Box as BoxIcon, Truck, AlertOctagon, Calendar, Layers, Palette, Settings, AlertTriangle, CheckCircle2, Target, Lock } from 'lucide-react';
 import { 
   Base, User, Category, Task, Control, Shift, PermissionLevel, MeasureType,
   DefaultLocationItem, DefaultTransitItem, DefaultCriticalItem, CustomControlType, ManagedItem, ConditionConfig, PopupConfig, NivelAcessoCustomizado
@@ -13,14 +13,14 @@ import {
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { 
-  Box as MuiBox, 
+  Box, 
   TextField, 
   Button, 
   FormControl, 
   InputLabel, 
   Select, 
   MenuItem,
-  Typography as MuiTypography,
+  Typography,
   Grid,
   OutlinedInput,
   Chip
@@ -675,7 +675,7 @@ export const UserModal: React.FC<ModalProps & { availableBases?: Base[], availab
       <div className="bg-white rounded-[2.5rem] w-full max-w-md shadow-2xl p-8 animate-in zoom-in-95 flex flex-col gap-6 max-h-[95vh] overflow-y-auto">
         <h3 className="text-2xl font-black text-gray-800 uppercase tracking-tight">{title}</h3>
         
-        <MuiBox sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
           <TextField
             label="Nome Completo"
             placeholder="Nome e Sobrenome"
@@ -707,7 +707,7 @@ export const UserModal: React.FC<ModalProps & { availableBases?: Base[], availab
               onChange={(e) => handleFieldChange('bases', e.target.value)}
               input={<OutlinedInput label="Bases Operacionais" />}
               renderValue={(selected) => (
-                <MuiBox sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
                   {(selected as string[]).map((value) => (
                     <Chip 
                       key={value} 
@@ -716,7 +716,7 @@ export const UserModal: React.FC<ModalProps & { availableBases?: Base[], availab
                       sx={{ fontWeight: 800, fontSize: '0.65rem' }}
                     />
                   ))}
-                </MuiBox>
+                </Box>
               )}
               sx={{ borderRadius: '1rem' }}
             >
@@ -740,12 +740,12 @@ export const UserModal: React.FC<ModalProps & { availableBases?: Base[], availab
             >
               {availableLevels && availableLevels.length > 0 ? availableLevels.map((nivel) => (
                 <MenuItem key={nivel.id} value={nivel.id}>
-                  <MuiBox sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                    <MuiTypography sx={{ fontWeight: 800, fontSize: '0.85rem' }}>{nivel.nome}</MuiTypography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                    <Typography sx={{ fontWeight: 800, fontSize: '0.85rem' }}>{nivel.nome}</Typography>
                     {nivel.tipo === 'PADRÃO' && (
                       <Chip label="SISTEMA" size="small" sx={{ height: 16, fontSize: '0.5rem', fontWeight: 900, ml: 1, bgcolor: '#f3f4f6' }} />
                     )}
-                  </MuiBox>
+                  </Box>
                 </MenuItem>
               )) : (
                 <MenuItem disabled value="">Nenhum perfil carregado</MenuItem>
@@ -753,10 +753,10 @@ export const UserModal: React.FC<ModalProps & { availableBases?: Base[], availab
             </Select>
           </FormControl>
 
-          <MuiBox sx={{ bgcolor: '#f9fafb', p: 3, borderRadius: '1.5rem', border: '1px solid #f3f4f6' }}>
-            <MuiTypography sx={{ fontSize: '10px', fontWeight: 900, color: '#9ca3af', mb: 1.5, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+          <Box sx={{ bgcolor: '#f9fafb', p: 3, borderRadius: '1.5rem', border: '1px solid #f3f4f6' }}>
+            <Typography sx={{ fontSize: '10px', fontWeight: 900, color: '#9ca3af', mb: 1.5, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
               Configuração de Jornada
-            </MuiTypography>
+            </Typography>
             
             <div className="space-y-4">
               <FormControl fullWidth size="small">
@@ -801,7 +801,7 @@ export const UserModal: React.FC<ModalProps & { availableBases?: Base[], availab
                 />
               )}
             </div>
-          </MuiBox>
+          </Box>
 
           <FormControl fullWidth required>
             <InputLabel children="Status do Usuário" />
@@ -812,20 +812,20 @@ export const UserModal: React.FC<ModalProps & { availableBases?: Base[], availab
               sx={{ borderRadius: '1rem' }}
             >
               <MenuItem value="Ativo">
-                <MuiBox sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                  <MuiBox sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: '#4caf50' }} />
-                  <MuiTypography sx={{ fontWeight: 800, fontSize: '0.8rem' }}>ATIVO</MuiTypography>
-                </MuiBox>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                  <Box sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: '#4caf50' }} />
+                  <Typography sx={{ fontWeight: 800, fontSize: '0.8rem' }}>ATIVO</Typography>
+                </Box>
               </MenuItem>
               <MenuItem value="Inativo">
-                <MuiBox sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                  <MuiBox sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: '#9e9e9e' }} />
-                  <MuiTypography sx={{ fontWeight: 800, fontSize: '0.8rem' }}>INATIVO</MuiTypography>
-                </MuiBox>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                  <Box sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: '#9e9e9e' }} />
+                  <Typography sx={{ fontWeight: 800, fontSize: '0.8rem' }}>INATIVO</Typography>
+                </Box>
               </MenuItem>
             </Select>
           </FormControl>
-        </MuiBox>
+        </Box>
 
         <div className="flex space-x-2 mt-4">
           <button onClick={onClose} className="flex-1 py-4 bg-gray-100 rounded-2xl font-black uppercase text-[10px] tracking-widest text-gray-400 hover:bg-gray-200 transition-all">Cancelar</button>
@@ -1015,11 +1015,11 @@ export const CategoryModal: React.FC<ModalProps> = ({ isOpen, onClose, onSave, t
       <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl p-8 animate-in zoom-in-95">
         <h3 className="text-xl font-bold mb-4">{title}</h3>
         <div className="space-y-4">
-          <MuiBox sx={{ mb: 2 }}>
+          <Box sx={{ mb: 2 }}>
             <Input label="Nome da Categoria" value={formData.nome} onChange={v => setFormData({...formData, nome: v})} />
-          </MuiBox>
+          </Box>
           
-          <MuiBox sx={{ mb: 2 }}>
+          <Box sx={{ mb: 2 }}>
             <FormControl fullWidth size="small">
               <InputLabel children="Formato de Exibição" />
               <Select
@@ -1032,11 +1032,11 @@ export const CategoryModal: React.FC<ModalProps> = ({ isOpen, onClose, onSave, t
                 <MenuItem value="suspensa">Lista Suspensa (Dropdown)</MenuItem>
               </Select>
             </FormControl>
-          </MuiBox>
+          </Box>
 
-          <MuiBox sx={{ mb: 2 }}>
+          <Box sx={{ mb: 2 }}>
             <Input type="number" label="Ordem de Exibição" value={formData.ordem} onChange={v => setFormData({...formData, ordem: parseInt(v) || 1})} />
-          </MuiBox>
+          </Box>
         </div>
         <div className="flex space-x-2 mt-6">
           <button onClick={onClose} className="flex-1 py-3 bg-gray-100 rounded-xl font-bold text-gray-500">Cancelar</button>

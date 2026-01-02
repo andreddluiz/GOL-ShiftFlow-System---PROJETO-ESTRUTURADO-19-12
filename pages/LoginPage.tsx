@@ -11,9 +11,12 @@ import {
   CircularProgress,
   Container,
   InputAdornment,
-  IconButton
+  IconButton,
+  Divider,
+  Tab,
+  Tabs
 } from '@mui/material';
-import { Plane, Mail, Lock, Eye, EyeOff, LogIn } from 'lucide-react';
+import { Plane, Mail, Lock, Eye, EyeOff, LogIn, UserPlus } from 'lucide-react';
 import { authService } from '../services/authService';
 
 interface LoginPageProps {
@@ -21,32 +24,47 @@ interface LoginPageProps {
 }
 
 export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
+  const [tab, setTab] = useState(0);
+  const [nome, setNome] = useState('');
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
   const [mostrarSenha, setMostrarSenha] = useState(false);
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState('');
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || !senha) return;
+    if (!email || !senha || (tab === 1 && !nome)) return;
 
     setCarregando(true);
     setErro('');
 
     try {
-      // Pequeno delay para UX
-      await new Promise(r => setTimeout(r, 800));
-      
-      const usuario = authService.fazerLogin({ email, senha });
+      let usuario;
+      if (tab === 0) {
+        // Login
+        usuario = await authService.fazerLogin({ email, senha });
+      } else {
+        // Cadastro
+        usuario = await authService.criarConta({ email, senha, nome });
+      }
 
       if (usuario) {
         onLoginSuccess(usuario);
       } else {
-        setErro('Credenciais inválidas ou conta inativa.');
+        setErro('Perfil não encontrado no sistema. Contate o administrador.');
       }
-    } catch (err) {
-      setErro('Ocorreu um erro ao tentar fazer login.');
+    } catch (err: any) {
+      console.error(err);
+      if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+        setErro('E-mail ou senha incorretos.');
+      } else if (err.code === 'auth/email-already-in-use') {
+        setErro('Este e-mail já está sendo utilizado.');
+      } else if (err.code === 'auth/weak-password') {
+        setErro('A senha deve ter no mínimo 6 caracteres.');
+      } else {
+        setErro('Erro de conexão com o servidor. Tente novamente.');
+      }
     } finally {
       setCarregando(false);
     }
@@ -68,7 +86,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
           overflow: 'visible'
         }}>
           <CardContent sx={{ p: 5 }}>
-            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 4 }}>
+            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 3 }}>
               <Box sx={{ 
                 w: 64, h: 64, 
                 bgcolor: '#FF5A00', 
@@ -91,18 +109,45 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
               </Typography>
             </Box>
 
+            <Tabs 
+              value={tab} 
+              onChange={(_, v) => setTab(v)} 
+              centered 
+              sx={{ mb: 3, borderBottom: 1, borderColor: 'divider' }}
+              textColor="primary"
+              indicatorColor="primary"
+            >
+              <Tab label="Entrar" sx={{ fontWeight: 800, fontSize: '0.75rem' }} />
+              <Tab label="Criar Conta" sx={{ fontWeight: 800, fontSize: '0.75rem' }} />
+            </Tabs>
+
             {erro && (
               <Alert severity="error" sx={{ mb: 3, borderRadius: 3, fontWeight: 700 }}>
                 {erro}
               </Alert>
             )}
 
-            <form onSubmit={handleLogin}>
+            <form onSubmit={handleSubmit}>
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+                {tab === 1 && (
+                  <TextField
+                    fullWidth
+                    label="Nome Completo"
+                    variant="outlined"
+                    value={nome}
+                    onChange={(e) => setNome(e.target.value)}
+                    disabled={carregando}
+                    slotProps={{
+                      input: { sx: { borderRadius: 4 } }
+                    }}
+                  />
+                )}
+
                 <TextField
                   fullWidth
-                  label="E-mail"
+                  label="E-mail Corporativo"
                   variant="outlined"
+                  type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   disabled={carregando}
@@ -161,19 +206,16 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                     '&:hover': { bgcolor: '#e65100' },
                     boxShadow: '0 8px 16px rgba(255, 90, 0, 0.2)'
                   }}
-                  startIcon={carregando ? <CircularProgress size={20} color="inherit" /> : <LogIn size={20} />}
+                  startIcon={carregando ? <CircularProgress size={20} color="inherit" /> : (tab === 0 ? <LogIn size={20} /> : <UserPlus size={20} />)}
                 >
-                  {carregando ? 'Acessando...' : 'Entrar na Plataforma'}
+                  {carregando ? 'Processando...' : (tab === 0 ? 'Entrar' : 'Cadastrar')}
                 </Button>
               </Box>
             </form>
 
-            <Box sx={{ mt: 5, p: 2, bgcolor: '#f9fafb', borderRadius: 4, textAlign: 'center' }}>
-               <Typography variant="caption" sx={{ fontWeight: 800, color: '#9ca3af', textTransform: 'uppercase', display: 'block', mb: 1 }}>
-                 Credenciais de Demonstração
-               </Typography>
-               <Typography variant="caption" sx={{ fontWeight: 700, color: '#4b5563', display: 'block' }}>
-                 Admin: <strong>admin@gol.com</strong> | senha: <strong>admin123</strong>
+            <Box sx={{ mt: 4, p: 2, bgcolor: '#f9fafb', borderRadius: 4, textAlign: 'center' }}>
+               <Typography variant="caption" sx={{ fontWeight: 800, color: '#9ca3af', textTransform: 'uppercase', display: 'block' }}>
+                 {tab === 0 ? 'Acesso restrito a colaboradores GOL' : 'Novos cadastros aguardam aprovação'}
                </Typography>
             </Box>
           </CardContent>

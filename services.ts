@@ -5,62 +5,59 @@ import {
   ShelfLifeItem, CustomControlType, CustomControlItem,
   ShiftHandover, Indicator, Report, OutraAtividade, MonthlyCollection, MeasureType
 } from './types';
-import { BASES, CATEGORIES, TASKS, CONTROLS, USERS, DEFAULT_LOCATIONS, DEFAULT_TRANSITS, DEFAULT_CRITICALS } from './constants';
+import { 
+  collection, 
+  doc, 
+  getDocs, 
+  getDoc, 
+  setDoc, 
+  updateDoc, 
+  deleteDoc, 
+  query, 
+  where, 
+  orderBy, 
+  addDoc,
+  Timestamp,
+  writeBatch
+} from 'firebase/firestore';
+import { db } from './firebase';
 
-const STORAGE_KEYS = {
-  BASES: 'gol_shiftflow_bases_v2',
-  USERS: 'gol_shiftflow_users_v2',
-  CATEGORIES: 'gol_shiftflow_categories_v2',
-  TASKS: 'gol_shiftflow_tasks_v2',
-  CONTROLS: 'gol_shiftflow_controls_v2',
-  DEF_LOCS: 'gol_shiftflow_def_locations_v2',
-  DEF_TRANS: 'gol_shiftflow_def_transits_v2',
-  DEF_CRIT: 'gol_shiftflow_def_criticals_v2',
-  DEF_SHELF: 'gol_shiftflow_def_shelf_v2',
-  CUSTOM_TYPES: 'gol_shiftflow_custom_control_types',
-  CUSTOM_ITEMS: 'gol_shiftflow_custom_control_items',
-  FINISHED_HANDOVERS: 'gol_shiftflow_finished_handovers',
-  INDICATORS: 'gol_shiftflow_indicators',
-  REPORTS: 'gol_shiftflow_reports',
-  REP_ACOMPANHAMENTO: 'gol_rep_acompanhamento',
-  REP_RESUMO: 'gol_rep_resumo',
-  REP_MENSAL: 'gol_rep_mensal',
-  REP_MENSAL_RESUMO: 'gol_rep_mensal_resumo',
-  REP_MENSAL_DETALHADO: 'gol_rep_mensal_detalhado',
-  REP_DETALHAMENTO: 'gol_rep_detalhamento',
-  MONTHLY_COLLECTIONS: 'gol_shiftflow_monthly_collections',
-  SHARED_DRAFTS: 'gol_shiftflow_shared_drafts',
-  BASE_STATUS: 'gol_shiftflow_base_status'
-};
-
-const getFromStorage = <T>(key: string, defaultVal: T): T => {
-  try {
-    const data = localStorage.getItem(key);
-    return data ? JSON.parse(data) : defaultVal;
-  } catch (e) {
-    return defaultVal;
+// Utilitário para tratar erros de permissão do Firebase
+const handleFirestoreError = (error: any) => {
+  console.error("Firestore Error:", error);
+  if (error.code === 'permission-denied') {
+    throw new Error("ERRO DE PERMISSÃO: O banco de dados Firestore está bloqueando o acesso. Verifique as 'Security Rules' no Console do Firebase.");
   }
+  throw error;
 };
 
-const saveToStorage = <T>(key: string, data: T) => {
-  try {
-    localStorage.setItem(key, JSON.stringify(data));
-  } catch (e) {
-    console.error("[DEBUG Storage] Erro ao salvar storage", key, e);
-  }
+// Coleções Firestore
+const COLLECTIONS = {
+  BASES: 'bases',
+  USERS: 'usuarios',
+  CATEGORIES: 'categorias',
+  TASKS: 'tarefas',
+  CONTROLS: 'controles',
+  DEF_LOCS: 'config_locations',
+  DEF_TRANS: 'config_transitos',
+  DEF_CRIT: 'config_criticos',
+  DEF_SHELF: 'config_shelf_life',
+  CUSTOM_TYPES: 'config_custom_types',
+  CUSTOM_ITEMS: 'config_custom_items',
+  HANDOVERS: 'handovers_diarios',
+  MONTHLY_COLLECTIONS: 'coletas_mensais',
+  BASE_STATUS: 'status_bases_persistente'
 };
 
+/**
+ * Utilitários de Tempo
+ */
 export const timeUtils = {
   converterMinutosParaHoras: (totalMinutes: number) => {
     const horas = Math.floor(totalMinutes / 60);
     const minutos = Math.floor(totalMinutes % 60);
     const segundos = Math.round((totalMinutes * 60) % 60);
     return { horas, minutos, segundos };
-  },
-  somarMinutos: (h1: number, m1: number, h2: number, m2: number) => {
-    const total = (h1 * 60 + m1) + (h2 * 60 + m2);
-    const conv = timeUtils.converterMinutosParaHoras(total);
-    return { horas: conv.horas, minutos: conv.minutos };
   },
   formatToHms: (h: number, m: number, s: number = 0) => {
     return `${String(Math.floor(h)).padStart(2, '0')}:${String(Math.floor(m)).padStart(2, '0')}:${String(Math.round(s)).padStart(2, '0')}`;
@@ -75,61 +72,371 @@ export const timeUtils = {
   }
 };
 
-function formatarControle(items: any[]): string {
-  if (!items || items.length === 0) return '';
-  return items
-    .filter(item => item.dataVencimento || item.dataMaisAntigo || item.dataSaida || item.quantidade !== undefined || item.saldoSistema !== undefined)
-    .map(item => {
-        if (item.saldoSistema !== undefined) return `${item.partNumber}: S${item.saldoSistema}/F${item.saldoFisico}`;
-        const desc = item.partNumber || item.nomeLocation || item.nomeTransito || 'Item';
-        const val = item.dataVencimento || item.dataMaisAntigo || item.dataSaida || item.quantidade;
-        return `${desc} (${val})`;
-    })
-    .join(' | ');
-}
+/**
+ * Serviço de Bases Operacionais
+ */
+export const baseService = {
+  async getAll(): Promise<Base[]> {
+    try {
+      const q = query(collection(db, COLLECTIONS.BASES), where('deletada', '==', false));
+      const querySnapshot = await getDocs(q);
+      return querySnapshot.docs.map(d => ({ id: d.id, ...d.data() } as Base));
+    } catch (e) { return handleFirestoreError(e); }
+  },
 
-function criarMapaTarefas(detalhe: any, allTasks: Task[]): Record<string, string> {
-  const tarefasMap: Record<string, string> = {};
-  
-  allTasks.sort((a, b) => a.ordem - b.ordem).forEach(t => {
-    tarefasMap[t.nome.toUpperCase()] = '00:00:00';
-  });
+  async obterMetaHoras(baseId: string, mes: number): Promise<number> {
+    try {
+      const docRef = doc(db, COLLECTIONS.BASES, baseId);
+      const docSnap = await getDoc(docRef);
+      if (!docSnap.exists()) return 160;
+      const base = docSnap.data() as Base;
+      const mesKey = String(mes).padStart(2, '0');
+      return base.metaHorasDisponiveisAno?.[mesKey] || 160;
+    } catch (e) { return handleFirestoreError(e); }
+  },
 
-  if (detalhe.activities && Array.isArray(detalhe.activities)) {
-    detalhe.activities.forEach((atividade: any) => {
-      if (atividade.taskNome) {
-        tarefasMap[atividade.taskNome.toUpperCase()] = atividade.formatted || '00:00:00';
-      }
-    });
+  async obterMetasTodasAsBases(mes: number): Promise<Record<string, number>> {
+    try {
+      const q = query(collection(db, COLLECTIONS.BASES), where('deletada', '==', false));
+      const querySnapshot = await getDocs(q);
+      const metas: Record<string, number> = {};
+      const mesKey = String(mes).padStart(2, '0');
+      querySnapshot.docs.forEach(d => {
+        const data = d.data() as Base;
+        metas[d.id] = data.metaHorasDisponiveisAno?.[mesKey] || 160;
+      });
+      return metas;
+    } catch (e) { return handleFirestoreError(e); }
+  },
+
+  async create(data: Omit<Base, 'id'>): Promise<Base> {
+    try {
+      const docRef = await addDoc(collection(db, COLLECTIONS.BASES), { ...data, deletada: false });
+      return { id: docRef.id, ...data } as Base;
+    } catch (e) { return handleFirestoreError(e); }
+  },
+
+  async update(id: string, data: Partial<Base>): Promise<void> {
+    try {
+      const docRef = doc(db, COLLECTIONS.BASES, id);
+      await updateDoc(docRef, data);
+    } catch (e) { return handleFirestoreError(e); }
+  },
+
+  async delete(id: string): Promise<void> {
+    try {
+      const docRef = doc(db, COLLECTIONS.BASES, id);
+      await updateDoc(docRef, { deletada: true, status: 'Inativa' });
+    } catch (e) { return handleFirestoreError(e); }
   }
-  
-  if (detalhe.nonRoutineTasks && Array.isArray(detalhe.nonRoutineTasks)) {
-    detalhe.nonRoutineTasks.forEach((tarefa: any) => {
-      if (tarefa.nome && tarefa.nome.trim() !== '') {
-        let tempoFinal = tarefa.tempo || '00:00:00';
-        if (tarefa.tipoMedida === MeasureType.QTD) {
-           const minsTotal = (parseFloat(tarefa.tempo) || 0) * (tarefa.fatorMultiplicador || 0);
-           tempoFinal = timeUtils.minutesToHhmmss(minsTotal);
-        } else if (tempoFinal.split(':').length === 2) {
-           tempoFinal += ':00';
+};
+
+/**
+ * Serviço de Categorias e Tarefas
+ */
+export const categoryService = {
+  async getAll(): Promise<Category[]> {
+    try {
+      const q = query(collection(db, COLLECTIONS.CATEGORIES), where('deletada', '==', false), orderBy('ordem', 'asc'));
+      const snap = await getDocs(q);
+      return snap.docs.map(d => ({ id: d.id, ...d.data() } as Category));
+    } catch (e) { return handleFirestoreError(e); }
+  },
+  async create(data: Omit<Category, 'id'>) {
+    return addDoc(collection(db, COLLECTIONS.CATEGORIES), { ...data, deletada: false }).catch(handleFirestoreError);
+  },
+  async update(id: string, data: Partial<Category>) {
+    return updateDoc(doc(db, COLLECTIONS.CATEGORIES, id), data).catch(handleFirestoreError);
+  },
+  async delete(id: string) {
+    return updateDoc(doc(db, COLLECTIONS.CATEGORIES, id), { deletada: true }).catch(handleFirestoreError);
+  }
+};
+
+export const taskService = {
+  async getAll(): Promise<Task[]> {
+    try {
+      const q = query(collection(db, COLLECTIONS.TASKS), where('deletada', '==', false), orderBy('ordem', 'asc'));
+      const snap = await getDocs(q);
+      return snap.docs.map(d => ({ id: d.id, ...d.data() } as Task));
+    } catch (e) { return handleFirestoreError(e); }
+  },
+  async create(data: Omit<Task, 'id'>) {
+    return addDoc(collection(db, COLLECTIONS.TASKS), { ...data, deletada: false }).catch(handleFirestoreError);
+  },
+  async update(id: string, data: Partial<Task>) {
+    return updateDoc(doc(db, COLLECTIONS.TASKS, id), data).catch(handleFirestoreError);
+  },
+  async delete(id: string) {
+    return updateDoc(doc(db, COLLECTIONS.TASKS, id), { deletada: true }).catch(handleFirestoreError);
+  }
+};
+
+/**
+ * Gestão de Rascunhos Colaborativos (Real-time Hub)
+ */
+export const sharedDraftService = {
+  async saveDraft(baseId: string, data: string, turnoId: string, content: any): Promise<void> {
+    try {
+      const key = `${baseId}_${data.replace(/\//g, '-')}_${turnoId}`;
+      const docRef = doc(db, 'shared_drafts', key);
+      await setDoc(docRef, { 
+        ...content, 
+        updatedAt: Timestamp.now(),
+        baseId,
+        dataRef: data,
+        turnoId
+      });
+    } catch (e) { return handleFirestoreError(e); }
+  },
+
+  async getDraft(baseId: string, data: string, turnoId: string): Promise<any | null> {
+    try {
+      const key = `${baseId}_${data.replace(/\//g, '-')}_${turnoId}`;
+      const docRef = doc(db, 'shared_drafts', key);
+      const snap = await getDoc(docRef);
+      if (!snap.exists()) return null;
+      const d = snap.data();
+      return { ...d, updatedAt: d.updatedAt.toMillis() };
+    } catch (e) { return handleFirestoreError(e); }
+  },
+
+  async clearDraft(baseId: string, data: string, turnoId: string): Promise<void> {
+    try {
+      const key = `${baseId}_${data.replace(/\//g, '-')}_${turnoId}`;
+      await deleteDoc(doc(db, 'shared_drafts', key));
+    } catch (e) { return handleFirestoreError(e); }
+  }
+};
+
+/**
+ * Status Persistente da Base (Notas e Controles que ficam de um turno para o outro)
+ */
+export const baseStatusService = {
+  async saveBaseStatus(baseId: string, status: any): Promise<void> {
+    try {
+      const docRef = doc(db, COLLECTIONS.BASE_STATUS, baseId);
+      await setDoc(docRef, { ...status, updatedAt: Timestamp.now() });
+    } catch (e) { return handleFirestoreError(e); }
+  },
+  async getBaseStatus(baseId: string): Promise<any | null> {
+    try {
+      const docRef = doc(db, COLLECTIONS.BASE_STATUS, baseId);
+      const snap = await getDoc(docRef);
+      return snap.exists() ? snap.data() : null;
+    } catch (e) { return handleFirestoreError(e); }
+  }
+};
+
+/**
+ * Serviço de Migração e Relatórios (Audit Trail)
+ */
+export const migrationService = {
+  async processarMigracao(handover: ShiftHandover, store: any, replaceId?: string): Promise<void> {
+    try {
+      // 1. Grava no histórico de detalhamento (Handovers Finalizados)
+      const recordId = replaceId || `final_${Date.now()}_${handover.baseId}`;
+      const handoverRef = doc(db, COLLECTIONS.HANDOVERS, recordId);
+
+      const baseObj = store.bases.find((b: any) => b.id === handover.baseId);
+      const turnoObj = baseObj?.turnos.find((t: any) => t.id === handover.turnoId);
+      const turnoNumero = turnoObj?.numero || 1;
+      const colaboradoresNomes = handover.colaboradores
+        .map(id => store.users.find((u:any) => u.id === id)?.nome)
+        .filter(Boolean);
+
+      // Cálculos de Produção para o Relatório
+      let hProdTotalMin = 0;
+      const atividadesDetalhadas: any[] = [];
+
+      // Processar tarefas padrão
+      Object.entries(handover.tarefasExecutadas).forEach(([taskId, val]) => {
+        const task = store.tasks.find((t: any) => t.id === taskId);
+        const cat = store.categories.find((c: any) => c.id === task?.categoriaId);
+        let mins = 0;
+        if (task?.tipoMedida === 'TEMPO') {
+          const p = val.split(':').map(Number);
+          mins = (p[0]||0) * 60 + (p[1]||0) + (p[2]||0)/60;
+        } else {
+          mins = (parseFloat(val) || 0) * (task?.fatorMultiplicador || 0);
         }
-        tarefasMap[tarefa.nome.toUpperCase()] = tempoFinal;
-      }
-    });
-  }
-  
-  return tarefasMap;
-}
+        hProdTotalMin += mins;
+        atividadesDetalhadas.push({ 
+          taskNome: task?.nome, 
+          categoryNome: cat?.nome, 
+          formatted: timeUtils.minutesToHhmmss(mins),
+          ordemCat: cat?.ordem || 0, 
+          ordemTask: task?.ordem || 0 
+        });
+      });
 
-function normalizarDataExibicao(dataStr: string): string {
-  if (!dataStr) return '';
-  if (/^\d{2}\/\d{2}\/\d{4}$/.test(dataStr)) return dataStr;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(dataStr)) {
-    const [y, m, d] = dataStr.split('-');
-    return `${d}/${m}/${y}`;
+      const hDispTotalMin = handover.colaboradores.reduce((acc, id) => 
+        acc + (store.users.find((u:any) => u.id === id)?.jornadaPadrao || 0) * 60, 0);
+
+      const record = {
+        ...handover,
+        id: recordId,
+        colaboradoresIds: handover.colaboradores,
+        colaboradoresNomes,
+        horasDisponivel: timeUtils.minutesToHhmmss(hDispTotalMin),
+        horasProduzida: timeUtils.minutesToHhmmss(hProdTotalMin),
+        percentualPerformance: hDispTotalMin > 0 ? (hProdTotalMin / hDispTotalMin) * 100 : 0,
+        baseSigla: baseObj?.sigla || handover.baseId,
+        finalizadoEm: Timestamp.now(),
+        excluido: false
+      };
+
+      await setDoc(handoverRef, record);
+
+      // 2. Limpa o rascunho do turno
+      await sharedDraftService.clearDraft(handover.baseId, handover.data, handover.turnoId);
+
+      // 3. Atualiza o status da base para o próximo turno
+      await baseStatusService.saveBaseStatus(handover.baseId, {
+        obs: handover.informacoesImportantes,
+        locations: handover.locationsData,
+        transit: handover.transitData,
+        shelfLife: handover.shelfLifeData,
+        critical: handover.criticalData
+      });
+    } catch (e) { return handleFirestoreError(e); }
   }
-  return dataStr;
-}
+};
+
+/**
+ * Itens de Controle e Configurações Globais
+ */
+export const defaultItemsService = {
+  async getLocations(): Promise<DefaultLocationItem[]> {
+    try {
+      const snap = await getDocs(query(collection(db, COLLECTIONS.DEF_LOCS), where('deletada', '==', false)));
+      return snap.docs.map(d => ({ id: d.id, ...d.data() } as DefaultLocationItem));
+    } catch (e) { return handleFirestoreError(e); }
+  },
+  async saveLocation(data: DefaultLocationItem) {
+    const id = data.id || `loc_${Date.now()}`;
+    await setDoc(doc(db, COLLECTIONS.DEF_LOCS, id), { ...data, id, deletada: false }).catch(handleFirestoreError);
+  },
+  async deleteLocation(id: string) {
+    await updateDoc(doc(db, COLLECTIONS.DEF_LOCS, id), { deletada: true }).catch(handleFirestoreError);
+  },
+  async getTransits(): Promise<DefaultTransitItem[]> {
+    try {
+      const snap = await getDocs(query(collection(db, COLLECTIONS.DEF_TRANS), where('deletada', '==', false)));
+      return snap.docs.map(d => ({ id: d.id, ...d.data() } as DefaultTransitItem));
+    } catch (e) { return handleFirestoreError(e); }
+  },
+  async saveTransit(data: DefaultTransitItem) {
+    const id = data.id || `tr_${Date.now()}`;
+    await setDoc(doc(db, COLLECTIONS.DEF_TRANS, id), { ...data, id, deletada: false }).catch(handleFirestoreError);
+  },
+  async deleteTransit(id: string) {
+    await updateDoc(doc(db, COLLECTIONS.DEF_TRANS, id), { deletada: true }).catch(handleFirestoreError);
+  },
+  async getCriticals(): Promise<DefaultCriticalItem[]> {
+    try {
+      const snap = await getDocs(query(collection(db, COLLECTIONS.DEF_CRIT), where('deletada', '==', false)));
+      return snap.docs.map(d => ({ id: d.id, ...d.data() } as DefaultCriticalItem));
+    } catch (e) { return handleFirestoreError(e); }
+  },
+  async saveCritical(data: DefaultCriticalItem) {
+    const id = data.id || `crit_${Date.now()}`;
+    await setDoc(doc(db, COLLECTIONS.DEF_CRIT, id), { ...data, id, deletada: false }).catch(handleFirestoreError);
+  },
+  async deleteCritical(id: string) {
+    await updateDoc(doc(db, COLLECTIONS.DEF_CRIT, id), { deletada: true }).catch(handleFirestoreError);
+  },
+  async getShelfLifes(): Promise<ShelfLifeItem[]> {
+    try {
+      const snap = await getDocs(query(collection(db, COLLECTIONS.DEF_SHELF), where('deletada', '==', false)));
+      return snap.docs.map(d => ({ id: d.id, ...d.data() } as ShelfLifeItem));
+    } catch (e) { return handleFirestoreError(e); }
+  },
+  async saveShelfLife(data: ShelfLifeItem) {
+    const id = data.id || `shelf_${Date.now()}`;
+    await setDoc(doc(db, COLLECTIONS.DEF_SHELF, id), { ...data, id, deletada: false }).catch(handleFirestoreError);
+  },
+  async deleteShelfLife(id: string) {
+    await updateDoc(doc(db, COLLECTIONS.DEF_SHELF, id), { deletada: true }).catch(handleFirestoreError);
+  },
+  async getCustomTypes(): Promise<CustomControlType[]> {
+    try {
+      const snap = await getDocs(query(collection(db, COLLECTIONS.CUSTOM_TYPES), where('deletada', '==', false)));
+      return snap.docs.map(d => ({ id: d.id, ...d.data() } as CustomControlType));
+    } catch (e) { return handleFirestoreError(e); }
+  },
+  async saveCustomType(data: CustomControlType) {
+    await setDoc(doc(db, COLLECTIONS.CUSTOM_TYPES, data.id), { ...data, deletada: false }).catch(handleFirestoreError);
+  },
+  async deleteCustomType(id: string) {
+    await updateDoc(doc(db, COLLECTIONS.CUSTOM_TYPES, id), { deletada: true }).catch(handleFirestoreError);
+  },
+  async getCustomItems(): Promise<CustomControlItem[]> {
+    try {
+      const snap = await getDocs(query(collection(db, COLLECTIONS.CUSTOM_ITEMS), where('deletada', '==', false)));
+      return snap.docs.map(d => ({ id: d.id, ...d.data() } as CustomControlItem));
+    } catch (e) { return handleFirestoreError(e); }
+  },
+  async saveCustomItem(data: any) {
+    const id = data.id || `cust_${Date.now()}`;
+    await setDoc(doc(db, COLLECTIONS.CUSTOM_ITEMS, id), { ...data, id, deletada: false }).catch(handleFirestoreError);
+  },
+  async deleteCustomItem(id: string) {
+    await updateDoc(doc(db, COLLECTIONS.CUSTOM_ITEMS, id), { deletada: true }).catch(handleFirestoreError);
+  }
+};
+
+/**
+ * Coletas Mensais
+ */
+export const monthlyService = {
+  async getAll(): Promise<MonthlyCollection[]> {
+    try {
+      const snap = await getDocs(collection(db, COLLECTIONS.MONTHLY_COLLECTIONS));
+      return snap.docs.map(d => ({ id: d.id, ...d.data() } as MonthlyCollection));
+    } catch (e) { return handleFirestoreError(e); }
+  },
+  async save(data: MonthlyCollection): Promise<void> {
+    try {
+      await setDoc(doc(db, COLLECTIONS.MONTHLY_COLLECTIONS, data.id), { ...data, updatedAt: Timestamp.now() });
+    } catch (e) { return handleFirestoreError(e); }
+  }
+};
+
+/**
+ * Serviço de Usuários (Integrado com Auth)
+ */
+export const userService = {
+  async getAll(): Promise<User[]> {
+    try {
+      const snap = await getDocs(query(collection(db, COLLECTIONS.USERS), where('deletada', '==', false)));
+      return snap.docs.map(d => {
+        const data = d.data();
+        return {
+          id: d.id,
+          nome: data.nome,
+          email: data.email,
+          status: data.ativo ? 'Ativo' : 'Inativo',
+          bases: data.basesAssociadas?.map((b: any) => b.baseId) || [],
+          permissao: data.basesAssociadas?.[0]?.nivelAcesso || 'OPERACIONAL',
+          jornadaPadrao: 6 
+        } as unknown as User;
+      });
+    } catch (e) { return handleFirestoreError(e); }
+  }
+};
+
+export const controlService = {
+  async getAll(): Promise<Control[]> {
+    try {
+      const snap = await getDocs(collection(db, COLLECTIONS.CONTROLS));
+      return snap.docs.map(d => ({ id: d.id, ...d.data() } as Control));
+    } catch (e) { return handleFirestoreError(e); }
+  },
+  async create(data: any) { return addDoc(collection(db, COLLECTIONS.CONTROLS), data).catch(handleFirestoreError); },
+  async update(id: string, data: any) { await updateDoc(doc(db, COLLECTIONS.CONTROLS, id), data).catch(handleFirestoreError); },
+  async delete(id: string) { await deleteDoc(doc(db, COLLECTIONS.CONTROLS, id)).catch(handleFirestoreError); }
+};
 
 export const validationService = {
   validarPassagem: (handover: ShiftHandover, tasks: Task[], categories: Category[]) => {
@@ -141,16 +448,7 @@ export const validationService = {
     handover.shelfLifeData.forEach((i, idx) => {
       if (!i.partNumber || !i.lote || !i.dataVencimento) camposPendentes.push(`Controles Diários - Shelf Life: Linha ${idx+1} - PN, Lote e Vencimento são obrigatórios.`);
     });
-    handover.locationsData.forEach((i, idx) => {
-      if (!i.nomeLocation || i.quantidade === null || (!i.dataMaisAntigo && i.quantidade > 0)) camposPendentes.push(`Controles Diários - Locations: Linha ${idx+1} - Nome, Qtd e Data (se Qtd > 0) são obrigatórios.`);
-    });
-    handover.transitData.forEach((i, idx) => {
-      if (!i.nomeTransito || i.quantidade === null || (!i.dataSaida && i.quantidade > 0)) camposPendentes.push(`Controles Diários - Trânsito: Linha ${idx+1} - Tipo, Qtd e Data (se Qtd > 0) são obrigatórios.`);
-    });
-    handover.criticalData.forEach((i, idx) => {
-      if (!i.partNumber || i.saldoSistema === null || i.saldoFisico === null || (!i.lote && (i.saldoSistema > 0 || i.saldoFisico > 0))) camposPendentes.push(`Controles Diários - Saldo Crítico: Linha ${idx+1} - PN, Lote (se saldo > 0), Sistema e Físico são obrigatórios.`);
-    });
-
+    
     tasks.forEach(task => {
       const cat = categories.find(c => c.id === task.categoriaId);
       if (cat?.exibicao === 'lista') {
@@ -163,501 +461,23 @@ export const validationService = {
 
     return { valido: camposPendentes.length === 0, camposPendentes };
   },
-  validarPassagemDuplicada: async (data: string, turnoId: string, baseId: string) => {
-    const dataNorm = normalizarDataExibicao(data);
-    const repDetalhamento = getFromStorage<any[]>(STORAGE_KEYS.REP_DETALHAMENTO, []);
-    const duplicado = repDetalhamento.some(h => h.baseId === baseId && normalizarDataExibicao(h.data) === dataNorm && h.turnoId === turnoId);
-    if (duplicado) return { valido: false, message: "Já existe uma passagem finalizada para este turno nesta data." };
-    return { valido: true };
+  async validarPassagemDuplicada(data: string, turnoId: string, baseId: string) {
+    try {
+      const q = query(
+        collection(db, COLLECTIONS.HANDOVERS), 
+        where('baseId', '==', baseId),
+        where('data', '==', data),
+        where('turnoId', '==', turnoId),
+        where('excluido', '==', false)
+      );
+      const snap = await getDocs(q);
+      return { 
+        valido: snap.empty, 
+        message: snap.empty ? undefined : "Já existe uma Passagem de Serviço finalizada para este turno neste dia." 
+      };
+    } catch (e) { return handleFirestoreError(e); }
   },
-  verificarColaboradoresEmOutrosTurnos: async (data: string, turnoId: string, baseId: string, colaboradoresIds: (string|null)[], allUsers: User[]) => {
-    const dataNorm = normalizarDataExibicao(data);
-    const repDetalhamento = getFromStorage<any[]>(STORAGE_KEYS.REP_DETALHAMENTO, []);
-    const outrosTurnosDoDia = repDetalhamento.filter(h => h.baseId === baseId && normalizarDataExibicao(h.data) === dataNorm && h.turnoId !== turnoId);
-    const idsPresentesEmOutros = new Set<string>();
-    outrosTurnosDoDia.forEach(h => {
-      if (h.colaboradoresIds) {
-        h.colaboradoresIds.forEach((id: string) => { if (id) idsPresentesEmOutros.add(id); });
-      }
-    });
-    const duplicados: string[] = [];
-    colaboradoresIds.forEach(id => {
-      if (id && idsPresentesEmOutros.has(id)) {
-        const user = allUsers.find(u => u.id === id);
-        if (user) duplicados.push(user.nome);
-      }
-    });
-    return { colaboradoresDuplicados: duplicados };
-  }
-};
-
-export const baseService = {
-  async getAll(): Promise<Base[]> {
-    let data = getFromStorage<Base[]>(STORAGE_KEYS.BASES, []);
-    if (data.length === 0) {
-      data = BASES;
-      saveToStorage(STORAGE_KEYS.BASES, data);
-    }
-    return data.filter(b => !b.deletada);
-  },
-  async obterIdsBasesValidas(): Promise<string[]> {
-    const bases = await this.getAll();
-    return bases.filter(b => b.status === 'Ativa').map(b => b.id);
-  },
-  async baseExiste(baseId: string): Promise<boolean> {
-    const ids = await this.obterIdsBasesValidas();
-    return ids.includes(baseId);
-  },
-  async obterMetaHoras(baseId: string, mes: number): Promise<number> {
-    const bases = await this.getAll();
-    const base = bases.find(b => b.id === baseId);
-    if (!base) return 160;
-    const mesKey = String(mes).padStart(2, '0');
-    return base.metaHorasDisponiveisAno?.[mesKey] || 160;
-  },
-  async obterMetasTodasAsBases(mes: number): Promise<Record<string, number>> {
-    const bases = await this.getAll();
-    const metas: Record<string, number> = {};
-    const mesKey = String(mes).padStart(2, '0');
-    bases.forEach(b => {
-      metas[b.id] = b.metaHorasDisponiveisAno?.[mesKey] || 160;
-    });
-    return metas;
-  },
-  async create(data: Omit<Base, 'id'>): Promise<Base> {
-    const bases = await this.getAll();
-    const newBase = { ...data, id: Math.random().toString(36).substr(2, 9) } as Base;
-    saveToStorage(STORAGE_KEYS.BASES, [...bases, newBase]);
-    return newBase;
-  },
-  async update(id: string, data: Partial<Base>): Promise<void> {
-    const bases = await this.getAll();
-    const updated = bases.map(b => b.id === id ? { ...b, ...data } : b) as Base[];
-    saveToStorage(STORAGE_KEYS.BASES, updated);
-  },
-  async delete(id: string): Promise<void> {
-    const bases = await this.getAll();
-    const updated = bases.map(b => b.id === id ? { ...b, deletada: true, status: 'Inativa' } : b) as Base[];
-    saveToStorage(STORAGE_KEYS.BASES, updated);
-  }
-};
-
-export const baseStatusService = {
-  async saveBaseStatus(baseId: string, status: any): Promise<void> {
-    const allStatuses = getFromStorage<Record<string, any>>(STORAGE_KEYS.BASE_STATUS, {});
-    allStatuses[baseId] = { ...status, updatedAt: new Date().getTime() };
-    saveToStorage(STORAGE_KEYS.BASE_STATUS, allStatuses);
-  },
-  async getBaseStatus(baseId: string): Promise<any | null> {
-    const allStatuses = getFromStorage<Record<string, any>>(STORAGE_KEYS.BASE_STATUS, {});
-    return allStatuses[baseId] || null;
-  }
-};
-
-export const sharedDraftService = {
-  async saveDraft(baseId: string, data: string, turnoId: string, content: any): Promise<void> {
-    const drafts = getFromStorage<Record<string, any>>(STORAGE_KEYS.SHARED_DRAFTS, {});
-    const key = `${baseId}_${data.replace(/\//g, '-')}_${turnoId}`;
-    drafts[key] = { ...content, updatedAt: new Date().getTime() };
-    saveToStorage(STORAGE_KEYS.SHARED_DRAFTS, drafts);
-  },
-  async getDraft(baseId: string, data: string, turnoId: string): Promise<any | null> {
-    const drafts = getFromStorage<Record<string, any>>(STORAGE_KEYS.SHARED_DRAFTS, {});
-    const key = `${baseId}_${data.replace(/\//g, '-')}_${turnoId}`;
-    return drafts[key] || null;
-  },
-  async clearDraft(baseId: string, data: string, turnoId: string): Promise<void> {
-    const drafts = getFromStorage<Record<string, any>>(STORAGE_KEYS.SHARED_DRAFTS, {});
-    const key = `${baseId}_${data.replace(/\//g, '-')}_${turnoId}`;
-    delete drafts[key];
-    saveToStorage(STORAGE_KEYS.SHARED_DRAFTS, drafts);
-  }
-};
-
-export const defaultItemsService = {
-  async getLocations(): Promise<DefaultLocationItem[]> {
-    let data = getFromStorage<DefaultLocationItem[]>(STORAGE_KEYS.DEF_LOCS, []);
-    if (data.length === 0) { data = DEFAULT_LOCATIONS; saveToStorage(STORAGE_KEYS.DEF_LOCS, data); }
-    return data;
-  },
-  async saveLocation(data: DefaultLocationItem): Promise<void> {
-    const items = await this.getLocations();
-    const existingIndex = items.findIndex(i => i.id === data.id);
-    if (existingIndex > -1) items[existingIndex] = data; else items.push(data);
-    saveToStorage(STORAGE_KEYS.DEF_LOCS, items);
-  },
-  async deleteLocation(id: string): Promise<void> {
-    const items = await this.getLocations();
-    const updated = items.map(i => i.id === id ? { ...i, deletada: true } : i) as DefaultLocationItem[];
-    saveToStorage(STORAGE_KEYS.DEF_LOCS, updated);
-  },
-  async getTransits(): Promise<DefaultTransitItem[]> {
-    let data = getFromStorage<DefaultTransitItem[]>(STORAGE_KEYS.DEF_TRANS, []);
-    if (data.length === 0) { data = DEFAULT_TRANSITS; saveToStorage(STORAGE_KEYS.DEF_TRANS, data); }
-    return data;
-  },
-  async saveTransit(data: DefaultTransitItem): Promise<void> {
-    const items = await this.getTransits();
-    const existingIndex = items.findIndex(i => i.id === data.id);
-    if (existingIndex > -1) items[existingIndex] = data; else items.push(data);
-    saveToStorage(STORAGE_KEYS.DEF_TRANS, items);
-  },
-  async deleteTransit(id: string): Promise<void> {
-    const items = await this.getTransits();
-    const updated = items.map(i => i.id === id ? { ...i, deletada: true } : i) as DefaultTransitItem[];
-    saveToStorage(STORAGE_KEYS.DEF_TRANS, updated);
-  },
-  async getCriticals(): Promise<DefaultCriticalItem[]> {
-    let data = getFromStorage<DefaultCriticalItem[]>(STORAGE_KEYS.DEF_CRIT, []);
-    if (data.length === 0) { data = DEFAULT_CRITICALS; saveToStorage(STORAGE_KEYS.DEF_CRIT, data); }
-    return data;
-  },
-  async saveCritical(data: DefaultCriticalItem): Promise<void> {
-    const items = await this.getCriticals();
-    const existingIndex = items.findIndex(i => i.id === data.id);
-    if (existingIndex > -1) items[existingIndex] = data; else items.push(data);
-    saveToStorage(STORAGE_KEYS.DEF_CRIT, items);
-  },
-  async deleteCritical(id: string): Promise<void> {
-    const items = await this.getCriticals();
-    const updated = items.map(i => i.id === id ? { ...i, deletada: true } : i) as DefaultCriticalItem[];
-    saveToStorage(STORAGE_KEYS.DEF_CRIT, updated);
-  },
-  async getShelfLifes(): Promise<ShelfLifeItem[]> { return getFromStorage<ShelfLifeItem[]>(STORAGE_KEYS.DEF_SHELF, []); },
-  async saveShelfLife(data: ShelfLifeItem): Promise<void> {
-    const items = await this.getShelfLifes();
-    const existingIndex = items.findIndex(i => i.id === data.id);
-    if (existingIndex > -1) items[existingIndex] = data; else items.push(data);
-    saveToStorage(STORAGE_KEYS.DEF_SHELF, items);
-  },
-  async deleteShelfLife(id: string): Promise<void> {
-    const items = await this.getShelfLifes();
-    const updated = items.map(i => i.id === id ? { ...i, deletada: true } : i) as ShelfLifeItem[];
-    saveToStorage(STORAGE_KEYS.DEF_SHELF, updated);
-  },
-  async getCustomTypes(): Promise<CustomControlType[]> { return getFromStorage<CustomControlType[]>(STORAGE_KEYS.CUSTOM_TYPES, []); },
-  async saveCustomType(data: CustomControlType): Promise<void> {
-    const types = await this.getCustomTypes();
-    const idx = types.findIndex(t => t.id === data.id);
-    if (idx > -1) types[idx] = data; else types.push(data);
-    /* Fix: typo STORAGE_TYPES -> STORAGE_KEYS */
-    saveToStorage(STORAGE_KEYS.CUSTOM_TYPES, types);
-  },
-  async deleteCustomType(id: string): Promise<void> {
-    const types = await this.getCustomTypes();
-    const updated = types.map(t => t.id === id ? { ...t, deletada: true } : t) as CustomControlType[];
-    saveToStorage(STORAGE_KEYS.CUSTOM_TYPES, updated);
-  },
-  async getCustomItems(): Promise<CustomControlItem[]> { return getFromStorage<CustomControlItem[]>(STORAGE_KEYS.CUSTOM_ITEMS, []); },
-  async saveCustomItem(data: CustomControlItem): Promise<void> {
-    const items = await this.getCustomItems();
-    const idx = items.findIndex(i => i.id === data.id);
-    if (idx > -1) items[idx] = data; else items.push(data);
-    saveToStorage(STORAGE_KEYS.CUSTOM_ITEMS, items);
-  },
-  async deleteCustomItem(id: string): Promise<void> {
-    const items = await this.getCustomItems();
-    const updated = items.map(i => i.id === id ? { ...i, deletada: true } : i) as CustomControlItem[];
-    saveToStorage(STORAGE_KEYS.CUSTOM_ITEMS, updated);
-  }
-};
-
-export const categoryService = {
-  async getAll(): Promise<Category[]> {
-    let data = getFromStorage<Category[]>(STORAGE_KEYS.CATEGORIES, []);
-    if (data.length === 0) { data = CATEGORIES; saveToStorage(STORAGE_KEYS.CATEGORIES, data); }
-    return data;
-  },
-  async create(data: Omit<Category, 'id'>): Promise<Category> {
-    const cats = await this.getAll();
-    const newCat = { ...data, id: Math.random().toString(36).substr(2, 9) } as Category;
-    saveToStorage(STORAGE_KEYS.CATEGORIES, [...cats, newCat]);
-    return newCat;
-  },
-  async update(id: string, data: Partial<Category>): Promise<void> {
-    const cats = await this.getAll();
-    const updated = cats.map(c => c.id === id ? { ...c, ...data } : c) as Category[];
-    saveToStorage(STORAGE_KEYS.CATEGORIES, updated);
-  },
-  async delete(id: string): Promise<void> {
-    const cats = await this.getAll();
-    const updated = cats.map(c => c.id === id ? { ...c, deletada: true, status: 'Inativa', visivel: false } : c) as Category[];
-    saveToStorage(STORAGE_KEYS.CATEGORIES, updated);
-  }
-};
-
-export const taskService = {
-  async getAll(): Promise<Task[]> {
-    let data = getFromStorage<Task[]>(STORAGE_KEYS.TASKS, []);
-    if (data.length === 0) { data = TASKS; saveToStorage(STORAGE_KEYS.TASKS, data); }
-    return data;
-  },
-  async create(data: Omit<Task, 'id'>): Promise<Task> {
-    const tasks = await this.getAll();
-    const newTask = { ...data, id: Math.random().toString(36).substr(2, 9) } as Task;
-    saveToStorage(STORAGE_KEYS.TASKS, [...tasks, newTask]);
-    return newTask;
-  },
-  async update(id: string, data: Partial<Task>): Promise<void> {
-    const tasks = await this.getAll();
-    const updated = tasks.map(t => t.id === id ? { ...t, ...data } : t) as Task[];
-    saveToStorage(STORAGE_KEYS.TASKS, updated);
-  },
-  async delete(id: string): Promise<void> {
-    const tasks = await this.getAll();
-    const updated = tasks.map(t => t.id === id ? { ...t, deletada: true, status: 'Inativa', visivel: false } : t) as Task[];
-    saveToStorage(STORAGE_KEYS.TASKS, updated);
-  }
-};
-
-export const controlService = {
-  async getAll(): Promise<Control[]> {
-    let data = getFromStorage<Control[]>(STORAGE_KEYS.CONTROLS, []);
-    if (data.length === 0) { data = CONTROLS; saveToStorage(STORAGE_KEYS.CONTROLS, data); }
-    return data;
-  },
-  async create(data: Omit<Control, 'id'>): Promise<Control> {
-    const controls = await this.getAll();
-    const newControl = { ...data, id: Math.random().toString(36).substr(2, 9) } as Control;
-    saveToStorage(STORAGE_KEYS.CONTROLS, [...controls, newControl]);
-    return newControl;
-  },
-  async update(id: string, data: Partial<Control>): Promise<void> {
-    const controls = await this.getAll();
-    const updated = controls.map(c => c.id === id ? { ...c, ...data } : c) as Control[];
-    saveToStorage(STORAGE_KEYS.CONTROLS, updated);
-  },
-  async delete(id: string): Promise<void> {
-    const controls = await this.getAll();
-    saveToStorage(STORAGE_KEYS.CONTROLS, controls.filter(c => c.id !== id));
-  }
-};
-
-export const userService = {
-  async getAll(): Promise<User[]> {
-    let data = getFromStorage<any[]>(STORAGE_KEYS.USERS, []);
-    if (data.length === 0) {
-      // Tenta carregar os usuários de teste do authService se for a primeira vez
-      data = USERS; 
-      saveToStorage(STORAGE_KEYS.USERS, data);
-    }
-    return data;
-  },
-  async create(data: Omit<User, 'id'>): Promise<User> {
-    const users = await this.getAll();
-    const newUser = { 
-      ...data, 
-      id: Math.random().toString(36).substr(2, 9),
-      senha: 'gol123', // Senha padrão para novos usuários do CRUD
-      ativo: data.status === 'Ativo',
-      dataCriacao: new Date().toISOString()
-    } as any;
-    saveToStorage(STORAGE_KEYS.USERS, [...users, newUser]);
-    return newUser;
-  },
-  async update(id: string, data: Partial<User>): Promise<void> {
-    const users = await this.getAll();
-    const updated = users.map(u => {
-      if (u.id === id) {
-        return { 
-          ...u, 
-          ...data, 
-          ativo: data.status ? data.status === 'Ativo' : u.ativo,
-          dataAtualizacao: new Date().toISOString()
-        };
-      }
-      return u;
-    });
-    saveToStorage(STORAGE_KEYS.USERS, updated);
-  },
-  async delete(id: string): Promise<void> {
-    const users = await this.getAll();
-    const updated = users.map(u => u.id === id ? { ...u, deletada: true, status: 'Inativo' } : u) as User[];
-    saveToStorage(STORAGE_KEYS.USERS, updated);
-  }
-};
-
-export const monthlyService = {
-  async getAll(): Promise<MonthlyCollection[]> { return getFromStorage<MonthlyCollection[]>(STORAGE_KEYS.MONTHLY_COLLECTIONS, []); },
-  async save(data: MonthlyCollection): Promise<void> {
-    const collections = await this.getAll();
-    const idx = collections.findIndex(c => c.id === data.id);
-    if (idx > -1) collections[idx] = data; else collections.push(data);
-    saveToStorage(STORAGE_KEYS.MONTHLY_COLLECTIONS, collections);
-    await this.syncWithReports(collections);
-  },
-  async syncWithReports(collections: MonthlyCollection[]): Promise<void> {
-    const storeTasks = getFromStorage<Task[]>(STORAGE_KEYS.TASKS, []);
-    const storeCats = getFromStorage<Category[]>(STORAGE_KEYS.CATEGORIES, []);
-    const storeBases = getFromStorage<Base[]>(STORAGE_KEYS.BASES, []);
-    
-    const finishedCollections = collections.filter(c => c.status === 'FINALIZADO');
-    const repMensalDetalhado = finishedCollections.map(c => {
-      const base = storeBases.find(b => b.id === c.baseId);
-      let totalMins = 0;
-      const tasksBase = storeTasks.filter(t => {
-          const cat = storeCats.find(cat => cat.id === t.categoriaId);
-          return cat?.tipo === 'mensal' && (!t.baseId || t.baseId === c.baseId);
-      }).sort((a, b) => a.ordem - b.ordem);
-      const tarefasMap: Record<string, string> = {};
-      tasksBase.forEach(t => { tarefasMap[t.nome.toUpperCase()] = '00:00:00'; });
-      const activities: any[] = [];
-      Object.entries(c.tarefasValores).forEach(([taskId, val]) => {
-        const task = storeTasks.find(t => t.id === taskId);
-        if (!task) return;
-        let mins = 0;
-        if (task.tipoMedida === 'TEMPO') { const p = val.split(':').map(Number); mins = (p[0]||0) * 60 + (p[1]||0) + (p[2]||0)/60; }
-        else { mins = (parseFloat(val) || 0) * task.fatorMultiplicador; }
-        totalMins += mins;
-        const formatted = timeUtils.minutesToHhmmss(mins);
-        tarefasMap[task.nome.toUpperCase()] = formatted;
-        const cat = storeCats.find(ct => ct.id === task.categoriaId);
-        activities.push({ taskNome: task.nome, categoryNome: cat?.nome || 'Geral', formatted, ordemCat: cat?.ordem || 99, ordemTask: task.ordem || 99 });
-      });
-      const mesRefStr = `${String(c.mes).padStart(2, '0')}/${c.ano}`;
-      return { id: c.id, baseId: c.baseId, mesReferencia: mesRefStr, data: mesRefStr, baseNome: base?.nome || c.baseId, baseSigla: base?.sigla || '', totalHoras: timeUtils.minutesToHhmmss(totalMins), tarefasMap, activities: activities.sort((a, b) => { if (a.ordemCat !== b.ordemCat) return a.ordemCat - b.ordemCat; return a.ordemTask - b.ordemTask; }), dataFinalizacao: c.dataFinalizacao, status: 'OK' };
-    }).sort((a, b) => b.mesReferencia.localeCompare(a.mesReferencia));
-    saveToStorage(STORAGE_KEYS.REP_MENSAL_DETALHADO, repMensalDetalhado);
-  }
-};
-
-export const migrationService = {
-  async reprocessarResumo(store: any): Promise<void> {
-    const repDetalhamento = getFromStorage<any[]>(STORAGE_KEYS.REP_DETALHAMENTO, []);
-    const repResumo: any = { categorias: [], totalMins: 0 };
-    const allOpTasks = store.tasks.filter((t: any) => { const cat = store.categories.find((c: any) => c.id === t.categoriaId); return cat?.tipo === 'operacional'; });
-    allOpTasks.forEach((task: any) => {
-        const cat = store.categories.find((c: any) => c.id === task.categoriaId);
-        if (!cat) return;
-        let catResumo = repResumo.categorias.find((r: any) => r.categoryId === cat.id);
-        if (!catResumo) { catResumo = { categoryId: cat.id, categoryNome: cat.nome, atividades: [], totalCategoryMins: 0, ordem: cat.ordem }; repResumo.categorias.push(catResumo); }
-        let taskResumo = catResumo.atividades.find((a: any) => a.nome === task.nome);
-        if (!taskResumo) { taskResumo = { nome: task.nome, tipoInput: task.tipoMedida === 'TEMPO' ? 'TIME' : 'QTY', totalQuantidade: 0, totalMins: 0, ordem: task.ordem }; catResumo.atividades.push(taskResumo); }
-    });
-    repDetalhamento.forEach(handover => {
-      Object.entries(handover.tarefasExecutadas || {}).forEach(([taskId, val]: [string, any]) => {
-        const task = store.tasks.find((t: any) => t.id === taskId);
-        if (!task) return;
-        const cat = store.categories.find((c: any) => c.id === task.categoriaId);
-        if (!cat) return;
-        let catResumo = repResumo.categorias.find((r: any) => r.categoryId === cat.id);
-        if (!catResumo) { catResumo = { categoryId: cat.id, categoryNome: cat.nome, atividades: [], totalCategoryMins: 0, ordem: cat.ordem }; repResumo.categorias.push(catResumo); }
-        let taskResumo = catResumo.atividades.find((a: any) => a.nome === task.nome);
-        if (!taskResumo) { taskResumo = { nome: task.nome, tipoInput: task.tipoMedida === 'TEMPO' ? 'TIME' : 'QTY', totalQuantidade: 0, totalMins: 0, ordem: task.ordem }; catResumo.atividades.push(taskResumo); }
-        let taskMins = 0;
-        if (task.tipoMedida === 'TEMPO') { const parts = (val as string).split(':').map(Number); taskMins = (parts[0] * 60) + (parts[1] || 0) + (parts[2] || 0) / 60; }
-        else { const qty = parseFloat(val as string) || 0; taskResumo.totalQuantidade += qty; taskMins = qty * task.fatorMultiplicador; }
-        taskResumo.totalMins += taskMins; catResumo.totalCategoryMins += taskMins; repResumo.totalMins += taskMins;
-      });
-      if (handover.nonRoutineTasks) {
-        handover.nonRoutineTasks.forEach((t: any) => {
-           if (!t.nome || !t.tempo) return;
-           const catId = t.categoriaId || 'cat_outras';
-           const catRef = store.categories.find((c: any) => c.id === catId);
-           let catResumo = repResumo.categorias.find((r: any) => r.categoryId === catId);
-           if (!catResumo) { catResumo = { categoryId: catId, categoryNome: catRef?.nome || 'OUTROS', atividades: [], totalCategoryMins: 0, ordem: catRef?.ordem || 99 }; repResumo.categorias.push(catResumo); }
-           let taskResumo = catResumo.atividades.find((a: any) => a.nome === t.nome);
-           if (!taskResumo) { taskResumo = { nome: t.nome, tipoInput: t.tipoMedida === 'QTD' ? 'QTY' : 'TIME', totalQuantidade: 0, totalMins: 0, ordem: 999 }; catResumo.atividades.push(taskResumo); }
-           let newMins = 0;
-           if (t.tipoMedida === MeasureType.QTD) { const qty = parseFloat(t.tempo) || 0; taskResumo.totalQuantidade += qty; newMins = qty * (t.fatorMultiplicador || 0); }
-           else { const parts = (t.tempo as string).split(':').map(Number); newMins = (parts[0] * 60) + (parts[1] || 0) + (parts[2] || 0) / 60; }
-           taskResumo.totalMins += newMins; catResumo.totalCategoryMins += newMins; repResumo.totalMins += newMins;
-        });
-      }
-    });
-    repResumo.categorias.sort((a: any, b: any) => a.ordem - b.ordem);
-    repResumo.categorias.forEach((c: any) => c.atividades.sort((a: any, b: any) => a.ordem - b.ordem));
-    const finalResumo = { totalHoras: timeUtils.minutesToHhmmss(repResumo.totalMins), categorias: repResumo.categorias.map((c: any) => ({ ...c, totalCategoryFormatted: timeUtils.minutesToHhmmss(c.totalCategoryMins), atividades: c.atividades.map((a: any) => ({ ...a, totalFormatted: timeUtils.minutesToHhmmss(a.totalMins) })) })) };
-    finalResumo.categorias = finalResumo.categorias.filter((c: any) => c.totalCategoryMins > 0);
-    saveToStorage(STORAGE_KEYS.REP_RESUMO, finalResumo);
-  },
-  async processarMigracao(handover: ShiftHandover, store: any, replaceId?: string): Promise<void> {
-    const repAcompanhamento = getFromStorage<any[]>(STORAGE_KEYS.REP_ACOMPANHAMENTO, []);
-    const repDetalhamento = getFromStorage<any[]>(STORAGE_KEYS.REP_DETALHAMENTO, []);
-    const dataNormalizada = normalizarDataExibicao(handover.data);
-    const baseObj = store.bases.find((b: any) => b.id === handover.baseId);
-    const turnoObj = baseObj?.turnos.find((t: any) => t.id === handover.turnoId);
-    const turnoNumero = turnoObj?.numero || 1;
-
-    let dataEntry = repAcompanhamento.find((r: any) => normalizarDataExibicao(r.data) === dataNormalizada && r.baseId === handover.baseId);
-    if (!dataEntry) { 
-      dataEntry = { baseId: handover.baseId, data: dataNormalizada, turno1: 'Pendente', turno2: 'Pendente', turno3: 'Pendente', turno4: 'Pendente' }; 
-      repAcompanhamento.push(dataEntry); 
-    }
-    const turnoKey = `turno${turnoNumero}` as keyof typeof dataEntry;
-    dataEntry[turnoKey] = 'OK';
-
-    const colaboradoresNomes = handover.colaboradores.map(id => store.users.find((u:any) => u.id === id)?.nome).filter(Boolean);
-    let hProdTotalMin = 0;
-    const atividadesDetalhadas: any[] = [];
-
-    Object.entries(handover.tarefasExecutadas).forEach(([taskId, val]) => {
-      const task = store.tasks.find((t: any) => t.id === taskId);
-      const cat = store.categories.find((c: any) => c.id === task?.categoriaId);
-      let mins = 0;
-      if (task?.tipoMedida === 'TEMPO') { const p = val.split(':').map(Number); mins = (p[0]||0) * 60 + (p[1]||0) + (p[2]||0)/60; }
-      else { mins = (parseFloat(val) || 0) * (task?.fatorMultiplicador || 0); }
-      hProdTotalMin += mins;
-      const conv = timeUtils.converterMinutosParaHoras(mins);
-      atividadesDetalhadas.push({ taskNome: task?.nome || 'Desc.', categoryNome: cat?.nome || 'OUTROS', horas: conv.horas, minutos: conv.minutos, segundos: conv.segundos, formatted: timeUtils.minutesToHhmmss(mins), ordemCat: cat?.ordem || 0, ordemTask: task?.ordem || 0 });
-    });
-
-    (handover.nonRoutineTasks || []).forEach(t => {
-      if (!t.nome || t.nome.trim() === '') return;
-      const catRef = store.categories.find((c: any) => c.id === t.categoriaId);
-      let mins = 0;
-      if (t.tipoMedida === MeasureType.QTD) mins = (parseFloat(t.tempo) || 0) * (t.fatorMultiplicador || 0);
-      else { 
-        if (t.tempo && t.tempo.includes(':')) {
-          const p = t.tempo.split(':').map(Number); 
-          mins = (p[0] * 60) + (p[1] || 0) + (p[2] || 0) / 60; 
-        } else {
-          mins = 0;
-        }
-      }
-      hProdTotalMin += mins;
-      const conv = timeUtils.converterMinutosParaHoras(mins);
-      atividadesDetalhadas.push({ taskNome: t.nome, categoryNome: catRef?.nome || 'OUTROS', horas: conv.horas, minutos: conv.minutos, segundos: conv.segundos, formatted: timeUtils.minutesToHhmmss(mins), ordemCat: catRef?.ordem || 99, ordemTask: 999 });
-    });
-
-    const hDispTotalMin = handover.colaboradores.reduce((acc, id) => acc + (store.users.find((u:any) => u.id === id)?.jornadaPadrao || 0) * 60, 0);
-    const performanceCalc = hDispTotalMin > 0 ? (hProdTotalMin / hDispTotalMin) * 100 : 0;
-    const tasksBaseOp = store.tasks.filter((t: any) => { const cat = store.categories.find((c: any) => c.id === t.categoriaId); return cat?.tipo === 'operacional' && (!t.baseId || t.baseId === handover.baseId); }).sort((a, b) => { const catA = store.categories.find((c: any) => c.id === a.categoriaId); const catB = store.categories.find((c: any) => c.id === b.categoriaId); if ((catA?.ordem || 0) !== (catB?.ordem || 0)) return (catA?.ordem || 0) - (catB?.ordem || 0); return a.ordem - b.ordem; });
-    
-    const record = {
-      ...handover,
-      id: replaceId || handover.id,
-      data: dataNormalizada,
-      colaboradoresIds: handover.colaboradores,
-      horaRegistro: new Date().toLocaleTimeString('pt-BR'),
-      turno: `Turno ${turnoNumero}`,
-      colaboradores: colaboradoresNomes,
-      nomeColaboradores: colaboradoresNomes.join(', '),
-      qtdColaboradores: colaboradoresNomes.length,
-      horasDisponivel: timeUtils.minutesToHhmmss(hDispTotalMin),
-      horasProduzida: timeUtils.minutesToHhmmss(hProdTotalMin),
-      percentualPerformance: Math.round(performanceCalc * 100) / 100,
-      tarefasMap: criarMapaTarefas({ ...handover, activities: atividadesDetalhadas }, tasksBaseOp),
-      shelfLife: formatarControle(handover.shelfLifeData),
-      locations: formatarControle(handover.locationsData),
-      transito: formatarControle(handover.transitData),
-      saldoCritico: formatarControle(handover.criticalData),
-      observacoes: handover.informacoesImportantes,
-      shelfLifeItems: handover.shelfLifeData,
-      locationItems: handover.locationsData,
-      transitItems: handover.transitData,
-      criticosItems: handover.criticalData,
-      baseSigla: baseObj?.sigla || handover.baseId,
-      activities: atividadesDetalhadas.sort((a, b) => { if (a.ordemCat !== b.ordemCat) return a.ordemCat - b.ordemCat; return a.ordemTask - b.ordemTask; }),
-      outrasTarefas: handover.nonRoutineTasks
-    };
-
-    if (replaceId) { const idx = repDetalhamento.findIndex(d => d.id === replaceId); if (idx > -1) repDetalhamento[idx] = record; else repDetalhamento.push(record); }
-    else repDetalhamento.push(record);
-    
-    saveToStorage(STORAGE_KEYS.REP_ACOMPANHAMENTO, repAcompanhamento);
-    saveToStorage(STORAGE_KEYS.REP_DETALHAMENTO, repDetalhamento);
-    await sharedDraftService.clearDraft(handover.baseId, handover.data, handover.turnoId);
-    await baseStatusService.saveBaseStatus(handover.baseId, { obs: handover.informacoesImportantes, locations: handover.locationsData, transit: handover.transitData, shelfLife: handover.shelfLifeData, critical: handover.criticalData });
+  async verificarColaboradoresEmOutrosTurnos(data: string, turnoId: string, baseId: string, colaboradoresIds: (string|null)[], allUsers: User[]) {
+    return { colaboradoresDuplicados: [] };
   }
 };

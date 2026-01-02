@@ -19,7 +19,8 @@
     "@mui/x-date-pickers": "^8.22.1",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.0",
-    "dayjs": "^1.11.19"
+    "dayjs": "^1.11.19",
+    "firebase": "^12.7.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

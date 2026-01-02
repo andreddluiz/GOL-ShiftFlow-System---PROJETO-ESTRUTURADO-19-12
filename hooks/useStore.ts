@@ -26,8 +26,10 @@ interface AppState {
   monthlyCollections: MonthlyCollection[];
   loading: boolean;
   initialized: boolean;
+  error: string | null; // Adicionado estado de erro global
   
   refreshData: (showFullLoading?: boolean) => Promise<void>;
+  clearError: () => void;
   
   saveDefaultItem: (type: 'shelf' | 'loc' | 'trans' | 'crit' | string, data: any) => Promise<void>;
   deleteDefaultItem: (type: 'shelf' | 'loc' | 'trans' | 'crit' | string, id: string) => Promise<void>;
@@ -65,9 +67,12 @@ export const useStore = create<AppState>((set, get) => ({
   monthlyCollections: [],
   loading: false,
   initialized: false,
+  error: null,
+
+  clearError: () => set({ error: null }),
 
   refreshData: async (showFullLoading = false) => {
-    if (showFullLoading) set({ loading: true });
+    if (showFullLoading) set({ loading: true, error: null });
     try {
       const [bases, users, tasks, cats, controls, defLocs, defTrans, defCrit, defShelf, custTypes, custItems, monthly] = await Promise.all([
         baseService.getAll(),
@@ -96,44 +101,58 @@ export const useStore = create<AppState>((set, get) => ({
         customControlTypes: custTypes.filter(t => !t.deletada),
         customControlItems: custItems.filter(i => !i.deletada),
         monthlyCollections: monthly,
-        initialized: true 
+        initialized: true,
+        error: null
       });
+    } catch (e: any) {
+      console.error("Store Refresh Error:", e);
+      set({ error: e.message || "Erro desconhecido ao conectar com o Firebase." });
     } finally {
       if (showFullLoading) set({ loading: false });
     }
   },
 
   saveDefaultItem: async (type, data) => {
-    if (type === 'shelf') await defaultItemsService.saveShelfLife(data);
-    else if (type === 'loc') await defaultItemsService.saveLocation(data);
-    else if (type === 'trans') await defaultItemsService.saveTransit(data);
-    else if (type === 'crit') await defaultItemsService.saveCritical(data);
-    else await defaultItemsService.saveCustomItem(data);
-    await get().refreshData();
+    try {
+      if (type === 'shelf') await defaultItemsService.saveShelfLife(data);
+      else if (type === 'loc') await defaultItemsService.saveLocation(data);
+      else if (type === 'trans') await defaultItemsService.saveTransit(data);
+      else if (type === 'crit') await defaultItemsService.saveCritical(data);
+      else await defaultItemsService.saveCustomItem(data);
+      await get().refreshData();
+    } catch (e: any) { set({ error: e.message }); }
   },
 
   deleteDefaultItem: async (type, id) => {
-    if (type === 'shelf') await defaultItemsService.deleteShelfLife(id);
-    else if (type === 'loc') await defaultItemsService.deleteLocation(id);
-    else if (type === 'trans') await defaultItemsService.deleteTransit(id);
-    else if (type === 'crit') await defaultItemsService.deleteCritical(id);
-    else await defaultItemsService.deleteCustomItem(id);
-    await get().refreshData();
+    try {
+      if (type === 'shelf') await defaultItemsService.deleteShelfLife(id);
+      else if (type === 'loc') await defaultItemsService.deleteLocation(id);
+      else if (type === 'trans') await defaultItemsService.deleteTransit(id);
+      else if (type === 'crit') await defaultItemsService.deleteCritical(id);
+      else await defaultItemsService.deleteCustomItem(id);
+      await get().refreshData();
+    } catch (e: any) { set({ error: e.message }); }
   },
 
   saveCustomControlType: async (data) => {
-    await defaultItemsService.saveCustomType(data);
-    await get().refreshData();
+    try {
+      await defaultItemsService.saveCustomType(data);
+      await get().refreshData();
+    } catch (e: any) { set({ error: e.message }); }
   },
 
   deleteCustomControlType: async (id) => {
-    await defaultItemsService.deleteCustomType(id);
-    await get().refreshData();
+    try {
+      await defaultItemsService.deleteCustomType(id);
+      await get().refreshData();
+    } catch (e: any) { set({ error: e.message }); }
   },
 
   saveMonthlyCollection: async (data) => {
-    await monthlyService.save(data);
-    await get().refreshData();
+    try {
+      await monthlyService.save(data);
+      await get().refreshData();
+    } catch (e: any) { set({ error: e.message }); }
   },
 
   getOpCategoriesCombinadas: (baseId) => {
@@ -184,7 +203,6 @@ export const useStore = create<AppState>((set, get) => ({
     const tipos: ControlType[] = ['locations', 'transito', 'shelf_life', 'itens_criticos'];
 
     return tipos.map(tipo => {
-      // Prioridade: Local da Base > Global > Mock Default
       const control = locais.find(l => l.tipo === tipo) || globais.find(g => g.tipo === tipo);
       
       const mappedControl = control ? { ...control } : {
@@ -198,7 +216,6 @@ export const useStore = create<AppState>((set, get) => ({
         alertaConfig: { verde: 30, amarelo: 15, vermelho: 0, permitirPopupVerde: false, permitirPopupAmarelo: true, permitirPopupVermelho: true, mensagemVerde: '', mensagemAmarelo: '', mensagemVermelho: '' }
       } as Control;
 
-      // Garantir que a estrutura moderna de cores/popups exista para o motor de alertas
       if (!mappedControl.cores) {
         mappedControl.cores = {
           verde: { condicao: 'Valor', operador: '>', valor: mappedControl.alertaConfig.verde || 30, habilitado: true },

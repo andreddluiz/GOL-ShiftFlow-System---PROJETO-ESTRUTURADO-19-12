@@ -21,8 +21,11 @@ export const GerenciamentoUsuariosPage: React.FC<{ usuarioAutenticado: any }> = 
   const [niveisDisponiveis, setNiveisDisponiveis] = useState<NivelAcesso[]>([]);
 
   useEffect(() => {
-    const usuariosCarregados = authService.listarUsuarios(usuarioAutenticado.perfil);
-    setUsuarios(usuariosCarregados);
+    /**
+     * Fix for line 24: Expected 0 arguments, but got 1.
+     * Also handled the async nature of listarUsuarios.
+     */
+    authService.listarUsuarios().then(setUsuarios);
     const basesCarregadas = dataIsolationService.obterDadosIsolados('ADMIN', 'bases') || [];
     setBases(basesCarregadas);
     if (basesCarregadas.length > 0) setBaseAtual(basesCarregadas[0].id);
@@ -48,10 +51,14 @@ export const GerenciamentoUsuariosPage: React.FC<{ usuarioAutenticado: any }> = 
     setDialogAberto(true);
   };
 
-  const handleSalvarNivel = () => {
+  /**
+   * Fix for line 54: Expected 1 arguments, but got 2.
+   * Also handled the async nature of atualizarUsuario.
+   */
+  const handleSalvarNivel = async () => {
     if (!usuarioSelecionado) return;
     const atualizado = nivelAcessoService.atualizarNivelAcesso(usuarioSelecionado, baseAtual, novoNivel);
-    authService.atualizarUsuario(atualizado, usuarioAutenticado.perfil);
+    await authService.atualizarUsuario(atualizado);
     setUsuarios(usuarios.map(u => u.id === atualizado.id ? atualizado : u));
     setDialogAberto(false);
   };

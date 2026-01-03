@@ -9,7 +9,7 @@ import {
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, 
   Paper, IconButton, Tooltip, TextField, Typography, Box, TablePagination, Chip,
   Grid, Card, CardContent, Button, Dialog, DialogTitle, DialogContent, DialogActions,
-  Switch, Alert
+  Switch, Alert, FormControl, InputLabel, Select, MenuItem
 } from '@mui/material';
 import { Base, User, Category, Task, Usuario, NivelAcessoCustomizado, PermissaoItem } from '../types';
 import { 
@@ -24,12 +24,11 @@ import { useStore } from '../hooks/useStore';
 import ManagementControlsAlertsPage from './ManagementControlsAlertsPage';
 
 type ManagementTab = 'bases' | 'users' | 'tasks_op' | 'tasks_month' | 'alerts' | 'permissions';
-type ContextType = 'global' | 'base';
+type ContextType = 'global' | string;
 
 const ManagementPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ManagementTab>('bases');
   const [managementContext, setManagementContext] = useState<ContextType>('global');
-  const [contextBaseId, setContextBaseId] = useState<string>('');
   const [showInactive, setShowInactive] = useState(false);
   
   const { 
@@ -39,7 +38,7 @@ const ManagementPage: React.FC = () => {
 
   const [usuariosUnificados, setUsuariosUnificados] = useState<Usuario[]>([]);
 
-  // Estados para Gestão de Permissões (Restaurado)
+  // Estados para Gestão de Permissões
   const [niveis, setNiveis] = useState<NivelAcessoCustomizado[]>([]);
   const [nivelSelecionado, setNivelSelecionado] = useState<NivelAcessoCustomizado | null>(null);
   const [dialogNovoPerfilAberto, setDialogNovoPerfilAberto] = useState(false);
@@ -95,12 +94,13 @@ const ManagementPage: React.FC = () => {
     refreshData();
     carregarUsuarios();
     carregarNiveis();
-  }, [managementContext, contextBaseId, activeTab, refreshData]);
+  }, [managementContext, activeTab, refreshData]);
 
   const handleSave = async (formData: any) => {
     try {
       const { type, editingItem } = modalState;
-      const baseId = managementContext === 'global' ? null : contextBaseId;
+      // Define se o item é global ou de uma base específica baseado no seletor de contexto
+      const baseId = managementContext === 'global' ? null : managementContext;
       const dataWithContext = { ...formData, baseId };
 
       if (type === 'bases') {
@@ -190,7 +190,6 @@ const ManagementPage: React.FC = () => {
     });
   };
 
-  // Funções de Gestão de Permissões Restauradas
   const handleCriarPerfil = () => {
     if (!novoPerfilNome) return;
     const novoId = `CUSTOM_${Date.now()}`;
@@ -248,23 +247,25 @@ const ManagementPage: React.FC = () => {
   const filteredCategories = useMemo(() => 
     categories.filter(c => 
       !c.deletada && 
-      (managementContext === 'global' ? !c.baseId : c.baseId === contextBaseId) && 
+      (managementContext === 'global' ? !c.baseId : c.baseId === managementContext) && 
       (activeTab === 'tasks_op' ? c.tipo === 'operacional' : c.tipo === 'mensal') &&
       (showInactive ? true : (c.visivel !== false))
     ),
-    [categories, managementContext, contextBaseId, activeTab, showInactive]
+    [categories, managementContext, activeTab, showInactive]
   );
 
   const filteredTasks = useMemo(() => 
     tasks.filter(t => 
       !t.deletada && 
-      (managementContext === 'global' ? !t.baseId : t.baseId === contextBaseId) &&
+      (managementContext === 'global' ? !t.baseId : t.baseId === managementContext) &&
       (showInactive ? true : (t.visivel !== false))
     ),
-    [tasks, managementContext, contextBaseId, showInactive]
+    [tasks, managementContext, showInactive]
   );
 
   const permissoesAgrupadas = permissaoCustomizavelService.obterPermissoesPorCategoria();
+
+  const isTaskTab = activeTab === 'tasks_op' || activeTab === 'tasks_month';
 
   return (
     <div className="space-y-6 relative min-h-[600px] animate-in fade-in">
@@ -283,11 +284,47 @@ const ManagementPage: React.FC = () => {
           <TabButton active={activeTab === 'users'} onClick={() => setActiveTab('users')} icon={<UsersIcon className="w-4 h-4" />} label="Usuários" />
           <TabButton active={activeTab === 'permissions'} onClick={() => setActiveTab('permissions')} icon={<ShieldCheck className="w-4 h-4" />} label="Níveis de Acesso" />
           <TabButton active={activeTab === 'tasks_op'} onClick={() => setActiveTab('tasks_op')} icon={<ClipboardList className="w-4 h-4" />} label="Tarefas Operacionais" />
-          <TabButton active={activeTab === 'tasks_month'} onClick={() => setActiveTab('tasks_month'} icon={<CalendarDays className="w-4 h-4" />} label="Tarefas Mensais" />
+          <TabButton active={activeTab === 'tasks_month'} onClick={() => setActiveTab('tasks_month')} icon={<CalendarDays className="w-4 h-4" />} label="Tarefas Mensais" />
           <TabButton active={activeTab === 'alerts'} onClick={() => setActiveTab('alerts')} icon={<ShieldAlert className="w-4 h-4" />} label="Controles & Alertas" />
         </div>
 
         <div className="p-8">
+          {/* Seletor de Contexto para Tarefas */}
+          {isTaskTab && (
+            <Box sx={{ mb: 4, p: 3, bgcolor: '#f9fafb', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 3, border: '1px solid #f3f4f6' }}>
+              <div className="flex items-center space-x-3">
+                 <div className="p-2.5 bg-white rounded-xl shadow-sm">
+                    <Settings2 size={20} className="text-orange-600" />
+                 </div>
+                 <div>
+                    <Typography sx={{ fontWeight: 950, fontSize: '0.85rem', color: '#1f2937' }}>Contexto de Configuração</Typography>
+                    <Typography sx={{ fontWeight: 700, fontSize: '0.65rem', color: '#9ca3af', textTransform: 'uppercase' }}>Defina se as tarefas são globais ou específicas</Typography>
+                 </div>
+              </div>
+              
+              <div className="flex items-center space-x-3">
+                <button 
+                  onClick={() => setManagementContext('global')} 
+                  className={`flex items-center space-x-2 px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${managementContext === 'global' ? 'bg-orange-600 text-white shadow-lg shadow-orange-100' : 'bg-white text-gray-400 hover:text-gray-600 border border-gray-100'}`}
+                >
+                  <Globe size={14} /> <span>Global</span>
+                </button>
+                
+                <FormControl size="small" sx={{ minWidth: 180 }}>
+                  <Select 
+                    value={managementContext === 'global' ? '' : managementContext} 
+                    onChange={e => setManagementContext(e.target.value)}
+                    displayEmpty
+                    sx={{ borderRadius: 3, fontWeight: 800, bgcolor: managementContext !== 'global' ? '#fff7ed' : 'white', '& .MuiSelect-select': { py: 1.2 } }}
+                  >
+                    <MenuItem value="" disabled><em>Selecionar Base...</em></MenuItem>
+                    {bases.map(b => <MenuItem key={b.id} value={b.id}>{b.sigla} - {b.nome}</MenuItem>)}
+                  </Select>
+                </FormControl>
+              </div>
+            </Box>
+          )}
+
           {activeTab === 'bases' && (
             <div className="space-y-6">
               <div className="flex justify-end">
@@ -449,7 +486,12 @@ const ManagementPage: React.FC = () => {
               <div className="flex justify-between items-center border-b border-gray-100 pb-4">
                  <div>
                    <h3 className="text-xl font-black text-gray-800 uppercase tracking-tight">{activeTab === 'tasks_op' ? 'Categorias Operacionais' : 'Categorias Mensais'}</h3>
-                   <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Estrutura de seções da passagem de serviço.</p>
+                   <div className="flex items-center space-x-2 mt-1">
+                      <span className={`px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-widest ${managementContext === 'global' ? 'bg-blue-50 text-blue-600 border border-blue-100' : 'bg-orange-50 text-orange-600 border border-orange-100'}`}>
+                        {managementContext === 'global' ? 'Gestão Global' : `Gestão Local: ${bases.find(b => b.id === managementContext)?.sigla}`}
+                      </span>
+                      <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">— Estrutura de seções da passagem de serviço.</p>
+                   </div>
                  </div>
                  <button onClick={() => setModalState({ open: true, type: activeTab === 'tasks_op' ? 'category_op' : 'category_month', editingItem: null })} className="bg-orange-600 text-white px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-orange-100 hover:bg-orange-700 transition-all">+ Nova Categoria</button>
               </div>
@@ -487,6 +529,12 @@ const ManagementPage: React.FC = () => {
                     </div>
                   </div>
                 ))}
+                {filteredCategories.length === 0 && (
+                   <div className="col-span-full py-16 text-center border-2 border-dashed border-gray-100 rounded-[3rem]">
+                      <ClipboardList className="mx-auto w-12 h-12 text-gray-100 mb-4" />
+                      <Typography sx={{ fontWeight: 800, color: '#d1d5db', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Nenhuma categoria {managementContext === 'global' ? 'global' : 'local'} encontrada</Typography>
+                   </div>
+                )}
               </div>
             </div>
           )}

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Plus, Trash2, Clock, MapPin, Shield, Info, AlertCircle, TrendingUp, Box as LucideBox, Truck, AlertOctagon, Calendar, Layers, Palette, Settings, AlertTriangle, CheckCircle2, Target, Lock } from 'lucide-react';
+import { X, Plus, Trash2, Clock, MapPin, Shield, Info, AlertCircle, TrendingUp, Box as LucideBox, Truck, AlertOctagon, Calendar, Layers, Palette, Settings, AlertTriangle, CheckCircle2, Target, Lock, Globe } from 'lucide-react';
 import { 
   Base, User, Category, Task, Control, Shift, PermissionLevel, MeasureType,
   DefaultLocationItem, DefaultTransitItem, DefaultCriticalItem, CustomControlType, ManagedItem, ConditionConfig, PopupConfig, NivelAcessoCustomizado
@@ -23,7 +23,8 @@ import {
   Typography as MuiTypography,
   Grid,
   OutlinedInput,
-  Chip
+  Chip,
+  Divider
 } from '@mui/material';
 import dayjs from 'dayjs';
 import customParseFormat from 'dayjs/plugin/customParseFormat';
@@ -894,7 +895,7 @@ export const ControlItemSettingsModal: React.FC<{ isOpen: boolean; onClose: () =
 
   const renderConfigSection = (level: 'verde' | 'amarelo' | 'vermelho', BirdColorClass: string) => (
     <div className={`space-y-5 animate-in fade-in slide-in-from-right-2 duration-200`}>
-       <div className={`p-4 rounded-2xl border-l-4 ${BirdColorClass} bg-gray-50 flex justify-between items-center shadow-sm`}>
+       <div className={`p-4 rounded-2xl border-l-4 ${BirdColorClass} BirdColorClass bg-gray-50 flex justify-between items-center shadow-sm`}>
           <div className="flex items-center space-x-3">
              <Palette className="w-5 h-5 text-gray-400" /> 
              <span className="font-black text-[10px] uppercase tracking-widest text-gray-600">Status do Nível {level.toUpperCase()}</span>
@@ -972,9 +973,9 @@ export const ControlItemSettingsModal: React.FC<{ isOpen: boolean; onClose: () =
           <button onClick={onClose} className="p-2 text-gray-300 hover:text-red-500 transition-colors bg-gray-50 rounded-xl"><X className="w-6 h-6" /></button>
         </div>
         <div className="px-8 pt-4 flex space-x-2 bg-white">
-           <TabSelector label="Verde" active={activeLevel === 'verde'} onClick={() => setActiveLevel('verde')} colorClass="bg-green-500" activeText="text-green-600" activeBg="bg-green-50" />
-           <TabSelector label="Amarelo" active={activeLevel === 'amarelo'} onClick={() => setActiveLevel('amarelo')} colorClass="bg-yellow-500" activeText="text-yellow-600" activeBg="bg-yellow-50" />
-           <TabSelector label="Vermelho" active={activeLevel === 'vermelho'} onClick={() => setActiveLevel('vermelho')} colorClass="bg-red-500" activeText="text-red-600" activeBg="bg-red-50" />
+           <TabSelector label="Verde" active={activeLevel === 'verde'} onClick={() => setActiveLevel('verde'} BirdColorClass="bg-green-500" activeText="text-green-600" activeBg="bg-green-50" />
+           <TabSelector label="Amarelo" active={activeLevel === 'amarelo'} onClick={() => setActiveLevel('amarelo'} BirdColorClass="bg-yellow-500" activeText="text-yellow-600" activeBg="bg-yellow-50" />
+           <TabSelector label="Vermelho" active={activeLevel === 'vermelho'} onClick={() => setActiveLevel('vermelho'} BirdColorClass="bg-red-500" activeText="text-red-600" activeBg="bg-red-50" />
         </div>
         <div className="flex-1 overflow-y-auto p-8 pt-6 space-y-6 scrollbar-hide">
            {activeLevel === 'verde' && renderConfigSection('verde', 'border-green-500')}
@@ -990,21 +991,21 @@ export const ControlItemSettingsModal: React.FC<{ isOpen: boolean; onClose: () =
   );
 };
 
-const TabSelector: React.FC<{label: string, active: boolean, onClick: () => void, colorClass: string, activeText?: string, activeBg: string}> = ({ label, active, onClick, colorClass, activeText = '', activeBg }) => (
+const TabSelector: React.FC<{label: string, active: boolean, onClick: () => void, BirdColorClass: string, activeText?: string, activeBg: string}> = ({ label, active, onClick, BirdColorClass, activeText = '', activeBg }) => (
   <button onClick={onClick} className={`flex-1 py-3 px-4 rounded-xl flex items-center justify-center space-x-2 border transition-all ${active ? `${activeBg} border-transparent shadow-sm` : 'bg-white border-gray-100 text-gray-400 hover:bg-gray-50'}`}>
-    <div className={`w-2 h-2 rounded-full ${active ? colorClass : 'bg-gray-300'}`} />
+    <div className={`w-2 h-2 rounded-full ${active ? BirdColorClass : 'bg-gray-300'}`} />
     <span className={`text-[10px] font-black uppercase tracking-widest ${active ? activeText : ''}`}>{label}</span>
   </button>
 );
 
 export const CategoryModal: React.FC<ModalProps> = ({ isOpen, onClose, onSave, title, initialData }) => {
-  const [formData, setFormData] = useState<Partial<Category>>({ nome: '', exibicao: 'lista', status: 'Ativa', ordem: 1 });
+  const [formData, setFormData] = useState<Partial<Category>>({ nome: '', exibicao: 'lista', status: 'Ativa', ordem: 1, baseId: null });
   
   useEffect(() => { 
     if (initialData) {
       setFormData({ ...initialData, exibicao: initialData.exibicao || 'lista' });
     } else {
-      setFormData({ nome: '', exibicao: 'lista', status: 'Ativa', ordem: 1 });
+      setFormData({ nome: '', exibicao: 'lista', status: 'Ativa', ordem: 1, baseId: null });
     }
   }, [initialData, isOpen]);
   
@@ -1012,21 +1013,29 @@ export const CategoryModal: React.FC<ModalProps> = ({ isOpen, onClose, onSave, t
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl p-8 animate-in zoom-in-95">
-        <h3 className="text-xl font-bold mb-4">{title}</h3>
-        <div className="space-y-4">
-          <MuiBox sx={{ mb: 2 }}>
+      <div className="bg-white rounded-[2.5rem] w-full max-w-md shadow-2xl p-8 animate-in zoom-in-95">
+        <div className="flex justify-between items-center mb-6">
+          <h3 className="text-xl font-black text-gray-800 uppercase tracking-tight">{title}</h3>
+          {formData.baseId === null ? (
+             <Chip icon={<Globe size={12} />} label="GLOBAL" size="small" sx={{ height: 20, fontSize: '0.6rem', fontWeight: 900, bgcolor: '#eff6ff', color: '#1d4ed8' }} />
+          ) : (
+             <Chip icon={<MapPin size={12} />} label="LOCAL" size="small" sx={{ height: 20, fontSize: '0.6rem', fontWeight: 900, bgcolor: '#fff7ed', color: '#ea580c' }} />
+          )}
+        </div>
+
+        <div className="space-y-6">
+          <MuiBox>
             <Input label="Nome da Categoria" value={formData.nome} onChange={v => setFormData({...formData, nome: v})} />
           </MuiBox>
           
-          <MuiBox sx={{ mb: 2 }}>
+          <MuiBox>
             <FormControl fullWidth size="small">
-              <InputLabel children="Formato de Exibição" />
+              <InputLabel children="Formato de Exibição" sx={{ fontWeight: 800, fontSize: '0.8rem' }} />
               <Select
                 value={formData.exibicao}
                 onChange={(e) => setFormData({ ...formData, exibicao: e.target.value as any })}
                 label="Formato de Exibição"
-                sx={{ borderRadius: '1rem' }}
+                sx={{ borderRadius: '1rem', fontWeight: 700 }}
               >
                 <MenuItem value="lista">Sempre Visível (Lista)</MenuItem>
                 <MenuItem value="suspensa">Lista Suspensa (Dropdown)</MenuItem>
@@ -1034,13 +1043,16 @@ export const CategoryModal: React.FC<ModalProps> = ({ isOpen, onClose, onSave, t
             </FormControl>
           </MuiBox>
 
-          <MuiBox sx={{ mb: 2 }}>
+          <MuiBox>
             <Input type="number" label="Ordem de Exibição" value={formData.ordem} onChange={v => setFormData({...formData, ordem: parseInt(v) || 1})} />
           </MuiBox>
         </div>
-        <div className="flex space-x-2 mt-6">
-          <button onClick={onClose} className="flex-1 py-3 bg-gray-100 rounded-xl font-bold text-gray-500">Cancelar</button>
-          <button onClick={() => onSave({...formData, id: formData.id || Math.random().toString(36).substr(2, 9)})} className="flex-1 py-3 bg-orange-600 text-white rounded-xl font-bold shadow-lg">Salvar</button>
+        
+        <Divider sx={{ my: 4 }} />
+        
+        <div className="flex space-x-3">
+          <button onClick={onClose} className="flex-1 py-4 bg-gray-50 text-gray-400 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-gray-100 transition-all border border-gray-100">Cancelar</button>
+          <button onClick={() => onSave({...formData, id: formData.id || Math.random().toString(36).substr(2, 9)})} className="flex-1 py-4 bg-orange-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-orange-100 hover:bg-orange-700 transition-all">Salvar Categoria</button>
         </div>
       </div>
     </div>
@@ -1048,52 +1060,96 @@ export const CategoryModal: React.FC<ModalProps> = ({ isOpen, onClose, onSave, t
 };
 
 export const TaskModal: React.FC<ModalProps & { categories?: Category[] }> = ({ isOpen, onClose, onSave, title, initialData, categories }) => {
-  const [formData, setFormData] = useState<Partial<Task>>({ nome: '', status: 'Ativa', tipoMedida: MeasureType.QTD, fatorMultiplicador: 0, categoriaId: '' });
+  const [formData, setFormData] = useState<Partial<Task>>({ nome: '', status: 'Ativa', tipoMedida: MeasureType.QTD, fatorMultiplicador: 0, categoriaId: '', baseId: null });
   const [timeValue, setTimeValue] = useState('');
+  
   useEffect(() => { 
     if (initialData) {
       setFormData(initialData);
       setTimeValue(initialData.fatorMultiplicador > 0 ? minutesToHhmmss(initialData.fatorMultiplicador) : '');
     } else {
-      setFormData({ nome: '', status: 'Ativa', tipoMedida: MeasureType.QTD, fatorMultiplicador: 0, categoriaId: '' });
+      setFormData({ nome: '', status: 'Ativa', tipoMedida: MeasureType.QTD, fatorMultiplicador: 0, categoriaId: '', baseId: null });
       setTimeValue('');
     }
   }, [initialData, isOpen]);
+  
   if (!isOpen) return null;
+  
   const handleLocalSave = () => {
     const finalFator = formData.tipoMedida === MeasureType.TEMPO ? 0 : hhmmssToMinutes(timeValue);
     onSave({...formData, fatorMultiplicador: finalFator, id: formData.id || Math.random().toString(36).substr(2, 9)});
   };
+
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl p-8 animate-in zoom-in-95">
-        <h3 className="text-xl font-bold mb-4">{title}</h3>
-        <div className="space-y-4">
-          <input className="w-full p-3 border rounded-xl font-bold" placeholder="Nome da Tarefa" value={formData.nome} onChange={e => setFormData({...formData, nome: e.target.value})} />
-          <select className="w-full p-3 border rounded-xl font-bold text-sm" value={formData.categoriaId} onChange={e => setFormData({...formData, categoriaId: e.target.value})}>
-            <option value="">Selecione uma Categoria...</option>
-            {categories?.map(cat => <option key={cat.id} value={cat.id}>{cat.nome}</option>)}
-          </select>
-          <div className="grid grid-cols-2 gap-2">
+      <div className="bg-white rounded-[2.5rem] w-full max-w-md shadow-2xl p-8 animate-in zoom-in-95">
+        <div className="flex justify-between items-center mb-6">
+          <h3 className="text-xl font-black text-gray-800 uppercase tracking-tight">{title}</h3>
+          {formData.baseId === null ? (
+             <Chip icon={<Globe size={12} />} label="GLOBAL" size="small" sx={{ height: 20, fontSize: '0.6rem', fontWeight: 900, bgcolor: '#eff6ff', color: '#1d4ed8' }} />
+          ) : (
+             <Chip icon={<MapPin size={12} />} label="LOCAL" size="small" sx={{ height: 20, fontSize: '0.6rem', fontWeight: 900, bgcolor: '#fff7ed', color: '#ea580c' }} />
+          )}
+        </div>
+
+        <div className="space-y-5">
+          <Input label="Nome da Tarefa" value={formData.nome} onChange={v => setFormData({...formData, nome: v})} />
+          
+          <FormControl fullWidth size="small">
+            <InputLabel children="Categoria" sx={{ fontWeight: 800, fontSize: '0.8rem' }} />
+            <Select
+              value={formData.categoriaId || ''}
+              onChange={e => setFormData({...formData, categoriaId: e.target.value})}
+              label="Categoria"
+              sx={{ borderRadius: '1rem', fontWeight: 700 }}
+            >
+              <MenuItem value=""><em>Selecione...</em></MenuItem>
+              {categories?.map(cat => (
+                <MenuItem key={cat.id} value={cat.id}>
+                  {cat.nome} {cat.baseId === null && '(Global)'}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1">
-              <label className="text-[10px] font-black text-gray-400 uppercase">Medida</label>
-              <select className="w-full p-3 border rounded-xl font-bold text-sm" value={formData.tipoMedida} onChange={e => setFormData({...formData, tipoMedida: e.target.value as MeasureType})}>
-                <option value={MeasureType.QTD}>QTD</option>
-                <option value={MeasureType.TEMPO}>TEMPO</option>
-              </select>
+              <FormControl fullWidth size="small">
+                <InputLabel children="Medida" sx={{ fontWeight: 800, fontSize: '0.8rem' }} />
+                <Select
+                  value={formData.tipoMedida}
+                  onChange={e => setFormData({...formData, tipoMedida: e.target.value as MeasureType})}
+                  label="Medida"
+                  sx={{ borderRadius: '1rem', fontWeight: 700 }}
+                >
+                  <MenuItem value={MeasureType.QTD}>Quantidade</MenuItem>
+                  <MenuItem value={MeasureType.TEMPO}>Tempo</MenuItem>
+                </Select>
+              </FormControl>
             </div>
             <div className="space-y-1">
-              <label className="text-[10px] font-black text-gray-400 uppercase">Fator (HH:MM:SS)</label>
-              <TimeInput value={timeValue} onChange={setTimeValue} className={`w-full p-3 border rounded-xl text-orange-600 ${formData.tipoMedida === MeasureType.TEMPO ? 'bg-gray-100 opacity-50' : ''}`} disabled={formData.tipoMedida === MeasureType.TEMPO} />
+              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-1">Fator (HH:MM:SS)</label>
+              <TimeInput 
+                value={timeValue} 
+                onChange={setTimeValue} 
+                className={`w-full p-2.5 border-2 rounded-2xl text-orange-600 font-black ${formData.tipoMedida === MeasureType.TEMPO ? 'bg-gray-100 border-gray-100 opacity-50' : 'border-gray-50 focus:border-orange-200'}`} 
+                disabled={formData.tipoMedida === MeasureType.TEMPO} 
+              />
             </div>
           </div>
           {formData.tipoMedida === MeasureType.TEMPO && (
-            <p className="text-[9px] font-bold text-orange-500 uppercase tracking-tighter">* O tempo será preenchido diretamente na passagem de serviço.</p>
+            <div className="flex items-center space-x-2 bg-orange-50 p-3 rounded-2xl border border-orange-100">
+               <Info size={14} className="text-orange-600" />
+               <p className="text-[9px] font-black text-orange-700 uppercase tracking-tight">O tempo será digitado na passagem.</p>
+            </div>
           )}
         </div>
-        <div className="flex space-x-2 mt-6">
-          <button onClick={onClose} className="flex-1 py-3 bg-gray-100 rounded-xl font-bold text-gray-500">Cancelar</button>
-          <button onClick={handleLocalSave} className="flex-1 py-3 bg-orange-600 text-white rounded-xl font-bold shadow-lg">Salvar</button>
+
+        <Divider sx={{ my: 4 }} />
+
+        <div className="flex space-x-3">
+          <button onClick={onClose} className="flex-1 py-4 bg-gray-50 text-gray-400 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-gray-100 transition-all border border-gray-100">Cancelar</button>
+          <button onClick={handleLocalSave} className="flex-1 py-4 bg-orange-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-orange-100 hover:bg-orange-700 transition-all">Salvar Tarefa</button>
         </div>
       </div>
     </div>

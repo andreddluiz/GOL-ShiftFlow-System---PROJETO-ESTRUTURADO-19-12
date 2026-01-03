@@ -89,8 +89,8 @@ export const GerenciamentoPermissoesPage: React.FC<Props> = ({ usuarioAutenticad
         </div>
       </header>
 
-      <Grid spacing={4}>
-        <Grid size={{ xs: 12, md: 4 }}>
+      <Grid container spacing={4}>
+        <Grid item xs={12} md={4}>
           <Card sx={{ borderRadius: 6, border: '1px solid #f3f4f6', boxShadow: 'none' }}>
             <CardContent sx={{ p: 3 }}>
               <Button 
@@ -137,7 +137,7 @@ export const GerenciamentoPermissoesPage: React.FC<Props> = ({ usuarioAutenticad
           </Card>
         </Grid>
 
-        <Grid size={{ xs: 12, md: 8 }}>
+        <Grid item xs={12} md={8}>
           {nivelSelecionado && (
             <Card sx={{ borderRadius: 6, border: '1px solid #f3f4f6', boxShadow: 'none' }}>
               <CardContent sx={{ p: 4 }}>
@@ -163,9 +163,9 @@ export const GerenciamentoPermissoesPage: React.FC<Props> = ({ usuarioAutenticad
                       <Typography sx={{ fontWeight: 950, fontSize: '0.7rem', color: '#ea580c', textTransform: 'uppercase', mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
                         <ChevronRight size={14}/> {cat}
                       </Typography>
-                      <Grid spacing={2}>
+                      <Grid container spacing={2}>
                         {perms.map(p => (
-                          <Grid size={{ xs: 12, sm: 6 }} key={p.id}>
+                          <Grid item xs={12} sm={6} key={p.id}>
                             <Paper sx={{ p: 2.5, borderRadius: 4, border: '1px solid #f3f4f6', boxShadow: 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                               <Box>
                                 <Typography sx={{ fontWeight: 800, fontSize: '0.8rem' }}>{p.nome}</Typography>

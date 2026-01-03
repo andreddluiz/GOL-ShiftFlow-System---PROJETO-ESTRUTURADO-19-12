@@ -154,10 +154,10 @@ export const RelatorioProducaoPorBase: React.FC = () => {
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}><Filter size={18} className="text-orange-500" /><Typography variant="subtitle2" sx={{ fontWeight: 900, textTransform: 'uppercase' }}>Parâmetros do Relatório (HH:MM:SS)</Typography></Box>
             <Button variant={exibirRotulos ? "contained" : "outlined"} color="warning" size="small" onClick={() => setExibirRotulos(!exibirRotulos)} sx={{ fontWeight: 900, fontSize: '0.65rem' }}>{exibirRotulos ? "Ocultar Rótulos" : "Exibir Rótulos"}</Button>
           </Box>
-          <Grid spacing={2} alignItems="center">
-            <Grid size={{ xs: 12, md: 3 }}><TextField label="Mês Início" type="month" value={mesInicio} onChange={e => setMesInicio(e.target.value)} InputLabelProps={{ shrink: true }} fullWidth size="small" /></Grid>
-            <Grid size={{ xs: 12, md: 3 }}><TextField label="Mês Fim" type="month" value={mesFim} onChange={e => setMesFim(e.target.value)} InputLabelProps={{ shrink: true }} fullWidth size="small" /></Grid>
-            <Grid size={{ xs: 12, md: 3 }}>
+          <Grid container spacing={2} alignItems="center">
+            <Grid item xs={12} md={3}><TextField label="Mês Início" type="month" value={mesInicio} onChange={e => setMesInicio(e.target.value)} InputLabelProps={{ shrink: true }} fullWidth size="small" /></Grid>
+            <Grid item xs={12} md={3}><TextField label="Mês Fim" type="month" value={mesFim} onChange={e => setMesFim(e.target.value)} InputLabelProps={{ shrink: true }} fullWidth size="small" /></Grid>
+            <Grid item xs={12} md={3}>
               <FormControl fullWidth size="small">
                 <InputLabel children="Bases" />
                 <Select multiple value={basesFiltro} onChange={e => setBasesFiltro(e.target.value as string[])} label="Bases" renderValue={s => <Box sx={{ display: 'flex', gap: 0.5 }}>{s.map(v => <Chip key={v} label={bases.find(b => b.id === v)?.sigla} size="small" sx={{ fontWeight: 800, height: 20 }} />)}</Box>}>
@@ -165,7 +165,7 @@ export const RelatorioProducaoPorBase: React.FC = () => {
                 </Select>
               </FormControl>
             </Grid>
-            <Grid size={{ xs: 12, md: 3 }}><FormControl fullWidth size="small"><InputLabel children="Ordem" /><Select value={ordenacao} onChange={e => setOrdenacao(e.target.value)} label="Ordem"><MenuItem value="producao-desc">Produção (-)</MenuItem><MenuItem value="producao-asc">Produção (+)</MenuItem><MenuItem value="base-az">A-Z</MenuItem></Select></FormControl></Grid>
+            <Grid item xs={12} md={3}><FormControl fullWidth size="small"><InputLabel children="Ordem" /><Select value={ordenacao} onChange={e => setOrdenacao(e.target.value)} label="Ordem"><MenuItem value="producao-desc">Produção (-)</MenuItem><MenuItem value="producao-asc">Produção (+)</MenuItem><MenuItem value="base-az">A-Z</MenuItem></Select></FormControl></Grid>
           </Grid>
         </CardContent>
       </Card>
@@ -184,7 +184,7 @@ export const RelatorioProducaoPorBase: React.FC = () => {
         </Tabs>
       </Box>
 
-      <Grid spacing={3}>
+      <Grid container spacing={3}>
         <ResumoCard title="Líder" value={resumo.lider || '-'} icon={<Trophy className="text-yellow-500" />} />
         <ResumoCard title="Média Geral" value={resumo.media} icon={<Target className="text-blue-500" />} />
         <ResumoCard title="Variação" value={resumo.diff} icon={<ArrowUpDown className="text-purple-500" />} />
@@ -224,8 +224,8 @@ export const RelatorioProducaoPorBase: React.FC = () => {
         </CardContent>
       </Card>
 
-      <Grid spacing={4}>
-        <Grid size={{ xs: 12, md: 7 }}>
+      <Grid container spacing={4}>
+        <Grid item xs={12} md={7}>
           <Card sx={{ borderRadius: 4, border: '1px solid #f3f4f6', boxShadow: 'none' }}>
             <CardContent>
               <Typography variant="subtitle2" sx={{ fontWeight: 900, mb: 4 }}>Composição da Produção (HH:MM:SS)</Typography>
@@ -259,7 +259,7 @@ export const RelatorioProducaoPorBase: React.FC = () => {
             </CardContent>
           </Card>
         </Grid>
-        <Grid size={{ xs: 12, md: 5 }}>
+        <Grid item xs={12} md={5}>
           <Card sx={{ borderRadius: 4, border: '1px solid #f3f4f6', boxShadow: 'none' }}>
             <CardContent>
               <Typography variant="subtitle2" sx={{ fontWeight: 900, mb: 4 }}>Performance Real (%)</Typography>
@@ -287,7 +287,7 @@ export const RelatorioProducaoPorBase: React.FC = () => {
 };
 
 const ResumoCard: React.FC<{ title: string; value: string; sub?: string; icon: React.ReactNode }> = ({ title, value, sub, icon }) => (
-  <Grid size={{ xs: 12, sm: 4 }}>
+  <Grid item xs={12} sm={4}>
     <Card sx={{ borderRadius: 4, border: '1px solid #f3f4f6', boxShadow: 'none' }}>
       <CardContent sx={{ p: 3 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}><Typography variant="caption" sx={{ fontWeight: 950, textTransform: 'uppercase', color: '#9ca3af' }}>{title}</Typography><Box sx={{ p: 1, bgcolor: '#f9fafb', borderRadius: 2 }}>{icon}</Box></Box>

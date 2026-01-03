@@ -1,25 +1,26 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Plus, Trash2, Clock, MapPin, Shield, Info, AlertCircle, TrendingUp, Box as BoxIcon, Truck, AlertOctagon, Calendar, Layers, Palette, Settings, AlertTriangle, CheckCircle2, Target, Lock } from 'lucide-react';
+import { X, Plus, Trash2, Clock, MapPin, Shield, Info, AlertCircle, TrendingUp, Box as LucideBox, Truck, AlertOctagon, Calendar, Layers, Palette, Settings, AlertTriangle, CheckCircle2, Target, Lock } from 'lucide-react';
 import { 
   Base, User, Category, Task, Control, Shift, PermissionLevel, MeasureType,
   DefaultLocationItem, DefaultTransitItem, DefaultCriticalItem, CustomControlType, ManagedItem, ConditionConfig, PopupConfig, NivelAcessoCustomizado
 } from './types';
 
+// MUI Imports
 import { 
   LocalizationProvider 
 } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { 
-  Box, 
+  Box as MuiBox, 
   TextField, 
   Button, 
   FormControl, 
   InputLabel, 
   Select, 
   MenuItem,
-  Typography,
+  Typography as MuiTypography,
   Grid,
   OutlinedInput,
   Chip
@@ -28,6 +29,7 @@ import dayjs from 'dayjs';
 import customParseFormat from 'dayjs/plugin/customParseFormat';
 import 'dayjs/locale/pt-br';
 
+// Fix: Extend dayjs with customParseFormat plugin for string parsing
 dayjs.extend(customParseFormat);
 dayjs.locale('pt-br');
 
@@ -39,6 +41,9 @@ interface ModalProps {
   initialData?: any;
 }
 
+/**
+ * CustomLabel para Recharts
+ */
 export const CustomLabel: React.FC<{
   x?: number;
   y?: number;
@@ -87,6 +92,9 @@ export const CustomLabel: React.FC<{
   );
 };
 
+/**
+ * Componente de Confirmação Customizado
+ */
 export const ConfirmModal: React.FC<{
   isOpen: boolean;
   onClose: () => void;
@@ -156,6 +164,9 @@ export const ConfirmModal: React.FC<{
   );
 };
 
+/**
+ * Utilitários de Tempo
+ */
 export const hhmmssToMinutes = (hms: string): number => {
   if (!hms || hms === '00:00:00' || hms === '__:__:__') return 0;
   const cleanHms = hms.replace(/_/g, '0');
@@ -180,6 +191,9 @@ export const minutesToHhmmss = (totalMinutes: number): string => {
   return `${hStr}:${pad(m)}:${pad(s)}`;
 };
 
+/**
+ * TimeInput
+ */
 export const TimeInput: React.FC<{
   value: string;
   onChange: (val: string) => void;
@@ -307,18 +321,9 @@ export const DatePickerField: React.FC<{
   );
 };
 
-const Input: React.FC<{ label: string, value: any, onChange: (val: string) => void, type?: string, className?: string }> = ({ label, value, onChange, type = "text", className = "" }) => (
-  <div className={`space-y-1 ${className}`}>
-    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{label}</label>
-    <input 
-      type={type}
-      className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-orange-100 transition-all text-sm"
-      value={value}
-      onChange={e => onChange(e.target.value)}
-    />
-  </div>
-);
-
+/**
+ * Modal para Itens de Controle
+ */
 export const ControlItemModal: React.FC<ModalProps & { activeTab: string, customControlTypes: CustomControlType[] }> = ({ isOpen, onClose, onSave, title, initialData, activeTab, customControlTypes }) => {
   const [formData, setFormData] = useState<any>({});
   
@@ -394,6 +399,18 @@ export const ControlItemModal: React.FC<ModalProps & { activeTab: string, custom
     </div>
   );
 };
+
+const Input: React.FC<{ label: string, value: any, onChange: (val: string) => void, type?: string, className?: string }> = ({ label, value, onChange, type = "text", className = "" }) => (
+  <div className={`space-y-1 ${className}`}>
+    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{label}</label>
+    <input 
+      type={type}
+      className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-orange-100 transition-all text-sm"
+      value={value}
+      onChange={e => onChange(e.target.value)}
+    />
+  </div>
+);
 
 export const BaseModal: React.FC<ModalProps> = ({ isOpen, onClose, onSave, title, initialData }) => {
   const [formData, setFormData] = useState<Partial<Base>>({ 
@@ -482,7 +499,7 @@ export const BaseModal: React.FC<ModalProps> = ({ isOpen, onClose, onSave, title
             </div>
             <Grid container spacing={1.5} className="bg-gray-50 p-4 rounded-3xl border border-gray-100">
               {meses.map(({ mes, nome }) => (
-                <Grid size={{ xs: 4, sm: 3, md: 2 }} key={mes}>
+                <Grid item xs={4} sm={3} md={2} key={mes}>
                   <div className="space-y-1">
                     <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest block text-center">{nome}</label>
                     <input 
@@ -594,164 +611,225 @@ export const BaseModal: React.FC<ModalProps> = ({ isOpen, onClose, onSave, title
   );
 };
 
-export const UserModal: React.FC<ModalProps & { availableBases: Base[], availableLevels: NivelAcessoCustomizado[] }> = ({ isOpen, onClose, onSave, title, initialData, availableBases, availableLevels }) => {
-  const [formData, setFormData] = useState({
-    nome: '',
-    email: '',
+export const UserModal: React.FC<ModalProps & { availableBases?: Base[], availableLevels?: NivelAcessoCustomizado[] }> = ({ 
+  isOpen, onClose, onSave, title, initialData, availableBases = [], availableLevels = [] 
+}) => {
+  const [formData, setFormData] = useState<any>({ 
+    nome: '', 
+    email: '', 
+    status: 'Ativo', 
+    bases: [], 
     permissao: 'OPERACIONAL',
-    bases: [] as string[],
     jornadaPadrao: 6,
-    status: 'Ativo'
+    tipoJornada: 'predefinida'
   });
 
-  useEffect(() => {
+  useEffect(() => { 
     if (initialData) {
+      const isPredefined = [6, 7.2, 8].includes(Number(initialData.jornadaPadrao));
       setFormData({
         ...initialData,
-        // Garantia de que bases seja sempre um array para evitar crash no map/includes
-        bases: Array.isArray(initialData.bases) ? initialData.bases : []
+        tipoJornada: isPredefined ? 'predefinida' : 'customizada',
+        status: initialData.status || 'Ativo',
+        bases: initialData.bases || [],
+        permissao: initialData.permissao || initialData.basesAssociadas?.[0]?.nivelAcesso || 'OPERACIONAL'
       });
     } else {
-      setFormData({ nome: '', email: '', permissao: 'OPERACIONAL', bases: [], jornadaPadrao: 6, status: 'Ativo' });
+      setFormData({ 
+        nome: '', email: '', status: 'Ativo', bases: [], 
+        permissao: 'OPERACIONAL', jornadaPadrao: 6, tipoJornada: 'predefinida' 
+      });
     }
   }, [initialData, isOpen]);
 
   if (!isOpen) return null;
 
+  const handleFieldChange = (campo: string, valor: any) => {
+    if (campo === 'tipoJornada') {
+      setFormData({
+        ...formData,
+        tipoJornada: valor,
+        jornadaPadrao: valor === 'predefinida' ? 6 : formData.jornadaPadrao
+      });
+    } else {
+      setFormData({ ...formData, [campo]: valor });
+    }
+  };
+
+  const handleLocalSave = () => {
+    if (!formData.nome?.trim()) { alert('Nome é obrigatório'); return; }
+    if (!formData.email?.trim()) { alert('Email é obrigatório'); return; }
+    if (!formData.bases || formData.bases.length === 0) { alert('Pelo menos uma base é obrigatória'); return; }
+    if (!formData.jornadaPadrao) { alert('Jornada é obrigatória'); return; }
+    if (!formData.status) { alert('Status é obrigatório'); return; }
+
+    onSave({
+      ...formData, 
+      id: formData.id || Math.random().toString(36).substr(2, 9),
+      jornadaPadrao: Number(String(formData.jornadaPadrao).replace(',', '.'))
+    });
+  };
+
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-[2.5rem] w-full max-w-lg shadow-2xl p-8 animate-in zoom-in-95">
-        <h3 className="text-xl font-black text-gray-800 uppercase tracking-tight mb-6">{title}</h3>
-        <div className="space-y-4">
-          <Input label="Nome Completo" value={formData.nome} onChange={v => setFormData({...formData, nome: v})} />
-          <Input label="E-mail Corporativo" value={formData.email} onChange={v => setFormData({...formData, email: v})} />
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Nível de Acesso</label>
-              <select className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-sm outline-none" value={formData.permissao} onChange={e => setFormData({...formData, permissao: e.target.value})}>
-                {availableLevels.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
-              </select>
-            </div>
-            <Input label="Jornada (Horas)" type="number" value={formData.jornadaPadrao} onChange={v => setFormData({...formData, jornadaPadrao: parseInt(v) || 0})} />
-          </div>
-          <div className="space-y-1">
-            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Unidades Associadas</label>
-            <div className="flex flex-wrap gap-2 p-4 bg-gray-50 border border-gray-100 rounded-2xl">
-              {availableBases.map(base => (
-                <label key={base.id} className="flex items-center space-x-2 cursor-pointer">
-                  <input 
-                    type="checkbox" 
-                    checked={(formData.bases || []).includes(base.id)} 
-                    onChange={e => {
-                      const currentBases = Array.isArray(formData.bases) ? formData.bases : [];
-                      const newBases = e.target.checked 
-                        ? [...currentBases, base.id]
-                        : currentBases.filter(id => id !== base.id);
-                      setFormData({...formData, bases: newBases});
-                    }}
-                  />
-                  <span className="text-xs font-bold text-gray-600">{base.sigla}</span>
-                </label>
+      <div className="bg-white rounded-[2.5rem] w-full max-w-md shadow-2xl p-8 animate-in zoom-in-95 flex flex-col gap-6 max-h-[95vh] overflow-y-auto">
+        <h3 className="text-2xl font-black text-gray-800 uppercase tracking-tight">{title}</h3>
+        
+        <MuiBox sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+          <TextField
+            label="Nome Completo"
+            placeholder="Nome e Sobrenome"
+            value={formData.nome}
+            onChange={(e) => handleFieldChange('nome', e.target.value)}
+            fullWidth
+            required
+            variant="outlined"
+            slotProps={{ input: { sx: { borderRadius: '1rem' } } }}
+          />
+
+          <TextField
+            label="Email Corporativo"
+            type="email"
+            placeholder="usuario@gol.com.br"
+            value={formData.email}
+            onChange={(e) => handleFieldChange('email', e.target.value)}
+            fullWidth
+            required
+            variant="outlined"
+            slotProps={{ input: { sx: { borderRadius: '1rem' } } }}
+          />
+
+          <FormControl fullWidth required>
+            <InputLabel children="Bases Operacionais" />
+            <Select
+              multiple
+              value={formData.bases || []}
+              onChange={(e) => handleFieldChange('bases', e.target.value)}
+              input={<OutlinedInput label="Bases Operacionais" />}
+              renderValue={(selected) => (
+                <MuiBox sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                  {(selected as string[]).map((value) => (
+                    <Chip 
+                      key={value} 
+                      label={availableBases.find(b => b.id === value)?.sigla || value} 
+                      size="small" 
+                      sx={{ fontWeight: 800, fontSize: '0.65rem' }}
+                    />
+                  ))}
+                </MuiBox>
+              )}
+              sx={{ borderRadius: '1rem' }}
+            >
+              {availableBases.map((base) => (
+                <MenuItem key={base.id} value={base.id}>{base.sigla} - {base.nome}</MenuItem>
               ))}
+            </Select>
+          </FormControl>
+
+          <FormControl fullWidth>
+            <InputLabel children="Nível de Acesso (Perfil)" />
+            <Select
+              value={formData.permissao}
+              onChange={(e) => handleFieldChange('permissao', e.target.value)}
+              label="Nível de Acesso (Perfil)"
+              sx={{ borderRadius: '1rem' }}
+              renderValue={(selectedId) => {
+                const nivel = availableLevels.find(n => n.id === selectedId);
+                return nivel ? nivel.nome : selectedId;
+              }}
+            >
+              {availableLevels && availableLevels.length > 0 ? availableLevels.map((nivel) => (
+                <MenuItem key={nivel.id} value={nivel.id}>
+                  <MuiBox sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                    <MuiTypography sx={{ fontWeight: 800, fontSize: '0.85rem' }}>{nivel.nome}</MuiTypography>
+                    {nivel.tipo === 'PADRÃO' && (
+                      <Chip label="SISTEMA" size="small" sx={{ height: 16, fontSize: '0.5rem', fontWeight: 900, ml: 1, bgcolor: '#f3f4f6' }} />
+                    )}
+                  </MuiBox>
+                </MenuItem>
+              )) : (
+                <MenuItem disabled value="">Nenhum perfil carregado</MenuItem>
+              )}
+            </Select>
+          </FormControl>
+
+          <MuiBox sx={{ bgcolor: '#f9fafb', p: 3, borderRadius: '1.5rem', border: '1px solid #f3f4f6' }}>
+            <MuiTypography sx={{ fontSize: '10px', fontWeight: 900, color: '#9ca3af', mb: 1.5, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+              Configuração de Jornada
+            </MuiTypography>
+            
+            <div className="space-y-4">
+              <FormControl fullWidth size="small">
+                <InputLabel children="Tipo de Jornada" />
+                <Select
+                  value={formData.tipoJornada}
+                  onChange={(e) => handleFieldChange('tipoJornada', e.target.value)}
+                  label="Tipo de Jornada"
+                  sx={{ borderRadius: '0.75rem', bgcolor: 'white' }}
+                >
+                  <MenuItem value="predefinida">Predefinida</MenuItem>
+                  <MenuItem value="customizada">Customizada</MenuItem>
+                </Select>
+              </FormControl>
+
+              {formData.tipoJornada === 'predefinida' ? (
+                <FormControl fullWidth size="small">
+                  <InputLabel children="Jornada" />
+                  <Select
+                    value={formData.jornadaPadrao}
+                    onChange={(e) => handleFieldChange('jornadaPadrao', e.target.value)}
+                    label="Jornada"
+                    sx={{ borderRadius: '0.75rem', bgcolor: 'white' }}
+                  >
+                    <MenuItem value={6}>06:00:00</MenuItem>
+                    <MenuItem value={7.2}>07:12:00</MenuItem>
+                    <MenuItem value={8}>08:00:00</MenuItem>
+                  </Select>
+                </FormControl>
+              ) : (
+                <TextField
+                  label="Jornada (Horas decimais)"
+                  placeholder="Ex: 9.5 ou 10"
+                  type="text"
+                  value={formData.jornadaPadrao}
+                  onChange={(e) => handleFieldChange('jornadaPadrao', e.target.value)}
+                  fullWidth
+                  size="small"
+                  variant="outlined"
+                  required
+                  slotProps={{ input: { sx: { borderRadius: '0.75rem', bgcolor: 'white' } } }}
+                />
+              )}
             </div>
-          </div>
-        </div>
-        <div className="flex space-x-3 mt-8">
+          </MuiBox>
+
+          <FormControl fullWidth required>
+            <InputLabel children="Status do Usuário" />
+            <Select
+              value={formData.status}
+              onChange={(e) => handleFieldChange('status', e.target.value)}
+              label="Status do Usuário"
+              sx={{ borderRadius: '1rem' }}
+            >
+              <MenuItem value="Ativo">
+                <MuiBox sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                  <MuiBox sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: '#4caf50' }} />
+                  <MuiTypography sx={{ fontWeight: 800, fontSize: '0.8rem' }}>ATIVO</MuiTypography>
+                </MuiBox>
+              </MenuItem>
+              <MenuItem value="Inativo">
+                <MuiBox sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                  <MuiBox sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: '#9e9e9e' }} />
+                  <MuiTypography sx={{ fontWeight: 800, fontSize: '0.8rem' }}>INATIVO</MuiTypography>
+                </MuiBox>
+              </MenuItem>
+            </Select>
+          </FormControl>
+        </MuiBox>
+
+        <div className="flex space-x-2 mt-4">
           <button onClick={onClose} className="flex-1 py-4 bg-gray-100 rounded-2xl font-black uppercase text-[10px] tracking-widest text-gray-400 hover:bg-gray-200 transition-all">Cancelar</button>
-          <button onClick={() => onSave(formData)} className="flex-1 py-4 bg-orange-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-orange-100 hover:bg-orange-700 transition-all">Salvar</button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-export const TaskModal: React.FC<ModalProps & { categories: Category[] }> = ({ isOpen, onClose, onSave, title, initialData, categories }) => {
-  const [formData, setFormData] = useState({
-    nome: '',
-    categoriaId: '',
-    tipoMedida: MeasureType.QTD,
-    fatorMultiplicador: 1,
-    obrigatoriedade: false,
-    status: 'Ativa'
-  });
-
-  useEffect(() => {
-    if (initialData) setFormData(initialData);
-    else setFormData({ nome: '', categoriaId: categories[0]?.id || '', tipoMedida: MeasureType.QTD, fatorMultiplicador: 1, obrigatoriedade: false, status: 'Ativa' });
-  }, [initialData, isOpen, categories]);
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-[2.5rem] w-full max-w-lg shadow-2xl p-8 animate-in zoom-in-95">
-        <h3 className="text-xl font-black text-gray-800 uppercase tracking-tight mb-6">{title}</h3>
-        <div className="space-y-4">
-          <Input label="Nome da Tarefa" value={formData.nome} onChange={v => setFormData({...formData, nome: v})} />
-          <div className="space-y-1">
-            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Categoria</label>
-            <select className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-sm outline-none" value={formData.categoriaId} onChange={e => setFormData({...formData, categoriaId: e.target.value})}>
-              {categories.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
-            </select>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Tipo de Medida</label>
-              <select className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-sm outline-none" value={formData.tipoMedida} onChange={e => setFormData({...formData, tipoMedida: e.target.value as MeasureType})}>
-                <option value={MeasureType.QTD}>Quantidade</option>
-                <option value={MeasureType.TEMPO}>Tempo (HH:MM:SS)</option>
-              </select>
-            </div>
-            {formData.tipoMedida === MeasureType.QTD && (
-              <Input label="Fator (Minutos por Unidade)" type="number" value={formData.fatorMultiplicador} onChange={v => setFormData({...formData, fatorMultiplicador: parseFloat(v) || 0})} />
-            )}
-          </div>
-        </div>
-        <div className="flex space-x-3 mt-8">
-          <button onClick={onClose} className="flex-1 py-4 bg-gray-100 rounded-2xl font-black uppercase text-[10px] tracking-widest text-gray-400 hover:bg-gray-200 transition-all">Cancelar</button>
-          <button onClick={() => onSave(formData)} className="flex-1 py-4 bg-orange-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-orange-100 hover:bg-orange-700 transition-all">Salvar</button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-export const CategoryModal: React.FC<ModalProps> = ({ isOpen, onClose, onSave, title, initialData }) => {
-  const [formData, setFormData] = useState({
-    nome: '',
-    tipo: 'operacional',
-    exibicao: 'lista',
-    ordem: 1,
-    status: 'Ativa'
-  });
-
-  useEffect(() => {
-    if (initialData) setFormData(initialData);
-    else setFormData({ nome: '', tipo: 'operacional', exibicao: 'lista', ordem: 1, status: 'Ativa' });
-  }, [initialData, isOpen]);
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-[2.5rem] w-full max-w-lg shadow-2xl p-8 animate-in zoom-in-95">
-        <h3 className="text-xl font-black text-gray-800 uppercase tracking-tight mb-6">{title}</h3>
-        <div className="space-y-4">
-          <Input label="Nome da Categoria" value={formData.nome} onChange={v => setFormData({...formData, nome: v.toUpperCase()})} />
-          <div className="grid grid-cols-2 gap-4">
-             <div className="space-y-1">
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Exibição</label>
-                <select className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-sm outline-none" value={formData.exibicao} onChange={e => setFormData({...formData, exibicao: e.target.value as any})}>
-                  <option value="lista">Lista Aberta</option>
-                  <option value="suspensa">Lista Suspensa</option>
-                </select>
-             </div>
-             <Input label="Ordem" type="number" value={formData.ordem} onChange={v => setFormData({...formData, ordem: parseInt(v) || 0})} />
-          </div>
-        </div>
-        <div className="flex space-x-3 mt-8">
-          <button onClick={onClose} className="flex-1 py-4 bg-gray-100 rounded-2xl font-black uppercase text-[10px] tracking-widest text-gray-400 hover:bg-gray-200 transition-all">Cancelar</button>
-          <button onClick={() => onSave(formData)} className="flex-1 py-4 bg-orange-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-orange-100 hover:bg-orange-700 transition-all">Salvar</button>
+          <button onClick={handleLocalSave} className="flex-1 py-4 bg-orange-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-orange-100 hover:bg-orange-700 transition-all">Salvar Usuário</button>
         </div>
       </div>
     </div>
@@ -759,132 +837,263 @@ export const CategoryModal: React.FC<ModalProps> = ({ isOpen, onClose, onSave, t
 };
 
 export const CustomControlTypeModal: React.FC<ModalProps> = ({ isOpen, onClose, onSave, title }) => {
-  const [formData, setFormData] = useState({ nome: '', campos: [''] });
-
+  const [nome, setNome] = useState('');
+  const [campos, setCampos] = useState<string[]>(['']);
   if (!isOpen) return null;
-
-  const handleAddField = () => setFormData({ ...formData, campos: [...formData.campos, ''] });
-  const handleRemoveField = (idx: number) => setFormData({ ...formData, campos: formData.campos.filter((_, i) => i !== idx) });
-  const handleFieldChange = (idx: number, val: string) => {
-    const next = [...formData.campos];
-    next[idx] = val;
-    setFormData({ ...formData, campos: next });
-  };
-
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-[2.5rem] w-full max-w-lg shadow-2xl p-8 animate-in zoom-in-95">
-        <h3 className="text-xl font-black text-gray-800 uppercase tracking-tight mb-6">{title}</h3>
+      <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl p-8 animate-in zoom-in-95">
+        <h3 className="text-xl font-bold mb-4 flex items-center space-x-2"><Layers className="text-orange-600" /> <span>{title}</span></h3>
         <div className="space-y-4">
-          <Input label="Nome do Controle" value={formData.nome} onChange={v => setFormData({ ...formData, nome: v })} />
+          <input className="w-full p-3 border rounded-xl font-bold" placeholder="Nome do Controle" value={nome} onChange={e => setNome(e.target.value)} />
           <div className="space-y-2">
-            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Campos do Formulário</label>
-            {formData.campos.map((campo, idx) => (
-              <div key={idx} className="flex gap-2">
-                <input 
-                  className="flex-1 p-3 bg-gray-50 border border-gray-100 rounded-xl font-bold outline-none text-sm"
-                  value={campo}
-                  onChange={e => handleFieldChange(idx, e.target.value)}
-                  placeholder={`Campo ${idx + 1}`}
-                />
-                <button onClick={() => handleRemoveField(idx)} className="p-3 text-red-500 hover:bg-red-50 rounded-xl"><Trash2 size={16}/></button>
+            <label className="text-xs font-black text-gray-400 uppercase tracking-widest">Campos do Controle</label>
+            {campos.map((campo, idx) => (
+              <div key={idx} className="flex space-x-2">
+                <input className="flex-1 p-2 border rounded-xl text-sm" placeholder={`Campo ${idx+1}`} value={campo} onChange={e => {
+                  const newCampos = [...campos];
+                  newCampos[idx] = e.target.value;
+                  setCampos(newCampos);
+                }} />
+                {campos.length > 1 && <button onClick={() => setCampos(campos.filter((_, i) => i !== idx))} className="p-2 text-red-500"><Trash2 className="w-4 h-4" /></button>}
               </div>
             ))}
-            <button onClick={handleAddField} className="w-full py-3 border-2 border-dashed border-gray-100 rounded-xl text-[10px] font-black uppercase text-gray-400 hover:text-orange-600 hover:border-orange-100 transition-all">+ Adicionar Campo</button>
+            <button onClick={() => setCampos([...campos, ''])} className="text-[10px] font-black text-orange-600 uppercase">+ Adicionar Campo</button>
           </div>
         </div>
-        <div className="flex space-x-3 mt-8">
-          <button onClick={onClose} className="flex-1 py-4 bg-gray-100 rounded-2xl font-black uppercase text-[10px] tracking-widest text-gray-400 hover:bg-gray-200 transition-all">Cancelar</button>
-          <button onClick={() => onSave({ ...formData, id: `custom_${Date.now()}` })} className="flex-1 py-4 bg-orange-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-orange-100 hover:bg-orange-700 transition-all">Criar Tipo</button>
+        <div className="flex space-x-2 mt-6">
+          <button onClick={onClose} className="flex-1 py-3 bg-gray-100 rounded-xl font-bold text-gray-500">Cancelar</button>
+          <button onClick={() => onSave({ id: Math.random().toString(36).substr(2, 9), nome, campos: campos.filter(c => c.trim()), dataCriacao: new Date().toISOString() })} className="flex-1 py-3 bg-orange-600 text-white rounded-xl font-bold shadow-lg">Salvar Tipo</button>
         </div>
       </div>
     </div>
   );
 };
 
-export const ControlItemSettingsModal: React.FC<{ isOpen: boolean, onClose: () => void, item: any, onSave: (data: any) => void }> = ({ isOpen, onClose, item, onSave }) => {
-  const [formData, setFormData] = useState<any>(null);
+export const ControlItemSettingsModal: React.FC<{ isOpen: boolean; onClose: () => void; item: any; onSave: (updatedItem: any) => void }> = ({ isOpen, onClose, item, onSave }) => {
+  const [activeLevel, setActiveLevel] = useState<'verde' | 'amarelo' | 'vermelho'>('verde');
+  const [cores, setCores] = useState<any>(item?.cores || {
+    verde: { condicao: 'Valor', operador: '>', valor: 0, habilitado: true },
+    amarelo: { condicao: 'Valor', operador: '=', valor: 0, habilitado: true },
+    vermelho: { condicao: 'Valor', operador: '<', valor: 0, habilitado: true }
+  });
+  const [popups, setPopups] = useState<any>(item?.popups || {
+    verde: { titulo: 'Tudo OK', mensagem: 'Item dentro dos parâmetros.', habilitado: true },
+    amarelo: { titulo: 'Atenção', mensagem: 'Item requer atenção imediata.', habilitado: true },
+    vermelho: { titulo: 'Crítico!', mensagem: 'Item em estado de alerta crítico!', habilitado: true }
+  });
 
   useEffect(() => {
     if (item) {
-      setFormData({
-        ...item,
-        cores: item.cores || {
-          verde: { condicao: 'Valor', operador: '<=', valor: 0, habilitado: true },
-          amarelo: { condicao: 'Valor', operador: 'entre', valor: 0, valorMax: 0, habilitado: true },
-          vermelho: { condicao: 'Valor', operador: '>', valor: 0, habilitado: true }
-        },
-        popups: item.popups || {
-          verde: { titulo: 'OK', mensagem: '', habilitado: false },
-          amarelo: { titulo: 'Atenção', mensagem: '', habilitado: true },
-          vermelho: { titulo: 'Crítico', mensagem: '', habilitado: true }
-        }
-      });
+      if (item.cores) setCores(item.cores);
+      if (item.popups) setPopups(item.popups);
     }
   }, [item, isOpen]);
 
-  if (!isOpen || !formData) return null;
+  if (!isOpen) return null;
+
+  const renderConfigSection = (level: 'verde' | 'amarelo' | 'vermelho', BirdColorClass: string) => (
+    <div className={`space-y-5 animate-in fade-in slide-in-from-right-2 duration-200`}>
+       <div className={`p-4 rounded-2xl border-l-4 ${BirdColorClass} bg-gray-50 flex justify-between items-center shadow-sm`}>
+          <div className="flex items-center space-x-3">
+             <Palette className="w-5 h-5 text-gray-400" /> 
+             <span className="font-black text-[10px] uppercase tracking-widest text-gray-600">Status do Nível {level.toUpperCase()}</span>
+          </div>
+          <div className="flex items-center space-x-3">
+            <label className="flex items-center space-x-2 cursor-pointer bg-white px-2.5 py-1 rounded-lg shadow-sm border border-gray-100">
+               <span className="text-[8px] font-black text-gray-400 uppercase tracking-widest">{cores[level].habilitado ? 'Cor Ativa' : 'Cor Off'}</span>
+               <div onClick={() => setCores({...cores, [level]: {...cores[level], habilitado: !cores[level].habilitado}})} className={`w-8 h-4 rounded-full transition-all relative ${cores[level].habilitado ? 'bg-green-500' : 'bg-gray-300'}`}>
+                 <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${cores[level].habilitado ? 'right-0.5' : 'left-0.5'}`} />
+               </div>
+            </label>
+            <label className="flex items-center space-x-2 cursor-pointer bg-white px-2.5 py-1 rounded-lg shadow-sm border border-gray-100">
+               <span className="text-[8px] font-black text-gray-400 uppercase tracking-widest">{popups[level].habilitado ? 'Pop-up ON' : 'Pop-up OFF'}</span>
+               <div onClick={() => setPopups({...popups, [level]: {...popups[level], habilitado: !popups[level].habilitado}})} className={`w-8 h-4 rounded-full transition-all relative ${popups[level].habilitado ? 'bg-orange-600' : 'bg-gray-300'}`}>
+                 <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${popups[level].habilitado ? 'right-0.5' : 'left-0.5'}`} />
+               </div>
+            </label>
+          </div>
+       </div>
+       <div className={`bg-gray-50 p-6 rounded-2xl border border-gray-100 grid grid-cols-12 gap-4 transition-opacity ${!cores[level].habilitado && 'opacity-40 pointer-events-none'}`}>
+          <div className="col-span-12 mb-2"><h4 className="text-[10px] font-black uppercase text-gray-400 tracking-widest flex items-center space-x-2"><Settings className="w-3 h-3" /> <span>Condição Lógica</span></h4></div>
+          <div className="col-span-5">
+             <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest block mb-1">Operador</label>
+             <select className="w-full p-3 border border-gray-200 rounded-xl text-xs font-bold bg-white outline-none focus:border-orange-500" value={cores[level].operador} onChange={e => setCores({...cores, [level]: {...cores[level], operador: e.target.value}})}>
+                <option value=">">Maior que (&gt;)</option>
+                <option value="<">Menor que (&lt;)</option>
+                <option value="=">Igual a (=)</option>
+                <option value="!=">Diferente de (≠)</option>
+                <option value=">=">Maior ou igual (&gt;=)</option>
+                <option value="<=">Menor ou igual (&lt;=)</option>
+                <option value="entre">Entre (X e Y)</option>
+             </select>
+          </div>
+          <div className={cores[level].operador === 'entre' ? 'col-span-3' : 'col-span-7'}>
+             <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest block mb-1">{cores[level].operador === 'entre' ? 'Valor Mín.' : 'Valor de Referência'}</label>
+             <input type="number" className="w-full p-3 border border-gray-200 rounded-xl text-xs font-bold bg-white outline-none focus:border-orange-500" placeholder="0" value={cores[level].valor} onChange={e => setCores({...cores, [level]: {...cores[level], valor: e.target.value}})} />
+          </div>
+          {cores[level].operador === 'entre' && (
+            <div className="col-span-4 animate-in slide-in-from-left-2">
+               <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest block mb-1">Valor Máx.</label>
+               <input type="number" className="w-full p-3 border border-gray-200 rounded-xl text-xs font-bold bg-white outline-none focus:border-orange-500" placeholder="0" value={cores[level].valorMax || ''} onChange={e => setCores({...cores, [level]: {...cores[level], valorMax: e.target.value}})} />
+            </div>
+          )}
+       </div>
+       <div className={`space-y-3 bg-white p-6 rounded-2xl border border-gray-100 transition-opacity ${!popups[level].habilitado && 'opacity-40 pointer-events-none'}`}>
+          <div className="flex items-center space-x-2 text-orange-600 mb-2">
+             <AlertTriangle className="w-4 h-4" />
+             <span className="text-[10px] font-black uppercase tracking-widest">Configuração do Pop-up</span>
+          </div>
+          <div className="space-y-1">
+             <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest">Título do Alerta</label>
+             <input className="w-full p-3 text-xs font-bold border border-gray-100 rounded-xl outline-none focus:border-orange-500" placeholder="Ex: Atenção Crítica!" value={popups[level].titulo} onChange={e => setPopups({...popups, [level]: {...popups[level], titulo: e.target.value}})} />
+          </div>
+          <div className="space-y-1">
+             <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest">Mensagem de Texto (X = Valor Atual)</label>
+             <textarea className="w-full p-3 text-[11px] font-medium border border-gray-100 rounded-xl outline-none focus:ring-1 focus:ring-orange-100 resize-none" rows={3} placeholder="Ex: O item está com X dias de atraso." value={popups[level].mensagem} onChange={e => setPopups({...popups, [level]: {...popups[level], mensagem: e.target.value}})} />
+          </div>
+       </div>
+    </div>
+  );
 
   return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-[3rem] w-full max-w-4xl shadow-2xl p-10 animate-in zoom-in-95 max-h-[90vh] overflow-y-auto scrollbar-hide">
-        <div className="flex justify-between items-center mb-8">
-           <h3 className="text-2xl font-black text-gray-800 uppercase tracking-tight">Alertas & Cores: {item.partNumber || item.nomeLocation || item.nomeTransito || item.nome}</h3>
-           <button onClick={onClose} className="p-2 text-gray-400 hover:text-red-500"><X size={24}/></button>
+    <div className="fixed inset-0 z-[160] flex items-center justify-center bg-black/70 backdrop-blur-md p-4">
+      <div className="bg-white rounded-[2.5rem] w-full max-w-xl shadow-2xl flex flex-col animate-in slide-in-from-bottom-10 max-h-[90vh] overflow-hidden">
+        <div className="p-8 pb-4 flex justify-between items-center border-b border-gray-50 bg-white z-10">
+          <div>
+            <h3 className="text-xl font-black text-gray-800 uppercase tracking-tight flex items-center space-x-3">
+              <Settings className="text-orange-600 w-5 h-5" />
+              <span>Regras Customizadas</span>
+            </h3>
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">
+              {item.partNumber || item.nomeLocation || item.nomeTransito || 'Configuração Técnica'}
+            </p>
+          </div>
+          <button onClick={onClose} className="p-2 text-gray-300 hover:text-red-500 transition-colors bg-gray-50 rounded-xl"><X className="w-6 h-6" /></button>
         </div>
+        <div className="px-8 pt-4 flex space-x-2 bg-white">
+           <TabSelector label="Verde" active={activeLevel === 'verde'} onClick={() => setActiveLevel('verde')} colorClass="bg-green-500" activeText="text-green-600" activeBg="bg-green-50" />
+           <TabSelector label="Amarelo" active={activeLevel === 'amarelo'} onClick={() => setActiveLevel('amarelo')} colorClass="bg-yellow-500" activeText="text-yellow-600" activeBg="bg-yellow-50" />
+           <TabSelector label="Vermelho" active={activeLevel === 'vermelho'} onClick={() => setActiveLevel('vermelho')} colorClass="bg-red-500" activeText="text-red-600" activeBg="bg-red-50" />
+        </div>
+        <div className="flex-1 overflow-y-auto p-8 pt-6 space-y-6 scrollbar-hide">
+           {activeLevel === 'verde' && renderConfigSection('verde', 'border-green-500')}
+           {activeLevel === 'amarelo' && renderConfigSection('amarelo', 'border-yellow-500')}
+           {activeLevel === 'vermelho' && renderConfigSection('vermelho', 'border-red-500')}
+        </div>
+        <div className="p-6 px-8 flex space-x-3 border-t border-gray-50 bg-gray-50/50">
+           <button onClick={onClose} className="flex-1 py-4 font-black text-gray-400 uppercase text-[10px] tracking-widest hover:text-gray-600 transition-colors bg-white border border-gray-200 rounded-2xl">Cancelar</button>
+           <button onClick={() => onSave({ ...item, cores, popups })} className="flex-1 py-4 bg-orange-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-orange-100 hover:bg-orange-700 transition-all hover:scale-[1.02] active:scale-95">Salvar Configurações</button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
-        <div className="grid md:grid-cols-3 gap-6">
-          {['verde', 'amarelo', 'vermelho'].map((cor: any) => (
-            <div key={cor} className={`p-6 rounded-[2rem] border-2 ${cor === 'verde' ? 'border-green-100 bg-green-50/30' : (cor === 'amarelo' ? 'border-yellow-100 bg-yellow-50/30' : 'border-red-100 bg-red-50/30')}`}>
-               <div className="flex items-center gap-2 mb-4">
-                  <div className={`w-3 h-3 rounded-full ${cor === 'verde' ? 'bg-green-500' : (cor === 'amarelo' ? 'bg-yellow-500' : 'bg-red-500')}`} />
-                  <span className="text-xs font-black uppercase tracking-widest">{cor}</span>
-               </div>
-               
-               <div className="space-y-4">
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-black text-gray-400 uppercase">Operador</label>
-                    <select 
-                      className="w-full p-3 bg-white border border-gray-100 rounded-xl text-xs font-bold"
-                      value={formData.cores[cor].operador}
-                      onChange={e => setFormData({...formData, cores: {...formData.cores, [cor]: {...formData.cores[cor], operador: e.target.value}}})}
-                    >
-                      <option value="=">=</option>
-                      <option value="!=">!=</option>
-                      <option value=">">&gt;</option>
-                      <option value="<">&lt;</option>
-                      <option value=">=">&gt;=</option>
-                      <option value="<=">&lt;=</option>
-                      <option value="entre">Entre</option>
-                    </select>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Input label="Valor" value={formData.cores[cor].valor} onChange={v => setFormData({...formData, cores: {...formData.cores, [cor]: {...formData.cores[cor], valor: v}}})} />
-                    {formData.cores[cor].operador === 'entre' && (
-                      <Input label="Valor Máx" value={formData.cores[cor].valorMax} onChange={v => setFormData({...formData, cores: {...formData.cores, [cor]: {...formData.cores[cor], valorMax: v}}})} />
-                    )}
-                  </div>
-                  
-                  <div className="pt-4 border-t border-gray-100">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="checkbox" checked={formData.popups[cor].habilitado} onChange={e => setFormData({...formData, popups: {...formData.popups, [cor]: {...formData.popups[cor], habilitado: e.target.checked}}})} />
-                      <span className="text-[9px] font-black uppercase text-gray-500">Habilitar Pop-up</span>
-                    </label>
-                    {formData.popups[cor].habilitado && (
-                      <div className="mt-3 space-y-2">
-                         <input className="w-full p-2 bg-white border border-gray-100 rounded-lg text-xs font-bold" placeholder="Título" value={formData.popups[cor].titulo} onChange={e => setFormData({...formData, popups: {...formData.popups, [cor]: {...formData.popups[cor], titulo: e.target.value}}})} />
-                         <textarea className="w-full p-2 bg-white border border-gray-100 rounded-lg text-xs font-medium h-16 resize-none" placeholder="Mensagem" value={formData.popups[cor].mensagem} onChange={e => setFormData({...formData, popups: {...formData.popups, [cor]: {...formData.popups[cor], mensagem: e.target.value}}})} />
-                      </div>
-                    )}
-                  </div>
-               </div>
+const TabSelector: React.FC<{label: string, active: boolean, onClick: () => void, colorClass: string, activeText?: string, activeBg: string}> = ({ label, active, onClick, colorClass, activeText = '', activeBg }) => (
+  <button onClick={onClick} className={`flex-1 py-3 px-4 rounded-xl flex items-center justify-center space-x-2 border transition-all ${active ? `${activeBg} border-transparent shadow-sm` : 'bg-white border-gray-100 text-gray-400 hover:bg-gray-50'}`}>
+    <div className={`w-2 h-2 rounded-full ${active ? colorClass : 'bg-gray-300'}`} />
+    <span className={`text-[10px] font-black uppercase tracking-widest ${active ? activeText : ''}`}>{label}</span>
+  </button>
+);
+
+export const CategoryModal: React.FC<ModalProps> = ({ isOpen, onClose, onSave, title, initialData }) => {
+  const [formData, setFormData] = useState<Partial<Category>>({ nome: '', exibicao: 'lista', status: 'Ativa', ordem: 1 });
+  
+  useEffect(() => { 
+    if (initialData) {
+      setFormData({ ...initialData, exibicao: initialData.exibicao || 'lista' });
+    } else {
+      setFormData({ nome: '', exibicao: 'lista', status: 'Ativa', ordem: 1 });
+    }
+  }, [initialData, isOpen]);
+  
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl p-8 animate-in zoom-in-95">
+        <h3 className="text-xl font-bold mb-4">{title}</h3>
+        <div className="space-y-4">
+          <MuiBox sx={{ mb: 2 }}>
+            <Input label="Nome da Categoria" value={formData.nome} onChange={v => setFormData({...formData, nome: v})} />
+          </MuiBox>
+          
+          <MuiBox sx={{ mb: 2 }}>
+            <FormControl fullWidth size="small">
+              <InputLabel children="Formato de Exibição" />
+              <Select
+                value={formData.exibicao}
+                onChange={(e) => setFormData({ ...formData, exibicao: e.target.value as any })}
+                label="Formato de Exibição"
+                sx={{ borderRadius: '1rem' }}
+              >
+                <MenuItem value="lista">Sempre Visível (Lista)</MenuItem>
+                <MenuItem value="suspensa">Lista Suspensa (Dropdown)</MenuItem>
+              </Select>
+            </FormControl>
+          </MuiBox>
+
+          <MuiBox sx={{ mb: 2 }}>
+            <Input type="number" label="Ordem de Exibição" value={formData.ordem} onChange={v => setFormData({...formData, ordem: parseInt(v) || 1})} />
+          </MuiBox>
+        </div>
+        <div className="flex space-x-2 mt-6">
+          <button onClick={onClose} className="flex-1 py-3 bg-gray-100 rounded-xl font-bold text-gray-500">Cancelar</button>
+          <button onClick={() => onSave({...formData, id: formData.id || Math.random().toString(36).substr(2, 9)})} className="flex-1 py-3 bg-orange-600 text-white rounded-xl font-bold shadow-lg">Salvar</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export const TaskModal: React.FC<ModalProps & { categories?: Category[] }> = ({ isOpen, onClose, onSave, title, initialData, categories }) => {
+  const [formData, setFormData] = useState<Partial<Task>>({ nome: '', status: 'Ativa', tipoMedida: MeasureType.QTD, fatorMultiplicador: 0, categoriaId: '' });
+  const [timeValue, setTimeValue] = useState('');
+  useEffect(() => { 
+    if (initialData) {
+      setFormData(initialData);
+      setTimeValue(initialData.fatorMultiplicador > 0 ? minutesToHhmmss(initialData.fatorMultiplicador) : '');
+    } else {
+      setFormData({ nome: '', status: 'Ativa', tipoMedida: MeasureType.QTD, fatorMultiplicador: 0, categoriaId: '' });
+      setTimeValue('');
+    }
+  }, [initialData, isOpen]);
+  if (!isOpen) return null;
+  const handleLocalSave = () => {
+    const finalFator = formData.tipoMedida === MeasureType.TEMPO ? 0 : hhmmssToMinutes(timeValue);
+    onSave({...formData, fatorMultiplicador: finalFator, id: formData.id || Math.random().toString(36).substr(2, 9)});
+  };
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl p-8 animate-in zoom-in-95">
+        <h3 className="text-xl font-bold mb-4">{title}</h3>
+        <div className="space-y-4">
+          <input className="w-full p-3 border rounded-xl font-bold" placeholder="Nome da Tarefa" value={formData.nome} onChange={e => setFormData({...formData, nome: e.target.value})} />
+          <select className="w-full p-3 border rounded-xl font-bold text-sm" value={formData.categoriaId} onChange={e => setFormData({...formData, categoriaId: e.target.value})}>
+            <option value="">Selecione uma Categoria...</option>
+            {categories?.map(cat => <option key={cat.id} value={cat.id}>{cat.nome}</option>)}
+          </select>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <label className="text-[10px] font-black text-gray-400 uppercase">Medida</label>
+              <select className="w-full p-3 border rounded-xl font-bold text-sm" value={formData.tipoMedida} onChange={e => setFormData({...formData, tipoMedida: e.target.value as MeasureType})}>
+                <option value={MeasureType.QTD}>QTD</option>
+                <option value={MeasureType.TEMPO}>TEMPO</option>
+              </select>
             </div>
-          ))}
+            <div className="space-y-1">
+              <label className="text-[10px] font-black text-gray-400 uppercase">Fator (HH:MM:SS)</label>
+              <TimeInput value={timeValue} onChange={setTimeValue} className={`w-full p-3 border rounded-xl text-orange-600 ${formData.tipoMedida === MeasureType.TEMPO ? 'bg-gray-100 opacity-50' : ''}`} disabled={formData.tipoMedida === MeasureType.TEMPO} />
+            </div>
+          </div>
+          {formData.tipoMedida === MeasureType.TEMPO && (
+            <p className="text-[9px] font-bold text-orange-500 uppercase tracking-tighter">* O tempo será preenchido diretamente na passagem de serviço.</p>
+          )}
         </div>
-
-        <div className="flex space-x-3 mt-10">
-          <button onClick={onClose} className="flex-1 py-4 bg-gray-100 rounded-2xl font-black uppercase text-xs tracking-widest text-gray-400 hover:bg-gray-200 transition-all">Cancelar</button>
-          <button onClick={() => onSave(formData)} className="flex-1 py-4 bg-orange-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-orange-100 hover:bg-orange-700 transition-all">Salvar Configuração</button>
+        <div className="flex space-x-2 mt-6">
+          <button onClick={onClose} className="flex-1 py-3 bg-gray-100 rounded-xl font-bold text-gray-500">Cancelar</button>
+          <button onClick={handleLocalSave} className="flex-1 py-3 bg-orange-600 text-white rounded-xl font-bold shadow-lg">Salvar</button>
         </div>
       </div>
     </div>

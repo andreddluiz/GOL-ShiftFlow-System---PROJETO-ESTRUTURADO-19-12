@@ -198,8 +198,8 @@ const MonthlyCollectionPage: React.FC<{baseId?: string}> = ({ baseId }) => {
             )}
           </Box>
 
-          <Grid spacing={2} alignItems="center">
-            <Grid size={{ xs: 12, md: 4 }}>
+          <Grid container spacing={2} alignItems="center">
+            <Grid item xs={12} md={4}>
                <FormControl fullWidth size="small">
                   <InputLabel children="Mês" />
                   <Select 
@@ -213,7 +213,7 @@ const MonthlyCollectionPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                   </Select>
                </FormControl>
             </Grid>
-            <Grid size={{ xs: 12, md: 4 }}>
+            <Grid item xs={12} md={4}>
                <FormControl fullWidth size="small">
                   <InputLabel children="Ano" />
                   <Select 
@@ -227,7 +227,7 @@ const MonthlyCollectionPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                   </Select>
                </FormControl>
             </Grid>
-            <Grid size={{ xs: 12, md: 4 }}>
+            <Grid item xs={12} md={4}>
                <Button 
                 fullWidth 
                 variant="contained" 
@@ -315,7 +315,7 @@ const MonthlyCollectionPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                </Typography>
                <Grid container spacing={3}>
                   {tasks.filter(t => t.categoriaId === cat.id).map(task => (
-                    <Grid size={{ xs: 12, md: 6 }} key={task.id}>
+                    <Grid item xs={12} md={6} key={task.id}>
                        <Card sx={{ borderRadius: 6, border: '1px solid #f3f4f6', boxShadow: 'none', transition: 'all 0.2s', '&:hover': { border: '1px solid #FF5A00', transform: 'translateY(-2px)' } }}>
                           <CardContent sx={{ p: 3, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
@@ -352,8 +352,8 @@ const MonthlyCollectionPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                                     value={valores[task.id] || ''}
                                     onChange={e => handleValueChange(task.id, e.target.value === '' ? '' : String(Math.max(0, Number(e.target.value))))}
                                     slotProps={{
-                                      htmlInput: { min: 0 },
                                       input: {
+                                        min: 0,
                                         sx: { borderRadius: 3, bgcolor: '#f9fafb', fontWeight: 900, textAlign: 'center' }
                                       }
                                     }}

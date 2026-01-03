@@ -1,115 +1,184 @@
 
 import React, { useState } from 'react';
-import { signInWithEmailAndPassword } from 'firebase/auth';
-import { auth } from '../firebase';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { Plane, Mail, Lock, LogIn, AlertCircle, Loader2 } from 'lucide-react';
+import {
+  Box,
+  Card,
+  CardContent,
+  TextField,
+  Button,
+  Typography,
+  Alert,
+  CircularProgress,
+  Container,
+  InputAdornment,
+  IconButton
+} from '@mui/material';
+import { Plane, Mail, Lock, Eye, EyeOff, LogIn } from 'lucide-react';
+import { authService } from '../services/authService';
 
-export const LoginPage: React.FC = () => {
+interface LoginPageProps {
+  onLoginSuccess: (usuario: any) => void;
+}
+
+export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  
-  const navigate = useNavigate();
-  const location = useLocation();
-  const from = location.state?.from?.pathname || "/dashboard";
+  const [senha, setSenha] = useState('');
+  const [mostrarSenha, setMostrarSenha] = useState(false);
+  const [carregando, setCarregando] = useState(false);
+  const [erro, setErro] = useState('');
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (loading) return;
+    if (!email || !senha) return;
 
-    setLoading(true);
-    setError(null);
+    setCarregando(true);
+    setErro('');
 
     try {
-      console.log(`[Login] Iniciando autenticação para: ${email}`);
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      console.log("[Login] Autenticação básica OK. Aguardando sincronização de perfil...");
+      // Pequeno delay para UX
+      await new Promise(r => setTimeout(r, 800));
       
-      // O redirecionamento ocorre após o onAuthStateChanged no hook useAuth detectar o usuário
-      navigate(from, { replace: true });
-    } catch (err: any) {
-      console.error("[Login Error]", err.code);
-      
-      let msg = "Erro ao acessar o sistema.";
-      if (err.code === 'auth/invalid-credential') msg = "E-mail ou senha incorretos.";
-      if (err.code === 'auth/user-not-found') msg = "Colaborador não cadastrado.";
-      if (err.code === 'auth/wrong-password') msg = "Senha inválida.";
-      if (err.code === 'auth/too-many-requests') msg = "Acesso bloqueado temporariamente por múltiplas tentativas.";
-      
-      setError(msg);
+      const usuario = authService.fazerLogin({ email, senha });
+
+      if (usuario) {
+        onLoginSuccess(usuario);
+      } else {
+        setErro('Credenciais inválidas ou conta inativa.');
+      }
+    } catch (err) {
+      setErro('Ocorreu um erro ao tentar fazer login.');
     } finally {
-      setLoading(false);
+      setCarregando(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#FF5A00] p-4 md:p-6 font-sans">
-      <div className="w-full max-w-md bg-white rounded-[3rem] shadow-2xl overflow-hidden p-8 md:p-12 animate-in fade-in zoom-in-95 duration-500">
-        <div className="flex flex-col items-center mb-10">
-          <div className="w-20 h-20 bg-[#FF5A00] rounded-[1.5rem] flex items-center justify-center text-white shadow-2xl shadow-orange-200 mb-6 rotate-3">
-            <Plane size={44} />
-          </div>
-          <h1 className="text-4xl font-black text-gray-800 tracking-tighter">ShiftFlow</h1>
-          <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mt-2">Operações GOL Linhas Aéreas</p>
-        </div>
+    <Box sx={{ 
+      minHeight: '100vh', 
+      display: 'flex', 
+      alignItems: 'center', 
+      justifyContent: 'center',
+      background: 'linear-gradient(135deg, #FF5A00 0%, #ff8e4d 100%)',
+      p: 2
+    }}>
+      <Container maxWidth="xs">
+        <Card sx={{ 
+          borderRadius: 8, 
+          boxShadow: '0 20px 40px rgba(0,0,0,0.2)',
+          overflow: 'visible'
+        }}>
+          <CardContent sx={{ p: 5 }}>
+            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 4 }}>
+              <Box sx={{ 
+                w: 64, h: 64, 
+                bgcolor: '#FF5A00', 
+                borderRadius: 4, 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center',
+                color: 'white',
+                mb: 2,
+                boxShadow: '0 10px 20px rgba(255, 90, 0, 0.3)',
+                width: 64, height: 64
+              }}>
+                <Plane size={32} />
+              </Box>
+              <Typography variant="h4" sx={{ fontWeight: 950, color: '#1f2937', tracking: '-0.02em' }}>
+                ShiftFlow
+              </Typography>
+              <Typography variant="caption" sx={{ fontWeight: 800, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                GOL Operações Logísticas
+              </Typography>
+            </Box>
 
-        {error && (
-          <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500 rounded-2xl flex items-center space-x-3 text-red-800 animate-in slide-in-from-top-2">
-            <AlertCircle size={20} className="shrink-0" />
-            <span className="text-xs font-bold uppercase leading-tight">{error}</span>
-          </div>
-        )}
+            {erro && (
+              <Alert severity="error" sx={{ mb: 3, borderRadius: 3, fontWeight: 700 }}>
+                {erro}
+              </Alert>
+            )}
 
-        <form onSubmit={handleLogin} className="space-y-6">
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-4">E-mail Corporativo</label>
-            <div className="relative">
-              <Mail className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-300" size={20} />
-              <input 
-                type="email"
-                required
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                placeholder="nome.sobrenome@gol.com.br"
-                className="w-full pl-14 pr-6 py-5 bg-gray-50 border-2 border-transparent rounded-[1.5rem] font-bold text-sm outline-none focus:bg-white focus:border-[#FF5A00] transition-all"
-              />
-            </div>
-          </div>
+            <form onSubmit={handleLogin}>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+                <TextField
+                  fullWidth
+                  label="E-mail"
+                  variant="outlined"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  disabled={carregando}
+                  slotProps={{
+                    input: {
+                      sx: { borderRadius: 4 },
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <Mail size={18} className="text-gray-400" />
+                        </InputAdornment>
+                      ),
+                    }
+                  }}
+                />
 
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-4">Senha de Acesso</label>
-            <div className="relative">
-              <Lock className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-300" size={20} />
-              <input 
-                type="password"
-                required
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                placeholder="••••••••"
-                className="w-full pl-14 pr-6 py-5 bg-gray-50 border-2 border-transparent rounded-[1.5rem] font-bold text-sm outline-none focus:bg-white focus:border-[#FF5A00] transition-all"
-              />
-            </div>
-          </div>
+                <TextField
+                  fullWidth
+                  label="Senha"
+                  type={mostrarSenha ? 'text' : 'password'}
+                  variant="outlined"
+                  value={senha}
+                  onChange={(e) => setSenha(e.target.value)}
+                  disabled={carregando}
+                  slotProps={{
+                    input: {
+                      sx: { borderRadius: 4 },
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <Lock size={18} className="text-gray-400" />
+                        </InputAdornment>
+                      ),
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <IconButton onClick={() => setMostrarSenha(!mostrarSenha)} edge="end">
+                            {mostrarSenha ? <EyeOff size={18} /> : <Eye size={18} />}
+                          </IconButton>
+                        </InputAdornment>
+                      )
+                    }
+                  }}
+                />
 
-          <button 
-            type="submit"
-            disabled={loading}
-            className="w-full py-5 bg-[#FF5A00] text-white rounded-[1.5rem] font-black uppercase text-xs tracking-[0.25em] shadow-2xl shadow-orange-100 hover:bg-[#e65100] hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center space-x-4 disabled:opacity-50 disabled:hover:scale-100"
-          >
-            {loading ? <Loader2 className="animate-spin" size={22} /> : <LogIn size={22} />}
-            <span>{loading ? 'Validando...' : 'Entrar no Sistema'}</span>
-          </button>
-        </form>
+                <Button
+                  fullWidth
+                  size="large"
+                  type="submit"
+                  variant="contained"
+                  disabled={carregando || !email || !senha}
+                  sx={{ 
+                    mt: 2, 
+                    py: 2, 
+                    borderRadius: 4, 
+                    fontWeight: 900, 
+                    textTransform: 'uppercase',
+                    bgcolor: '#FF5A00',
+                    '&:hover': { bgcolor: '#e65100' },
+                    boxShadow: '0 8px 16px rgba(255, 90, 0, 0.2)'
+                  }}
+                  startIcon={carregando ? <CircularProgress size={20} color="inherit" /> : <LogIn size={20} />}
+                >
+                  {carregando ? 'Acessando...' : 'Entrar na Plataforma'}
+                </Button>
+              </Box>
+            </form>
 
-        <div className="mt-12 text-center border-t border-gray-100 pt-8">
-          <p className="text-[9px] font-bold text-gray-300 uppercase leading-relaxed tracking-tighter">
-            Sistema de Uso Restrito e Monitorado<br/>
-            Suporte: ti.operacoes@gol.com.br
-          </p>
-        </div>
-      </div>
-    </div>
+            <Box sx={{ mt: 5, p: 2, bgcolor: '#f9fafb', borderRadius: 4, textAlign: 'center' }}>
+               <Typography variant="caption" sx={{ fontWeight: 800, color: '#9ca3af', textTransform: 'uppercase', display: 'block', mb: 1 }}>
+                 Credenciais de Demonstração
+               </Typography>
+               <Typography variant="caption" sx={{ fontWeight: 700, color: '#4b5563', display: 'block' }}>
+                 Admin: <strong>admin@gol.com</strong> | senha: <strong>admin123</strong>
+               </Typography>
+            </Box>
+          </CardContent>
+        </Card>
+      </Container>
+    </Box>
   );
 };

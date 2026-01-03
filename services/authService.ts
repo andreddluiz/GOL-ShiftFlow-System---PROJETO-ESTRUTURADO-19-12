@@ -7,142 +7,165 @@ export interface CredenciaisLogin {
 }
 
 class AuthService {
-  private chaveUsuarios = 'gol_shiftflow_users_v2';
-  private chaveSessao = 'gol_usuario_autenticado';
+  private chaveUsuariosUnificada = 'gol_shiftflow_users_v2';
+  private chaveUsuarioAutenticado = 'gol_usuario_autenticado';
+  private chaveToken = 'gol_token_autenticacao';
 
   constructor() {
-    this.inicializarUsuariosPadrao();
+    this.inicializarUsuariosTeste();
   }
 
-  private inicializarUsuariosPadrao() {
-    const usuariosExistentes = this.obterUsuariosDoStorage();
-    if (usuariosExistentes.length === 0) {
-      const agora = new Date().toISOString();
-      const padrao: any[] = [
-        {
-          id: 'u-admin',
-          email: 'admin@gol.com',
-          senha: 'admin',
-          nome: 'Administrador GOL',
-          status: 'Ativo',
-          ativo: true,
-          dataCriacao: agora,
-          basesAssociadas: [
-            { baseId: 'poa', nivelAcesso: 'ADMINISTRADOR', ativo: true },
-            { baseId: 'gru', nivelAcesso: 'ADMINISTRADOR', ativo: true }
-          ]
-        },
-        {
-          id: 'u-lider',
-          email: 'lider@gol.com',
-          senha: 'lider',
-          nome: 'Líder Operacional',
-          status: 'Ativo',
-          ativo: true,
-          dataCriacao: agora,
-          basesAssociadas: [
-            { baseId: 'poa', nivelAcesso: 'LÍDER', ativo: true }
-          ]
+  private inicializarUsuariosTeste() {
+    const agora = new Date().toISOString();
+    const usuariosExistentes = this.obterTodosUsuariosBrutos();
+    
+    // Removido SDU do administrador padrão conforme solicitado
+    const usuariosTeste: any[] = [
+      {
+        id: 'u-admin', email: 'admin@gol.com', senha: 'admin123', nome: 'Administrador Geral',
+        status: 'Ativo', ativo: true, dataCriacao: agora, dataAtualizacao: agora, permissao: 'ADMINISTRADOR',
+        bases: ['poa', 'gru'],
+        basesAssociadas: [
+          { baseId: 'poa', nivelAcesso: 'ADMINISTRADOR', ativo: true, dataCriacao: agora, dataAtualizacao: agora },
+          { baseId: 'gru', nivelAcesso: 'ADMINISTRADOR', ativo: true, dataCriacao: agora, dataAtualizacao: agora }
+        ]
+      },
+      {
+        id: 'u-lider', email: 'lider.poa@gol.com', senha: 'lider123', nome: 'Líder POA',
+        status: 'Ativo', ativo: true, dataCriacao: agora, dataAtualizacao: agora, permissao: 'LÍDER',
+        bases: ['poa', 'gru'],
+        basesAssociadas: [
+          { baseId: 'poa', nivelAcesso: 'LÍDER', ativo: true, dataCriacao: agora, dataAtualizacao: agora },
+          { baseId: 'gru', nivelAcesso: 'OPERACIONAL', ativo: true, dataCriacao: agora, dataAtualizacao: agora }
+        ]
+      }
+    ];
+
+    let novosUsuarios = [...usuariosExistentes];
+    let alterou = false;
+
+    usuariosTeste.forEach(uTeste => {
+      const idx = usuariosExistentes.findIndex((u: any) => u.email === uTeste.email);
+      if (idx === -1) {
+        novosUsuarios.push(uTeste);
+        alterou = true;
+      } else if (uTeste.id === 'u-admin') {
+        // Forçar atualização do admin para remover SDU se já existir
+        const adminExistente = novosUsuarios[idx];
+        if (adminExistente.bases && adminExistente.bases.includes('sdu')) {
+            novosUsuarios[idx] = uTeste;
+            alterou = true;
         }
-      ];
-      localStorage.setItem(this.chaveUsuarios, JSON.stringify(padrao));
+      }
+    });
+
+    if (alterou) {
+      localStorage.setItem(this.chaveUsuariosUnificada, JSON.stringify(novosUsuarios));
     }
   }
 
-  private obterUsuariosDoStorage(): any[] {
+  private obterTodosUsuariosBrutos(): any[] {
     try {
-      const data = localStorage.getItem(this.chaveUsuarios);
+      const data = localStorage.getItem(this.chaveUsuariosUnificada);
       return data ? JSON.parse(data) : [];
     } catch { return []; }
   }
 
-  async fazerLogin(credenciais: CredenciaisLogin): Promise<UsuarioAutenticado | null> {
-    // Simula delay de rede para feedback visual
-    await new Promise(r => setTimeout(r, 600));
-    
-    const usuarios = this.obterUsuariosDoStorage();
-    const u = usuarios.find(user => 
-      user.email.toLowerCase() === credenciais.email.toLowerCase() && 
-      user.senha === credenciais.senha
-    );
+  fazerLogin(credenciais: CredenciaisLogin): UsuarioAutenticado | null {
+    try {
+      const usuarios = this.obterTodosUsuariosBrutos();
+      const usuario = usuarios.find(u => u.email === credenciais.email);
+      
+      if (!usuario || (usuario.senha !== credenciais.senha && usuario.password !== credenciais.senha)) return null;
+      if (usuario.status === 'Inativo') return null;
 
-    if (!u || u.status === 'Inativo') return null;
+      const usuarioProcessado = this.mapearParaUsuario(usuario);
 
-    // Calcula o nível de permissão mais alto entre todas as bases associadas do usuário
-    let perfilSuperior = 'OPERACIONAL';
-    const pesos = { 'OPERACIONAL': 0, 'ANALISTA': 1, 'LÍDER': 2, 'ADMINISTRADOR': 3 };
-    
-    u.basesAssociadas.forEach((ba: any) => {
-      if (pesos[ba.nivelAcesso as keyof typeof pesos] > pesos[perfilSuperior as keyof typeof pesos]) {
-        perfilSuperior = ba.nivelAcesso;
-      }
-    });
+      let perfilMaior = 'OPERACIONAL';
+      const hierarquia = { OPERACIONAL: 0, ANALISTA: 1, LÍDER: 2, ADMINISTRADOR: 3 };
 
-    const usuarioAutenticado: UsuarioAutenticado = {
-      id: u.id,
-      email: u.email,
-      nome: u.nome,
-      perfil: perfilSuperior,
-      basesAssociadas: u.basesAssociadas,
-      baseAtual: u.basesAssociadas[0]?.baseId || ''
-    };
+      usuarioProcessado.basesAssociadas.forEach(base => {
+        const nivel = base.nivelAcesso as keyof typeof hierarquia;
+        if (hierarquia[nivel] > hierarquia[perfilMaior as keyof typeof hierarquia]) {
+          perfilMaior = base.nivelAcesso;
+        }
+      });
 
-    // USANDO SESSION STORAGE: A sessão expira quando fechar o navegador
-    sessionStorage.setItem(this.chaveSessao, JSON.stringify(usuarioAutenticado));
-    // Limpa possível lixo do localStorage antigo
-    localStorage.removeItem(this.chaveSessao);
-    
-    return usuarioAutenticado;
+      const usuarioAutenticado: UsuarioAutenticado = {
+        id: usuarioProcessado.id,
+        email: usuarioProcessado.email,
+        nome: usuarioProcessado.nome,
+        perfil: perfilMaior,
+        basesAssociadas: usuarioProcessado.basesAssociadas,
+        baseAtual: usuarioProcessado.basesAssociadas[0]?.baseId || '',
+      };
+
+      localStorage.setItem(this.chaveUsuarioAutenticado, JSON.stringify(usuarioAutenticado));
+      localStorage.setItem(this.chaveToken, `token_${Date.now()}`);
+
+      return usuarioAutenticado;
+    } catch (error) {
+      return null;
+    }
   }
 
-  async criarConta(dados: { email: string, senha: string, nome: string }): Promise<UsuarioAutenticado | null> {
-    const usuarios = this.obterUsuariosDoStorage();
-    if (usuarios.some(u => u.email.toLowerCase() === dados.email.toLowerCase())) {
-      throw new Error('E-mail já cadastrado no sistema.');
+  private mapearParaUsuario(u: any): Usuario {
+    if (u.basesAssociadas && u.basesAssociadas.length > 0) {
+      return u as Usuario;
     }
 
-    const novoUsuario = {
-      id: `u-${Date.now()}`,
-      ...dados,
-      status: 'Ativo',
+    const agora = new Date().toISOString();
+    const basesIniciais: UsuarioBase[] = (u.bases || []).map((bId: string) => ({
+      baseId: bId,
+      nivelAcesso: (u.permissao || 'OPERACIONAL') as any,
       ativo: true,
-      dataCriacao: new Date().toISOString(),
-      basesAssociadas: [{ baseId: 'poa', nivelAcesso: 'OPERACIONAL', ativo: true }]
+      dataCriacao: agora,
+      dataAtualizacao: agora
+    }));
+
+    return {
+      id: u.id,
+      nome: u.nome,
+      email: u.email,
+      senha: u.senha || u.password || 'gol123',
+      ativo: u.status !== 'Inativo',
+      dataCriacao: u.dataCriacao || agora,
+      dataAtualizacao: agora,
+      basesAssociadas: basesIniciais.length > 0 ? basesIniciais : []
     };
-
-    usuarios.push(novoUsuario);
-    localStorage.setItem(this.chaveUsuarios, JSON.stringify(usuarios));
-
-    return this.fazerLogin({ email: dados.email, senha: dados.senha });
   }
 
   fazerLogout(): void {
-    sessionStorage.removeItem(this.chaveSessao);
-    localStorage.removeItem(this.chaveSessao);
+    localStorage.removeItem(this.chaveUsuarioAutenticado);
+    localStorage.removeItem(this.chaveToken);
   }
 
   obterUsuarioAutenticado(): UsuarioAutenticado | null {
     try {
-      // Prioriza session storage para segurança
-      const u = sessionStorage.getItem(this.chaveSessao);
+      const u = localStorage.getItem(this.chaveUsuarioAutenticado);
       return u ? JSON.parse(u) : null;
     } catch { return null; }
   }
 
-  listarUsuarios(perfilLogado: string): Usuario[] {
-    const usuarios = this.obterUsuariosDoStorage();
-    return usuarios.map(u => ({
-      ...u,
-      ativo: u.status === 'Ativo'
-    })) as Usuario[];
+  listarUsuarios(perfilCriador: string): Usuario[] {
+    const usuarios = this.obterTodosUsuariosBrutos();
+    return usuarios.map(u => this.mapearParaUsuario(u));
   }
 
   atualizarUsuario(u: Usuario, perfilExecutor: string): boolean {
-    const usuarios = this.obterUsuariosDoStorage();
-    const idx = usuarios.findIndex(usr => usr.id === u.id);
-    if (idx !== -1) {
-      usuarios[idx] = { ...usuarios[idx], ...u, status: u.ativo ? 'Ativo' : 'Inativo' };
-      localStorage.setItem(this.chaveUsuarios, JSON.stringify(usuarios));
+    const usuarios = this.obterTodosUsuariosBrutos();
+    const index = usuarios.findIndex(usr => usr.id === u.id);
+    
+    if (index !== -1) {
+      const original = usuarios[index];
+      usuarios[index] = {
+        ...original,
+        ...u,
+        status: u.ativo ? 'Ativo' : 'Inativo',
+        bases: u.basesAssociadas.map(ba => ba.baseId),
+        dataAtualizacao: new Date().toISOString()
+      };
+      localStorage.setItem(this.chaveUsuariosUnificada, JSON.stringify(usuarios));
       return true;
     }
     return false;

@@ -3,42 +3,49 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { 
   MapPin, Users as UsersIcon, ClipboardList, CalendarDays,
   Plus, Edit2, Trash2, Globe, Settings2, ShieldAlert,
-  CheckCircle, AlertCircle, RotateCcw, Archive, Search, ShieldCheck, Loader2
+  CheckCircle, AlertCircle, RotateCcw, Archive, Search, ShieldCheck, Lock, ChevronRight
 } from 'lucide-react';
 import { 
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, 
-  Paper, IconButton, TextField, Typography, Box, TablePagination, Chip,
-  Button, Switch, FormControlLabel, Alert
+  Paper, IconButton, Tooltip, TextField, Typography, Box, TablePagination, Chip,
+  Grid, Card, CardContent, Button, Dialog, DialogTitle, DialogContent, DialogActions,
+  Switch, Alert
 } from '@mui/material';
-import { Base, Category, Task, NivelAcessoCustomizado } from '../types';
+import { Base, User, Category, Task, Usuario, NivelAcessoCustomizado, PermissaoItem } from '../types';
 import { 
   baseService, taskService, categoryService 
 } from '../services';
-import { 
-  listAllUsers, 
-  createUserInFirebase, 
-  updateUserInFirebase, 
-  toggleUserStatus,
-  UserProfileV2 
-} from '../services/userManagementService';
-import { useAuth } from '../hooks/useAuth';
+import { authService } from '../services/authService';
 import { permissaoCustomizavelService } from '../services/permissaoCustomizavelService';
 import { 
-  BaseModal, UserModal, TaskModal, CategoryModal, ConfirmModal
+  BaseModal, UserModal, TaskModal, CategoryModal, ConfirmModal, minutesToHhmmss
 } from '../modals';
 import { useStore } from '../hooks/useStore';
 import ManagementControlsAlertsPage from './ManagementControlsAlertsPage';
 
 type ManagementTab = 'bases' | 'users' | 'tasks_op' | 'tasks_month' | 'alerts' | 'permissions';
+type ContextType = 'global' | 'base';
 
 const ManagementPage: React.FC = () => {
-  const { user: currentUser } = useAuth();
   const [activeTab, setActiveTab] = useState<ManagementTab>('bases');
-  const [loading, setLoading] = useState(false);
+  const [managementContext, setManagementContext] = useState<ContextType>('global');
+  const [contextBaseId, setContextBaseId] = useState<string>('');
   const [showInactive, setShowInactive] = useState(false);
   
-  const { bases, tasks, categories, refreshData } = useStore();
-  const [firebaseUsers, setFirebaseUsers] = useState<UserProfileV2[]>([]);
+  const { 
+    bases, tasks, categories, 
+    refreshData 
+  } = useStore();
+
+  const [usuariosUnificados, setUsuariosUnificados] = useState<Usuario[]>([]);
+
+  // Estados para Gestão de Permissões (Restaurado)
+  const [niveis, setNiveis] = useState<NivelAcessoCustomizado[]>([]);
+  const [nivelSelecionado, setNivelSelecionado] = useState<NivelAcessoCustomizado | null>(null);
+  const [dialogNovoPerfilAberto, setDialogNovoPerfilAberto] = useState(false);
+  const [novoPerfilNome, setNovoPerfilNome] = useState('');
+  const [novoPerfilDesc, setNovoPerfilDesc] = useState('');
+  const [duplicarDeId, setDuplicarDeId] = useState('');
 
   const [modalState, setModalState] = useState<{
     open: boolean,
@@ -57,7 +64,10 @@ const ManagementPage: React.FC = () => {
     onConfirm: () => void,
     type?: 'danger' | 'warning' | 'info'
   }>({
-    open: false, title: '', message: '', onConfirm: () => {}
+    open: false,
+    title: '',
+    message: '',
+    onConfirm: () => {}
   });
 
   const [snackbar, setSnackbar] = useState<{ open: boolean, message: string, type: 'success' | 'error' }>({
@@ -69,116 +79,195 @@ const ManagementPage: React.FC = () => {
     setTimeout(() => setSnackbar(prev => ({ ...prev, open: false })), 4000);
   };
 
-  const loadFirebaseUsers = async () => {
-    setLoading(true);
-    const result = await listAllUsers();
-    if (result.success && result.users) {
-      setFirebaseUsers(result.users);
-    } else {
-      showSnackbar('Falha ao carregar usuários da nuvem.', 'error');
-    }
-    setLoading(false);
+  const carregarUsuarios = () => {
+    const userLogado = authService.obterUsuarioAutenticado();
+    const data = authService.listarUsuarios(userLogado?.perfil || 'ADMINISTRADOR');
+    setUsuariosUnificados(data);
+  };
+
+  const carregarNiveis = () => {
+    const data = permissaoCustomizavelService.listarNiveis();
+    setNiveis(data);
+    if (data.length > 0 && !nivelSelecionado) setNivelSelecionado(data[0]);
   };
 
   useEffect(() => {
-    if (activeTab === 'users') loadFirebaseUsers();
-  }, [activeTab]);
+    refreshData();
+    carregarUsuarios();
+    carregarNiveis();
+  }, [managementContext, contextBaseId, activeTab, refreshData]);
 
   const handleSave = async (formData: any) => {
-    const { type, editingItem } = modalState;
-    
-    if (type === 'users') {
-      setLoading(true);
-      const adminEmail = currentUser?.email || 'admin@system.com';
-      
-      const userPayload = {
-        email: formData.email.toLowerCase().trim(),
-        name: formData.nome.toUpperCase().trim(),
-        bases: formData.bases || [],
-        permissionLevel: formData.permissao,
-        jornada: String(formData.jornadaPadrao || 6),
-        tipoJornada: formData.tipoJornada || 'Predefinida',
-        active: formData.status === 'Ativo'
-      };
-
-      let result;
-      if (editingItem?.uid) {
-        result = await updateUserInFirebase(editingItem.uid, userPayload, adminEmail);
-      } else {
-        if (!userPayload.email.endsWith('@gol.com.br')) {
-          alert('⚠️ Use apenas e-mails corporativos @gol.com.br');
-          setLoading(false);
-          return;
-        }
-        result = await createUserInFirebase(userPayload, adminEmail);
-      }
-
-      if (result.success) {
-        showSnackbar(editingItem ? 'Dados atualizados!' : 'Colaborador criado!');
-        if (!editingItem && 'tempPassword' in result) {
-          alert(`✅ COLABORADOR CADASTRADO!\n\nE-mail: ${userPayload.email}\nSenha Temporária: ${result.tempPassword}\n\nEnvie os dados ao colaborador.`);
-        }
-        setModalState({ ...modalState, open: false });
-        await loadFirebaseUsers();
-      } else {
-        alert('❌ Erro no Firebase: ' + result.error);
-      }
-      setLoading(false);
-      return;
-    }
-
     try {
+      const { type, editingItem } = modalState;
+      const baseId = managementContext === 'global' ? null : contextBaseId;
+      const dataWithContext = { ...formData, baseId };
+
       if (type === 'bases') {
         if (editingItem) await baseService.update(editingItem.id, formData);
         else await baseService.create(formData);
+      } else if (type === 'users') {
+        const userLogado = authService.obterUsuarioAutenticado();
+        if (editingItem) {
+          const userUnificado: Usuario = {
+            ...editingItem,
+            ...formData,
+            basesAssociadas: formData.bases.map((bId: string) => ({
+              baseId: bId,
+              nivelAcesso: formData.permissao,
+              ativo: formData.status === 'Ativo',
+              dataCriacao: editingItem.dataCriacao || new Date().toISOString(),
+              dataAtualizacao: new Date().toISOString()
+            })),
+            ativo: formData.status === 'Ativo'
+          };
+          authService.atualizarUsuario(userUnificado, userLogado?.perfil || 'ADMINISTRADOR');
+        } else {
+          const novoUser: any = {
+            ...formData,
+            id: `u-${Date.now()}`,
+            basesAssociadas: formData.bases.map((bId: string) => ({
+              baseId: bId,
+              nivelAcesso: formData.permissao,
+              ativo: formData.status === 'Ativo',
+              dataCriacao: new Date().toISOString(),
+              dataAtualizacao: new Date().toISOString()
+            })),
+            ativo: formData.status === 'Ativo',
+            dataCriacao: new Date().toISOString()
+          };
+          const raw = localStorage.getItem('gol_shiftflow_users_v2');
+          const list = raw ? JSON.parse(raw) : [];
+          list.push(novoUser);
+          localStorage.setItem('gol_shiftflow_users_v2', JSON.stringify(list));
+        }
+        carregarUsuarios();
       } else if (type === 'category_op' || type === 'category_month') {
-        if (editingItem) await categoryService.update(editingItem.id, { ...formData });
-        else await categoryService.create({ ...formData, tipo: type === 'category_op' ? 'operacional' : 'mensal' });
+        if (editingItem) await categoryService.update(editingItem.id, { ...dataWithContext, visivel: editingItem.visivel ?? true });
+        else await categoryService.create({ ...dataWithContext, tipo: type === 'category_op' ? 'operacional' : 'mensal', visivel: true });
       } else if (type === 'task_modal') {
-        if (editingItem?.id) await taskService.update(editingItem.id, { ...formData });
-        else await taskService.create({ ...formData, ordem: tasks.length + 1, status: 'Ativa' });
+        if (editingItem?.id) {
+           await taskService.update(editingItem.id, { ...dataWithContext, visivel: editingItem.visivel ?? true });
+        } else {
+           await taskService.create({ ...dataWithContext, ordem: tasks.length + 1, status: 'Ativa', visivel: true });
+        }
       }
       
-      showSnackbar('Dados sincronizados com sucesso!');
+      showSnackbar('Dados salvos com sucesso!');
       setModalState({ ...modalState, open: false });
       await refreshData();
     } catch (e) {
-      showSnackbar('Falha na sincronização local.', 'error');
+      console.error(e);
+      showSnackbar('Falha ao salvar os dados', 'error');
     }
   };
 
-  const handleToggleActive = async (user: UserProfileV2) => {
-    const action = user.active ? 'DESATIVAR' : 'REATIVAR';
-    if (!window.confirm(`Deseja realmente ${action} o acesso de ${user.name}?`)) return;
+  const handleDeletePermanent = (id: string, type: string, currentItem?: any) => {
+    setConfirmModal({
+      open: true,
+      title: 'Remover Permanentemente',
+      message: `Deseja excluir "${currentItem?.nome || 'este item'}"?`,
+      type: 'danger',
+      onConfirm: async () => {
+        try {
+          if (type === 'bases') await baseService.delete(id);
+          else if (type === 'users') {
+             const raw = localStorage.getItem('gol_shiftflow_users_v2');
+             const list = raw ? JSON.parse(raw) : [];
+             const filtered = list.filter((u: any) => u.id !== id);
+             localStorage.setItem('gol_shiftflow_users_v2', JSON.stringify(filtered));
+             carregarUsuarios();
+          }
+          else if (type.includes('category')) await categoryService.delete(id);
+          else if (type === 'task_modal') await taskService.delete(id);
+          
+          showSnackbar(`Item removido com sucesso`);
+          await refreshData();
+        } catch (e) {
+          showSnackbar('Erro ao excluir item', 'error');
+        }
+      }
+    });
+  };
 
-    setLoading(true);
-    const result = await toggleUserStatus(user.uid, user.active, currentUser?.email || '');
-    if (result.success) {
-      showSnackbar(`Usuário ${action === 'DESATIVAR' ? 'arquivado' : 'ativado'}.`);
-      await loadFirebaseUsers();
+  // Funções de Gestão de Permissões Restauradas
+  const handleCriarPerfil = () => {
+    if (!novoPerfilNome) return;
+    const novoId = `CUSTOM_${Date.now()}`;
+    
+    if (duplicarDeId) {
+      permissaoCustomizavelService.duplicarNivel(duplicarDeId, novoId, novoPerfilNome);
     } else {
-      showSnackbar('Erro ao alterar status.', 'error');
+      const novoNivel: NivelAcessoCustomizado = {
+        id: novoId,
+        nome: novoPerfilNome,
+        descricao: novoPerfilDesc,
+        tipo: 'CUSTOMIZADO',
+        ativo: true,
+        dataCriacao: new Date().toISOString(),
+        dataAtualizacao: new Date().toISOString(),
+        permissoes: {}
+      };
+      permissaoCustomizavelService.salvarNivel(novoNivel);
     }
-    setLoading(false);
+    
+    carregarNiveis();
+    setDialogNovoPerfilAberto(false);
+    setNovoPerfilNome(''); setNovoPerfilDesc(''); setDuplicarDeId('');
+    showSnackbar('Novo perfil criado com sucesso!');
   };
 
-  const filteredUsers = useMemo(() => {
-    return (firebaseUsers || []).filter(u => showInactive ? true : u.active);
-  }, [firebaseUsers, showInactive]);
+  const handleDeletarPerfil = (id: string) => {
+    setConfirmModal({
+        open: true,
+        title: 'Excluir Perfil de Acesso',
+        message: 'Tem certeza que deseja excluir permanentemente este perfil? Usuários associados a ele poderão perder acesso.',
+        type: 'danger',
+        onConfirm: () => {
+            permissaoCustomizavelService.deletarNivel(id);
+            carregarNiveis();
+            setNivelSelecionado(niveis[0]);
+            showSnackbar('Perfil excluído com sucesso');
+        }
+    });
+  };
+
+  const handleTogglePermissao = (permId: string, value: boolean) => {
+    if (!nivelSelecionado || nivelSelecionado.tipo === 'PADRÃO') return;
+    
+    const atualizado = {
+      ...nivelSelecionado,
+      permissoes: { ...nivelSelecionado.permissoes, [permId]: value }
+    };
+    
+    permissaoCustomizavelService.salvarNivel(atualizado);
+    setNivelSelecionado(atualizado);
+    setNiveis(niveis.map(n => n.id === atualizado.id ? atualizado : n));
+  };
+
+  const filteredCategories = useMemo(() => 
+    categories.filter(c => 
+      !c.deletada && 
+      (managementContext === 'global' ? !c.baseId : c.baseId === contextBaseId) && 
+      (activeTab === 'tasks_op' ? c.tipo === 'operacional' : c.tipo === 'mensal') &&
+      (showInactive ? true : (c.visivel !== false))
+    ),
+    [categories, managementContext, contextBaseId, activeTab, showInactive]
+  );
+
+  const filteredTasks = useMemo(() => 
+    tasks.filter(t => 
+      !t.deletada && 
+      (managementContext === 'global' ? !t.baseId : t.baseId === contextBaseId) &&
+      (showInactive ? true : (t.visivel !== false))
+    ),
+    [tasks, managementContext, contextBaseId, showInactive]
+  );
+
+  const permissoesAgrupadas = permissaoCustomizavelService.obterPermissoesPorCategoria();
 
   return (
     <div className="space-y-6 relative min-h-[600px] animate-in fade-in">
-      {loading && (
-        <div className="fixed inset-0 z-[300] bg-black/30 backdrop-blur-[2px] flex items-center justify-center">
-          <div className="bg-white p-10 rounded-[3rem] shadow-2xl flex flex-col items-center gap-4">
-            <Loader2 className="w-12 h-12 text-orange-600 animate-spin" />
-            <Typography sx={{ fontWeight: 900, textTransform: 'uppercase', fontSize: '0.75rem', color: 'gray', letterSpacing: '0.1em' }}>
-              Sincronizando Cloud...
-            </Typography>
-          </div>
-        </div>
-      )}
-
       {snackbar.open && (
         <div className={`fixed top-6 right-6 z-[200] p-4 rounded-2xl shadow-2xl flex items-center space-x-3 border animate-in slide-in-from-right-4 ${
           snackbar.type === 'success' ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'
@@ -191,79 +280,216 @@ const ManagementPage: React.FC = () => {
       <div className="bg-white rounded-[2.5rem] shadow-sm overflow-hidden border border-gray-100 min-h-[500px]">
         <div className="flex overflow-x-auto border-b border-gray-100 bg-gray-50/50 scrollbar-hide">
           <TabButton active={activeTab === 'bases'} onClick={() => setActiveTab('bases')} icon={<MapPin className="w-4 h-4" />} label="Bases" />
-          <TabButton active={activeTab === 'users'} onClick={() => setActiveTab('users')} icon={<UsersIcon className="w-4 h-4" />} label="Usuários (Cloud)" />
-          <TabButton active={activeTab === 'tasks_op'} onClick={() => setActiveTab('tasks_op')} icon={<ClipboardList className="w-4 h-4" />} label="Operacional" />
-          <TabButton active={activeTab === 'tasks_month'} onClick={() => setActiveTab('tasks_month')} icon={<CalendarDays className="w-4 h-4" />} label="Mensal" />
-          <TabButton active={activeTab === 'alerts'} onClick={() => setActiveTab('alerts')} icon={<ShieldAlert className="w-4 h-4" />} label="Controles" />
+          <TabButton active={activeTab === 'users'} onClick={() => setActiveTab('users')} icon={<UsersIcon className="w-4 h-4" />} label="Usuários" />
+          <TabButton active={activeTab === 'permissions'} onClick={() => setActiveTab('permissions')} icon={<ShieldCheck className="w-4 h-4" />} label="Níveis de Acesso" />
+          <TabButton active={activeTab === 'tasks_op'} onClick={() => setActiveTab('tasks_op')} icon={<ClipboardList className="w-4 h-4" />} label="Tarefas Operacionais" />
+          <TabButton active={activeTab === 'tasks_month'} onClick={() => setActiveTab('tasks_month'} icon={<CalendarDays className="w-4 h-4" />} label="Tarefas Mensais" />
+          <TabButton active={activeTab === 'alerts'} onClick={() => setActiveTab('alerts')} icon={<ShieldAlert className="w-4 h-4" />} label="Controles & Alertas" />
         </div>
 
         <div className="p-8">
-          {activeTab === 'users' && (
-            <div className="space-y-6 animate-in slide-in-from-bottom-2">
-              <div className="flex justify-between items-center">
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                  <div>
-                    <h3 className="text-xl font-black text-gray-800 uppercase">Gestão de Equipe</h3>
-                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Base de dados centralizada no Firebase</p>
-                  </div>
-                  <FormControlLabel 
-                    control={<Switch size="small" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} color="warning" />} 
-                    label={<Typography sx={{ fontSize: '0.65rem', fontWeight: 900, color: 'gray' }}>VER INATIVOS</Typography>}
-                  />
-                </Box>
-                <button 
-                  onClick={() => setModalState({ open: true, type: 'users', editingItem: null })} 
-                  className="bg-orange-600 text-white px-6 py-3 rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-orange-100 hover:bg-orange-700 hover:scale-105 transition-all flex items-center gap-2"
-                >
-                  <Plus size={16} /> Novo Colaborador
-                </button>
-              </div>
-              
-              <UsersCloudTable 
-                users={filteredUsers} 
-                bases={bases} 
-                onEdit={i => {
-                  const uiData = {
-                    ...i,
-                    nome: i.name || '',
-                    permissao: i.permissionLevel || 'OPERACIONAL',
-                    jornadaPadrao: Number(i.jornada || 6),
-                    status: i.active ? 'Ativo' : 'Inativo',
-                    bases: i.bases || []
-                  };
-                  setModalState({ open: true, type: 'users', editingItem: uiData });
-                }} 
-                onToggleStatus={handleToggleActive} 
-              />
-            </div>
-          )}
-
           {activeTab === 'bases' && (
             <div className="space-y-6">
               <div className="flex justify-end">
                 <button onClick={() => setModalState({ open: true, type: 'bases', editingItem: null })} className="bg-orange-600 text-white px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-orange-100 hover:bg-orange-700 transition-all">+ Nova Base</button>
               </div>
-              <BasesGrid bases={bases} onEdit={i => setModalState({ open: true, type: 'bases', editingItem: i })} onDelete={() => {}} />
+              <BasesGrid bases={bases} onEdit={i => setModalState({ open: true, type: 'bases', editingItem: i })} onDelete={i => handleDeletePermanent(i.id, 'bases', i)} />
+            </div>
+          )}
+          {activeTab === 'users' && (
+            <div className="space-y-6">
+              <div className="flex justify-end">
+                <button onClick={() => setModalState({ open: true, type: 'users', editingItem: null })} className="bg-orange-600 text-white px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-orange-100 hover:bg-orange-700 transition-all">+ Novo Usuário</button>
+              </div>
+              <UsersTable users={usuariosUnificados.map(u => ({
+                id: u.id,
+                nome: u.nome,
+                email: u.email,
+                bases: u.basesAssociadas.map(b => b.baseId),
+                permissao: u.basesAssociadas[0]?.nivelAcesso as any,
+                status: u.ativo ? 'Ativo' : 'Inativo',
+                jornadaPadrao: 6 // Fallback
+              }))} bases={bases} onEdit={i => {
+                const fullUser = usuariosUnificados.find(u => u.id === i.id);
+                setModalState({ open: true, type: 'users', editingItem: fullUser });
+              }} onDelete={id => handleDeletePermanent(id, 'users')} />
             </div>
           )}
 
+          {activeTab === 'permissions' && (
+            <div className="animate-in fade-in slide-in-from-bottom-2">
+                <Grid container spacing={4}>
+                    <Grid item xs={12} md={4}>
+                    <Card sx={{ borderRadius: 6, border: '1px solid #f3f4f6', boxShadow: 'none' }}>
+                        <CardContent sx={{ p: 3 }}>
+                        <Button 
+                            fullWidth 
+                            variant="contained" 
+                            color="warning" 
+                            startIcon={<Plus size={18}/>} 
+                            onClick={() => setDialogNovoPerfilAberto(true)} 
+                            sx={{ borderRadius: 3, fontWeight: 900, mb: 3 }}
+                        >
+                            Novo Perfil
+                        </Button>
+                        
+                        <Typography sx={{ fontWeight: 950, fontSize: '0.65rem', color: '#9ca3af', textTransform: 'uppercase', mb: 2, px: 1 }}>Perfis do Sistema</Typography>
+                        
+                        <Box className="space-y-2">
+                            {niveis.map(n => (
+                            <Paper 
+                                key={n.id} 
+                                onClick={() => setNivelSelecionado(n)}
+                                sx={{ 
+                                p: 2, cursor: 'pointer', borderRadius: 4, border: '2px solid',
+                                borderColor: nivelSelecionado?.id === n.id ? '#FF5A00' : 'transparent',
+                                bgcolor: nivelSelecionado?.id === n.id ? '#fff7ed' : '#fff',
+                                transition: 'all 0.2s', boxShadow: 'none',
+                                '&:hover': { bgcolor: '#fffcf9' }
+                                }}
+                            >
+                                <div className="flex justify-between items-start">
+                                <div className="flex-1">
+                                    <Typography sx={{ fontWeight: 900, fontSize: '0.85rem' }}>{n.nome}</Typography>
+                                    <Chip label={n.tipo} size="small" sx={{ height: 18, fontSize: '0.6rem', fontWeight: 900, mt: 0.5, bgcolor: n.tipo === 'PADRÃO' ? '#f3f4f6' : '#e0f2fe' }} />
+                                </div>
+                                {n.tipo === 'CUSTOMIZADO' && (
+                                    <IconButton size="small" color="error" onClick={(e) => { e.stopPropagation(); handleDeletarPerfil(n.id); }}>
+                                    <Trash2 size={14}/>
+                                    </IconButton>
+                                )}
+                                </div>
+                            </Paper>
+                            ))}
+                        </Box>
+                        </CardContent>
+                    </Card>
+                    </Grid>
+
+                    <Grid item xs={12} md={8}>
+                    {nivelSelecionado ? (
+                        <Card sx={{ borderRadius: 6, border: '1px solid #f3f4f6', boxShadow: 'none' }}>
+                        <CardContent sx={{ p: 4 }}>
+                            <div className="flex justify-between items-center mb-6">
+                            <div>
+                                <Typography variant="h6" sx={{ fontWeight: 950 }}>{nivelSelecionado.nome}</Typography>
+                                <Typography variant="body2" sx={{ color: '#6b7280', fontWeight: 600 }}>{nivelSelecionado.descricao}</Typography>
+                            </div>
+                            {nivelSelecionado.tipo === 'PADRÃO' && (
+                                <Chip icon={<Lock size={14}/>} label="Perfil Protegido" size="small" sx={{ fontWeight: 900, bgcolor: '#fef3c7', color: '#92400e' }} />
+                            )}
+                            </div>
+
+                            {nivelSelecionado.tipo === 'PADRÃO' && (
+                            <Alert severity="warning" sx={{ mb: 4, borderRadius: 3, fontWeight: 700 }}>
+                                Perfis padrão não podem ser alterados. Crie um perfil customizado para definir novas regras.
+                            </Alert>
+                            )}
+
+                            <Box className="space-y-6">
+                            {Object.entries(permissoesAgrupadas).map(([cat, perms]) => (
+                                <Box key={cat}>
+                                <Typography sx={{ fontWeight: 950, fontSize: '0.7rem', color: '#ea580c', textTransform: 'uppercase', mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+                                    <ChevronRight size={14}/> {cat}
+                                </Typography>
+                                <Grid container spacing={2}>
+                                    {perms.map(p => (
+                                    <Grid item xs={12} sm={6} key={p.id}>
+                                        <Paper sx={{ p: 2.5, borderRadius: 4, border: '1px solid #f3f4f6', boxShadow: 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                        <Box>
+                                            <Typography sx={{ fontWeight: 800, fontSize: '0.8rem' }}>{p.nome}</Typography>
+                                            <Typography variant="caption" sx={{ color: '#9ca3af', fontWeight: 600 }}>{p.descricao}</Typography>
+                                        </Box>
+                                        <Switch 
+                                            color="warning"
+                                            checked={!!nivelSelecionado.permissoes[p.id]} 
+                                            onChange={e => handleTogglePermissao(p.id, e.target.checked)}
+                                            disabled={nivelSelecionado.tipo === 'PADRÃO'}
+                                        />
+                                        </Paper>
+                                    </Grid>
+                                    ))}
+                                </Grid>
+                                </Box>
+                            ))}
+                            </Box>
+                        </CardContent>
+                        </Card>
+                    ) : (
+                        <Box sx={{ p: 10, textAlign: 'center', bgcolor: 'gray.50', borderRadius: 6, border: '2px dashed #e5e7eb' }}>
+                            <ShieldCheck size={48} className="mx-auto mb-4 text-gray-300" />
+                            <Typography sx={{ fontWeight: 800, color: 'gray.400' }}>Selecione um perfil para ver as permissões</Typography>
+                        </Box>
+                    )}
+                    </Grid>
+                </Grid>
+
+                <Dialog open={dialogNovoPerfilAberto} onClose={() => setDialogNovoPerfilAberto(false)} PaperProps={{ sx: { borderRadius: 6, p: 1 } }}>
+                    <DialogTitle sx={{ fontWeight: 950 }}>Criar Novo Perfil de Acesso</DialogTitle>
+                    <DialogContent>
+                    <TextField fullWidth label="Nome do Perfil" margin="normal" value={novoPerfilNome} onChange={e => setNovoPerfilNome(e.target.value)} placeholder="Ex: Supervisor de Campo" sx={{ mt: 1 }} />
+                    <TextField fullWidth label="Descrição" margin="normal" value={novoPerfilDesc} onChange={e => setNovoPerfilDesc(e.target.value)} multiline rows={2} />
+                    
+                    <Typography sx={{ fontWeight: 900, fontSize: '0.65rem', color: '#9ca3af', textTransform: 'uppercase', mt: 3, mb: 1 }}>Basear-se em (Duplicar)</Typography>
+                    <TextField select fullWidth value={duplicarDeId} onChange={e => setDuplicarDeId(e.target.value)} SelectProps={{ native: true }}>
+                        <option value="">Nível Vazio</option>
+                        {niveis.map(n => <option key={n.id} value={n.id}>{n.nome} ({n.tipo})</option>)}
+                    </TextField>
+                    </DialogContent>
+                    <DialogActions sx={{ p: 3 }}>
+                    <Button onClick={() => setDialogNovoPerfilAberto(false)} sx={{ fontWeight: 900 }}>Cancelar</Button>
+                    <Button variant="contained" color="warning" onClick={handleCriarPerfil} sx={{ fontWeight: 900, borderRadius: 3, px: 4 }}>Criar Perfil</Button>
+                    </DialogActions>
+                </Dialog>
+            </div>
+          )}
+          
           {(activeTab === 'tasks_op' || activeTab === 'tasks_month') && (
             <div className="space-y-8 animate-in slide-in-from-bottom-4">
               <div className="flex justify-between items-center border-b border-gray-100 pb-4">
-                 <h3 className="text-xl font-black text-gray-800 uppercase">{activeTab === 'tasks_op' ? 'Categorias Operacionais' : 'Categorias Mensais'}</h3>
-                 <button onClick={() => setModalState({ open: true, type: activeTab === 'tasks_op' ? 'category_op' : 'category_month', editingItem: null })} className="bg-orange-600 text-white px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest">+ Nova Categoria</button>
+                 <div>
+                   <h3 className="text-xl font-black text-gray-800 uppercase tracking-tight">{activeTab === 'tasks_op' ? 'Categorias Operacionais' : 'Categorias Mensais'}</h3>
+                   <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Estrutura de seções da passagem de serviço.</p>
+                 </div>
+                 <button onClick={() => setModalState({ open: true, type: activeTab === 'tasks_op' ? 'category_op' : 'category_month', editingItem: null })} className="bg-orange-600 text-white px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-orange-100 hover:bg-orange-700 transition-all">+ Nova Categoria</button>
               </div>
-              <CategoriesGrid 
-                activeTab={activeTab} 
-                categories={categories} 
-                tasks={tasks} 
-                onEditCat={cat => setModalState({ open: true, type: activeTab === 'tasks_op' ? 'category_op' : 'category_month', editingItem: cat })}
-                onEditTask={task => setModalState({ open: true, type: 'task_modal', editingItem: task })}
-                onAddTask={catId => setModalState({ open: true, type: 'task_modal', editingItem: { categoriaId: catId } })}
-              />
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                {filteredCategories.map(cat => (
+                  <div key={cat.id} className={`rounded-3xl border border-gray-100 p-6 space-y-4 transition-all ${cat.visivel === false ? 'bg-gray-100 opacity-60 border-dashed' : 'bg-gray-50/50'}`}>
+                    <div className="flex justify-between items-center">
+                       <h4 className="font-black text-gray-700 uppercase tracking-widest text-sm flex items-center space-x-2">
+                         <span className={`w-2 h-2 rounded-full ${cat.visivel === false ? 'bg-gray-400' : 'bg-orange-600'}`}></span>
+                         <span className={cat.visivel === false ? 'line-through' : ''}>{cat.nome}</span>
+                       </h4>
+                       <div className="flex space-x-1">
+                          <button onClick={() => setModalState({ open: true, type: activeTab === 'tasks_op' ? 'category_op' : 'category_month', editingItem: cat })} className="p-2 text-gray-400 hover:text-orange-600 transition-colors"><Edit2 className="w-4 h-4" /></button>
+                          <button onClick={() => handleDeletePermanent(cat.id, activeTab === 'tasks_op' ? 'category_op' : 'category_month', cat)} className="p-2 text-gray-400 hover:text-red-500 transition-colors"><Trash2 className="w-4 h-4" /></button>
+                       </div>
+                    </div>
+                    <div className="space-y-2">
+                       {filteredTasks.filter(t => (t.visivel !== false) && t.categoriaId === cat.id).map(task => (
+                         <div key={task.id} className="bg-white p-3 rounded-xl border border-gray-100 flex justify-between items-center group shadow-sm transition-all hover:border-orange-100">
+                            <span className="text-xs font-bold text-gray-600 truncate">{task.nome}</span>
+                            <div className="flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                               <button onClick={() => setModalState({ open: true, type: 'task_modal', editingItem: task })} className="p-1.5 text-gray-400 hover:text-orange-600 bg-gray-50 rounded-lg"><Edit2 className="w-3.5 h-3.5" /></button>
+                               <button onClick={() => handleDeletePermanent(task.id, 'task_modal', task)} className="p-1.5 text-gray-400 hover:text-red-500 bg-gray-50 rounded-lg"><Trash2 className="w-3.5 h-3.5" /></button>
+                            </div>
+                         </div>
+                       ))}
+                       <button 
+                        disabled={cat.visivel === false}
+                        onClick={() => setModalState({ open: true, type: 'task_modal', editingItem: { categoriaId: cat.id } })}
+                        className={`w-full py-3 border-2 border-dashed border-gray-200 rounded-xl text-[10px] font-black uppercase text-gray-400 transition-all bg-white/50 ${cat.visivel === false ? 'cursor-not-allowed opacity-50' : 'hover:border-orange-200 hover:text-orange-600'}`}
+                       >
+                         + Adicionar Tarefa
+                       </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
-
           {activeTab === 'alerts' && <ManagementControlsAlertsPage />}
         </div>
       </div>
@@ -278,27 +504,43 @@ const ManagementPage: React.FC = () => {
       />
 
       {modalState.open && modalState.type === 'bases' && (
-        <BaseModal isOpen={modalState.open} onClose={() => setModalState({ ...modalState, open: false })} onSave={handleSave} title={modalState.editingItem ? 'Editar Base' : 'Nova Base'} initialData={modalState.editingItem} />
-      )}
-      
-      {modalState.open && modalState.type === 'users' && (
-        <UserModal 
-          isOpen={modalState.open} 
-          onClose={() => setModalState({ ...modalState, open: false })} 
-          onSave={handleSave} 
-          title={modalState.editingItem?.uid ? 'Editar Colaborador' : 'Novo Colaborador'} 
-          initialData={modalState.editingItem} 
-          availableBases={bases} 
-          availableLevels={permissaoCustomizavelService.listarNiveis()}
+        <BaseModal
+          isOpen={modalState.open}
+          onClose={() => setModalState({ ...modalState, open: false })}
+          onSave={handleSave}
+          title={modalState.editingItem ? 'Editar Base' : 'Nova Base'}
+          initialData={modalState.editingItem}
         />
       )}
-
-      {modalState.open && (modalState.type === 'category_op' || modalState.type === 'category_month') && (
-        <CategoryModal isOpen={modalState.open} onClose={() => setModalState({ ...modalState, open: false })} onSave={handleSave} title="Gestão de Categoria" initialData={modalState.editingItem} />
+      {modalState.open && modalState.type === 'users' && (
+        <UserModal
+          isOpen={modalState.open}
+          onClose={() => setModalState({ ...modalState, open: false })}
+          onSave={handleSave}
+          title={modalState.editingItem ? 'Editar Usuário' : 'Novo Usuário'}
+          initialData={modalState.editingItem}
+          availableBases={bases}
+          availableLevels={niveis}
+        />
       )}
-
+      {modalState.open && (modalState.type === 'category_op' || modalState.type === 'category_month') && (
+        <CategoryModal
+          isOpen={modalState.open}
+          onClose={() => setModalState({ ...modalState, open: false })}
+          onSave={handleSave}
+          title={modalState.editingItem ? 'Editar Categoria' : 'Nova Categoria'}
+          initialData={modalState.editingItem}
+        />
+      )}
       {modalState.open && modalState.type === 'task_modal' && (
-        <TaskModal isOpen={modalState.open} onClose={() => setModalState({ ...modalState, open: false })} onSave={handleSave} title="Gestão de Tarefa" initialData={modalState.editingItem} categories={categories} />
+        <TaskModal
+          isOpen={modalState.open}
+          onClose={() => setModalState({ ...modalState, open: false })}
+          onSave={handleSave}
+          title={modalState.editingItem?.id ? 'Editar Tarefa' : 'Nova Tarefa'}
+          initialData={modalState.editingItem}
+          categories={filteredCategories.filter(c => c.visivel !== false)}
+        />
       )}
     </div>
   );
@@ -307,143 +549,125 @@ const ManagementPage: React.FC = () => {
 const TabButton: React.FC<{ active: boolean, onClick: () => void, icon: React.ReactNode, label: string }> = ({ active, onClick, icon, label }) => (
   <button
     onClick={onClick}
-    className={`flex items-center space-x-2 px-8 py-5 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all whitespace-nowrap ${
+    className={`flex items-center space-x-2 px-8 py-5 text-xs font-black uppercase tracking-widest border-b-2 transition-all whitespace-nowrap ${
       active ? 'border-orange-600 text-orange-600 bg-white' : 'border-transparent text-gray-400 hover:text-gray-600'
     }`}
   >
-    {icon} <span>{label}</span>
+    {icon}
+    <span>{label}</span>
   </button>
 );
 
-const UsersCloudTable: React.FC<{
-  users: UserProfileV2[];
+const BasesGrid: React.FC<{ bases: Base[], onEdit: (base: Base) => void, onDelete: (base: Base) => void }> = ({ bases, onEdit, onDelete }) => (
+  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-in slide-in-from-bottom-4">
+    {bases.map(base => (
+      <div key={base.id} className="bg-gray-50/50 p-6 rounded-3xl border border-gray-100 hover:shadow-lg transition-all group">
+        <div className="flex justify-between items-start mb-4">
+          <div className="p-3 bg-white rounded-2xl shadow-sm text-orange-600"><MapPin className="w-6 h-6" /></div>
+          <div className="flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button onClick={() => onEdit(base)} className="p-2 text-gray-400 hover:text-orange-600 transition-colors"><Edit2 className="w-4 h-4" /></button>
+            <button onClick={() => onDelete(base)} className="p-2 text-gray-400 hover:text-red-500 transition-colors"><Trash2 className="w-4 h-4" /></button>
+          </div>
+        </div>
+        <h4 className="text-xl font-black text-gray-800 tracking-tight">{base.sigla}</h4>
+        <p className="text-xs font-bold text-gray-500 mb-4">{base.nome}</p>
+        <div className="flex items-center space-x-2">
+          <span className={`w-2 h-2 rounded-full ${base.status === 'Ativa' ? 'bg-green-500' : 'bg-gray-300'}`}></span>
+          <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{base.status}</span>
+        </div>
+      </div>
+    ))}
+  </div>
+);
+
+interface UsuariosTableProps {
+  users: any[];
   bases: Base[];
-  onEdit: (user: UserProfileV2) => void;
-  onToggleStatus: (user: UserProfileV2) => void;
-}> = ({ users, bases, onEdit, onToggleStatus }) => {
+  onEdit: (user: any) => void;
+  onDelete: (userId: string) => void;
+}
+
+const formatJornada = (val: number) => minutesToHhmmss((val || 6) * 60);
+
+const UsersTable: React.FC<UsuariosTableProps> = ({ users, bases, onEdit, onDelete }) => {
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [searchTerm, setSearchTerm] = useState('');
 
-  const filtered = useMemo(() => {
-    return (users || []).filter(u => 
-      (u.name || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
-      (u.email || '').toLowerCase().includes(searchTerm.toLowerCase())
-    ).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  const filteredUsers = useMemo(() => {
+    const lowerSearch = searchTerm.toLowerCase();
+    return users.filter(user => 
+      user.nome.toLowerCase().includes(lowerSearch) ||
+      user.email.toLowerCase().includes(lowerSearch)
+    );
   }, [users, searchTerm]);
 
   return (
-    <Box>
-      <TextField 
-        fullWidth variant="outlined" placeholder="Filtrar por nome ou e-mail..." size="small"
-        value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
-        sx={{ mb: 3, '& .MuiOutlinedInput-root': { borderRadius: 4, bgcolor: 'white' } }}
-        InputProps={{ startAdornment: <Search className="w-4 h-4 mr-2 text-gray-300" /> }}
-      />
+    <Box sx={{ width: '100%' }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+        <Search className="text-gray-400 w-5 h-5 mr-3" />
+        <TextField 
+          fullWidth 
+          variant="standard" 
+          placeholder="Pesquisar usuários..." 
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+        />
+      </Box>
 
-      <TableContainer component={Paper} sx={{ borderRadius: 6, boxShadow: 'none', border: '1px solid #f3f4f6' }}>
-        <Table size="small">
-          <TableHead sx={{ bgcolor: '#f9fafb' }}>
-            <TableRow>
-              <TableCell sx={{ fontWeight: 900, fontSize: '0.65rem' }}>COLABORADOR</TableCell>
-              <TableCell sx={{ fontWeight: 900, fontSize: '0.65rem' }}>ACESSO</TableCell>
-              <TableCell sx={{ fontWeight: 900, fontSize: '0.65rem' }}>UNIDADES</TableCell>
-              <TableCell sx={{ fontWeight: 900, fontSize: '0.65rem' }}>JORNADA</TableCell>
-              <TableCell align="right" sx={{ fontWeight: 900, fontSize: '0.65rem' }}>AÇÕES</TableCell>
+      <TableContainer component={Paper} sx={{ borderRadius: '1rem', boxShadow: 'none', border: '1px solid #f3f4f6', overflow: 'hidden' }}>
+        <Table>
+          <TableHead>
+            <TableRow sx={{ backgroundColor: '#f9fafb' }}>
+              <TableCell sx={{ fontWeight: 900 }}>NOME</TableCell>
+              <TableCell sx={{ fontWeight: 900 }}>E-MAIL</TableCell>
+              <TableCell sx={{ fontWeight: 900 }}>ACESSO</TableCell>
+              <TableCell sx={{ fontWeight: 900 }}>UNIDADES</TableCell>
+              <TableCell sx={{ fontWeight: 900 }}>STATUS</TableCell>
+              <TableCell align="right" sx={{ fontWeight: 900 }}>AÇÕES</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {filtered.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage).map((u) => (
-              <TableRow key={u.uid} hover sx={{ opacity: u.active ? 1 : 0.6 }}>
-                <TableCell>
-                  <Typography sx={{ fontWeight: 900, fontSize: '0.8rem' }}>{u.name || 'S/ NOME'}</Typography>
-                  <Typography sx={{ fontSize: '0.65rem', color: 'gray', fontWeight: 600 }}>{u.email}</Typography>
-                </TableCell>
-                <TableCell>
-                  <Chip label={u.permissionLevel || 'N/A'} size="small" sx={{ fontWeight: 900, fontSize: '0.6rem', height: 20, bgcolor: 'orange.50', color: 'orange.900' }} />
-                </TableCell>
-                <TableCell>
-                  <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                    {(u.bases || []).map(bId => (
-                      <Chip key={bId} label={bases.find(b => b.id === bId)?.sigla || bId} size="small" variant="outlined" sx={{ fontWeight: 900, fontSize: '0.55rem', height: 18 }} />
-                    ))}
-                  </Box>
-                </TableCell>
-                <TableCell>
-                  <Typography sx={{ fontSize: '0.7rem', fontWeight: 800 }}>{u.jornada || '6'}h</Typography>
-                </TableCell>
-                <TableCell align="right">
-                   <IconButton size="small" onClick={() => onEdit(u)} sx={{ color: 'orange.600' }}><Edit2 size={14} /></IconButton>
-                   <IconButton size="small" onClick={() => onToggleStatus(u)} color={u.active ? "error" : "success"}>
-                     {u.active ? <Archive size={14} /> : <RotateCcw size={14} />}
-                   </IconButton>
-                </TableCell>
-              </TableRow>
-            ))}
-            {filtered.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={5} align="center" sx={{ py: 4, color: 'gray', fontWeight: 800 }}>Nenhum colaborador encontrado.</TableCell>
-              </TableRow>
-            )}
+            {filteredUsers
+              .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
+              .map((user) => (
+                <TableRow key={user.id} hover>
+                  <TableCell sx={{ fontWeight: 800 }}>{user.nome}</TableCell>
+                  <TableCell>{user.email}</TableCell>
+                  <TableCell>
+                    <Chip label={user.permissao} size="small" sx={{ fontWeight: 900, fontSize: '0.6rem' }} />
+                  </TableCell>
+                  <TableCell>
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                      {user.bases.map((bId: string) => (
+                        <Chip key={bId} label={bases.find(b => b.id === bId)?.sigla || bId} size="small" sx={{ height: 20, fontSize: '0.6rem' }} />
+                      ))}
+                    </Box>
+                  </TableCell>
+                  <TableCell>
+                    <Chip label={user.status} color={user.status === 'Ativo' ? 'success' : 'default'} size="small" sx={{ fontWeight: 900, fontSize: '0.6rem' }} />
+                  </TableCell>
+                  <TableCell align="right">
+                    <IconButton size="small" onClick={() => onEdit(user)}><Edit2 size={16}/></IconButton>
+                    <IconButton size="small" color="error" onClick={() => onDelete(user.id)}><Trash2 size={16}/></IconButton>
+                  </TableCell>
+                </TableRow>
+              ))}
           </TableBody>
         </Table>
       </TableContainer>
-      
+
       <TablePagination
-        component="div" count={filtered.length} rowsPerPage={rowsPerPage} page={page}
-        onPageChange={(_, p) => setPage(p)} onRowsPerPageChange={e => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }}
+        rowsPerPageOptions={[5, 10, 25]}
+        component="div"
+        count={filteredUsers.length}
+        rowsPerPage={rowsPerPage}
+        page={page}
+        onPageChange={(_, p) => setPage(p)}
+        onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }}
       />
     </Box>
   );
 };
-
-const BasesGrid: React.FC<{ bases: Base[], onEdit: (base: Base) => void, onDelete: (base: Base) => void }> = ({ bases, onEdit }) => (
-  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-in slide-in-from-bottom-4">
-    {bases.map(base => (
-      <div key={base.id} className="bg-gray-50/50 p-6 rounded-3xl border border-gray-100 hover:shadow-lg transition-all group relative">
-        <div className="flex justify-between items-start mb-4">
-          <div className="p-3 bg-white rounded-2xl shadow-sm text-orange-600"><MapPin className="w-6 h-6" /></div>
-          <button onClick={() => onEdit(base)} className="p-2 text-gray-400 hover:text-orange-600 opacity-0 group-hover:opacity-100 transition-all"><Edit2 className="w-4 h-4" /></button>
-        </div>
-        <h4 className="text-xl font-black text-gray-800 tracking-tight">{base.sigla}</h4>
-        <p className="text-xs font-bold text-gray-500 mb-4">{base.nome}</p>
-        <Chip label={base.status} size="small" color={base.status === 'Ativa' ? 'success' : 'default'} sx={{ fontWeight: 900, fontSize: '0.6rem' }} />
-      </div>
-    ))}
-  </div>
-);
-
-const CategoriesGrid: React.FC<{ 
-  activeTab: string, categories: Category[], tasks: Task[], 
-  onEditCat: (c: Category) => void, onEditTask: (t: Task) => void, onAddTask: (catId: string) => void 
-}> = ({ activeTab, categories, tasks, onEditCat, onEditTask, onAddTask }) => (
-  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-    {categories.filter(c => (activeTab === 'tasks_op' ? c.tipo === 'operacional' : c.tipo === 'mensal')).map(cat => (
-      <div key={cat.id} className="rounded-3xl border border-gray-100 p-6 space-y-4 bg-gray-50/50">
-        <div className="flex justify-between items-center">
-           <h4 className="font-black text-gray-700 uppercase text-sm flex items-center gap-2">
-             <span className="w-2 h-2 rounded-full bg-orange-600"></span>
-             <span>{cat.nome}</span>
-           </h4>
-           <button onClick={() => onEditCat(cat)} className="p-2 text-gray-400 hover:text-orange-600"><Edit2 className="w-4 h-4" /></button>
-        </div>
-        <div className="space-y-2">
-           {tasks.filter(t => t.categoriaId === cat.id).map(task => (
-             <div key={task.id} className="bg-white p-3 rounded-xl border border-gray-100 flex justify-between items-center group hover:border-orange-100 shadow-sm transition-all">
-                <span className="text-xs font-bold text-gray-600 truncate">{task.nome}</span>
-                <button onClick={() => onEditTask(task)} className="p-1.5 opacity-0 group-hover:opacity-100 text-gray-400 hover:text-orange-600"><Edit2 className="w-3.5 h-3.5" /></button>
-             </div>
-           ))}
-           <button 
-            onClick={() => onAddTask(cat.id)}
-            className="w-full py-3 border-2 border-dashed border-gray-200 rounded-xl text-[10px] font-black uppercase text-gray-400 hover:border-orange-200 hover:text-orange-600 transition-all bg-white/50"
-           >
-             + Adicionar Tarefa
-           </button>
-        </div>
-      </div>
-    ))}
-  </div>
-);
 
 export default ManagementPage;

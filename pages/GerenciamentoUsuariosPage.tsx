@@ -90,8 +90,8 @@ export const GerenciamentoUsuariosPage: React.FC<{ usuarioAutenticado: any }> = 
         </Alert>
       )}
 
-      <Grid spacing={4}>
-        <Grid size={{ xs: 12, md: 3 }}>
+      <Grid container spacing={4}>
+        <Grid item xs={12} md={3}>
            <Card sx={{ p: 3, borderRadius: 6, border: '1px solid #f3f4f6', boxShadow: 'none' }}>
               <Typography sx={{ fontWeight: 900, fontSize: '0.7rem', color: '#9ca3af', textTransform: 'uppercase', mb: 2 }}>Unidade Operacional</Typography>
               <FormControl fullWidth size="small">
@@ -108,7 +108,7 @@ export const GerenciamentoUsuariosPage: React.FC<{ usuarioAutenticado: any }> = 
            </Card>
         </Grid>
 
-        <Grid size={{ xs: 12, md: 9 }}>
+        <Grid item xs={12} md={9}>
           <TableContainer component={Paper} sx={{ borderRadius: 6, border: '1px solid #f3f4f6', boxShadow: 'none' }}>
             <Table>
               <TableHead sx={{ bgcolor: '#f9fafb' }}>

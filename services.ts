@@ -31,7 +31,7 @@ export const baseService = {
   async getAll(): Promise<Base[]> {
     const { data, error } = await supabase.from('bases').select('*');
     if (error) return [];
-    return (data || []).map(b => ({
+    return (data || []).map((b: any) => ({
         id: b.id,
         nome: b.nome,
         sigla: b.sigla,
@@ -57,7 +57,7 @@ export const baseService = {
     if (error || !data) return {};
     const mesKey = String(mes).padStart(2, '0');
     const result: Record<string, number> = {};
-    data.forEach(b => {
+    data.forEach((b: any) => {
       result[b.id] = b.meta_horas_ano?.[mesKey] || 160;
     });
     return result;
@@ -101,7 +101,7 @@ export const categoryService = {
   async getAll(): Promise<Category[]> {
     const { data, error } = await supabase.from('categories').select('*').order('ordem');
     if (error) return [];
-    return data.map(c => ({
+    return data.map((c: any) => ({
         id: c.id,
         nome: c.nome,
         tipo: c.tipo,
@@ -144,7 +144,7 @@ export const taskService = {
   async getAll(): Promise<Task[]> {
     const { data, error } = await supabase.from('tasks').select('*').order('ordem');
     if (error) return [];
-    return data.map(t => ({
+    return data.map((t: any) => ({
         id: t.id,
         categoriaId: t.categoria_id,
         nome: t.nome,

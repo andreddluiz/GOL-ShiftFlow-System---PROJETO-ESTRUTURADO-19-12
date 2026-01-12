@@ -949,7 +949,7 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                             <input disabled={isViewOnly || row.isPadrao} className={`bg-transparent w-full outline-none ${hasErr('Saldo Crítico') && !row.partNumber ? 'text-red-600' : ''}`} value={row.partNumber} placeholder="PN Obrigatório" onChange={e => handleCriticalFieldChange(row.id, 'partNumber', e.target.value)} />
                           </td>
                           <td className={`px-6 py-4 font-bold uppercase ${hasErr('Lote') && precisaLote && !row.lote ? 'bg-red-50/50' : ''}`}>
-                            <input disabled={isViewOnly} className={`bg-transparent w-full outline-none ${hasErr('Lote') && precisaLote && !row.lote ? 'text-red-600' : ''}`} value={row.lote} placeholder={precisaLote ? "Lote Obrigatório" : "N/S or Lote"} onChange={e => handleCriticalFieldChange(row.id, 'lote', e.target.value)} />
+                            <input disabled={isViewOnly} className={`bg-transparent w-full outline-none ${hasErr('Lote') && precisaLote && !row.lote ? 'text-red-600' : ''}`} value={row.lote} placeholder={needsLote(row) ? "Lote Obrigatório" : "N/S or Lote"} onChange={e => handleCriticalFieldChange(row.id, 'lote', e.target.value)} />
                           </td>
                           <td className={`px-6 py-4 text-center ${hasErr('Sistema') && row.saldoSistema === null ? 'bg-red-50/50' : ''}`}>
                             <input type="number" min="0" disabled={isViewOnly} className={`w-16 p-2 rounded-xl font-black text-center bg-white/50 dark:bg-white/10 ${hasErr('Sistema') && row.saldoSistema === null ? 'border-2 border-red-500' : ''}`} value={row.saldoSistema ?? ''} onChange={e => handleCriticalFieldChange(row.id, 'saldoSistema', e.target.value === '' ? null : Number(e.target.value))} />
@@ -1110,5 +1110,9 @@ const PanelContainer: React.FC<{title: string, icon: any, children: any, onAdd: 
     <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] shadow-sm border border-gray-100 dark:border-slate-700 overflow-hidden">{children}</div>
   </div>
 );
+
+function needsLote(row: CriticalRow): boolean {
+  return (row.saldoSistema !== 0 || row.saldoFisico !== 0) && (row.saldoSistema !== null && row.saldoFisico !== null);
+}
 
 export default ShiftHandoverPage;

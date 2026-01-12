@@ -43,7 +43,6 @@ export interface UsuarioBase {
   ativo: boolean;
 }
 
-// Added missing PermissaoItem interface
 export interface PermissaoItem {
   id: string;
   nome: string;
@@ -51,7 +50,6 @@ export interface PermissaoItem {
   categoria: string;
 }
 
-// Added missing NivelAcessoCustomizado interface
 export interface NivelAcessoCustomizado {
   id: string;
   nome: string;
@@ -63,7 +61,6 @@ export interface NivelAcessoCustomizado {
   permissoes: Record<string, boolean>;
 }
 
-// Added missing Usuario interface
 export interface Usuario {
   id: string;
   nome: string;
@@ -75,7 +72,6 @@ export interface Usuario {
   basesAssociadas: UsuarioBase[];
 }
 
-// Added missing UsuarioAutenticado interface
 export interface UsuarioAutenticado {
   id: string;
   email: string;
@@ -92,7 +88,6 @@ export interface User {
   loginRE?: string;
   bases: string[]; 
   permissao: PermissionLevel;
-  // Fixed typo: Inativa -> Inativo
   status: 'Ativo' | 'Inativo'; 
   jornadaPadrao: number; 
   deletada?: boolean;
@@ -256,6 +251,7 @@ export interface TransitRow {
   isPadrao?: boolean;
   config?: any;
   corBackground?: 'verde' | 'amarelo' | 'vermelho';
+  dataMaisAntigo?: string;
 }
 
 export interface ShelfLifeRow {

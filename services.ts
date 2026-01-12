@@ -50,14 +50,14 @@ export const baseService = {
     const { data, error } = await supabase.from('bases').select('meta_horas_ano').eq('id', baseId).single();
     if (error || !data) return 160;
     const mesKey = String(mes).padStart(2, '0');
-    return data.meta_horas_ano?.[mesKey] || 160;
+    return (data as any).meta_horas_ano?.[mesKey] || 160;
   },
   async obterMetasTodasAsBases(mes: number): Promise<Record<string, number>> {
     const { data, error } = await supabase.from('bases').select('id, meta_horas_ano');
     if (error || !data) return {};
     const mesKey = String(mes).padStart(2, '0');
     const result: Record<string, number> = {};
-    data.forEach((b: any) => {
+    (data as any[]).forEach((b: any) => {
       result[b.id] = b.meta_horas_ano?.[mesKey] || 160;
     });
     return result;
@@ -101,7 +101,7 @@ export const categoryService = {
   async getAll(): Promise<Category[]> {
     const { data, error } = await supabase.from('categories').select('*').order('ordem');
     if (error) return [];
-    return data.map((c: any) => ({
+    return (data as any[]).map((c: any) => ({
         id: c.id,
         nome: c.nome,
         tipo: c.tipo,
@@ -144,7 +144,7 @@ export const taskService = {
   async getAll(): Promise<Task[]> {
     const { data, error } = await supabase.from('tasks').select('*').order('ordem');
     if (error) return [];
-    return data.map((t: any) => ({
+    return (data as any[]).map((t: any) => ({
         id: t.id,
         categoriaId: t.categoria_id,
         nome: t.nome,
@@ -234,8 +234,8 @@ export const defaultItemsService = {
 };
 export const userService = { async getAll(): Promise<User[]> { return []; }, async create(d: any) { return d; }, async update(id: string, d: any) { }, async delete(id: string) { } };
 export const monthlyService = { async getAll(): Promise<MonthlyCollection[]> { return []; }, async save(d: any) { }, async syncWithReports(c: any) { } };
-export const baseStatusService = { async saveBaseStatus(b: string, s: any) { }, async getBaseStatus(b: string) { return null; } };
-export const sharedDraftService = { async saveDraft(b: string, d: string, t: string, c: any) { }, async getDraft(b: string, d: string, t: string) { return null; }, async clearDraft(b: string, d: string, t: string) { } };
+export const baseStatusService = { async saveBaseStatus(b: string, s: any) { }, async getBaseStatus(b: string): Promise<any> { return null; } };
+export const sharedDraftService = { async saveDraft(b: string, d: string, t: string, c: any) { }, async getDraft(b: string, d: string, t: string): Promise<any> { return null; }, async clearDraft(b: string, d: string, t: string) { } };
 export const validationService = {
   validarPassagem: (h: any, t: any, c: any) => ({ valido: true, camposPendentes: [] as string[] }),
   validarPassagemDuplicada: async (d: string, t: string, b: string): Promise<{ valido: boolean; message?: string }> => ({ valido: true }),

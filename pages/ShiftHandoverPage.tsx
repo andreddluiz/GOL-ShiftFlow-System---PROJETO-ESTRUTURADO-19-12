@@ -228,7 +228,7 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
 
       if (!targetData || !targetTurno) return;
 
-      const remote = await sharedDraftService.getDraft(baseId, targetData, targetTurno);
+      const remote = await (sharedDraftService.getDraft(baseId, targetData, targetTurno) as Promise<any>);
       const isBaseChange = prevBaseIdRef.current !== baseId;
       prevBaseIdRef.current = baseId;
 
@@ -243,7 +243,7 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
         setCritical(remote.critical);
         setLastLocalUpdate(remote.updatedAt);
       } else {
-        const bStatus = await baseStatusService.getBaseStatus(baseId);
+        const bStatus = await (baseStatusService.getBaseStatus(baseId) as Promise<any>);
         
         if (bStatus) {
            setObs(bStatus.obs || '');
@@ -326,7 +326,7 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
 
     const syncWithRemote = async () => {
       setIsSyncing(true);
-      const remote = await sharedDraftService.getDraft(baseId, dataOperacional, turnoAtivo);
+      const remote = await (sharedDraftService.getDraft(baseId, dataOperacional, turnoAtivo) as Promise<any>);
       if (remote && remote.updatedAt > lastLocalUpdate) {
          setColaboradoresIds(remote.colaboradoresIds);
          setTarefasValores(remote.tarefasValores);

@@ -1,20 +1,17 @@
-
 import { createClient } from '@supabase/supabase-js';
 
 /**
  * CONFIGURAÇÃO DO CLIENTE SUPABASE
- * Suporta variáveis de ambiente do Vite para Deploy (Netlify)
+ * Projeto: GOL ShiftFlow
  */
-const env = (import.meta as any).env || {};
-const supabaseUrl = env.VITE_SUPABASE_URL || 'https://hlffggifeaodejhtfczh.supabase.co';
-const supabaseAnonKey = env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_49jRmvhUI4uDiH2TITry5w_4GMZ6V6J';
+const supabaseUrl = 'https://hlffggifeaodejhtfczh.supabase.co';
+const supabaseAnonKey = 'sb_publishable_49jRmvhUI4uDiH2TITry5w_4GMZ6V6J';
 
 /**
- * Inicialização do cliente Supabase.
+ * Inicialização do cliente Supabase para uso em toda a aplicação.
+ * Este cliente gerencia a comunicação com o banco de dados, autenticação e storage.
  */
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-/**
- * Log de inicialização com proteção de acesso ao ambiente.
- */
-console.debug('[Supabase] Cliente inicializado. Ambiente:', env.MODE || 'production');
+// Log de depuração para ambiente de desenvolvimento
+console.debug('[Supabase] Cliente inicializado com sucesso para o projeto GOL ShiftFlow.');

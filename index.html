@@ -5,7 +5,22 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GOL ShiftFlow System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              gol: {
+                orange: '#FF5A00',
+              }
+            }
+          }
+        }
+      }
+    </script>
     <style>
       body {
         font-family: 'Inter', sans-serif;
@@ -30,25 +45,24 @@
   "imports": {
     "react/": "https://esm.sh/react@^19.2.3/",
     "react": "https://esm.sh/react@^19.2.3",
-    "react-router-dom": "https://esm.sh/react-router-dom@^7.12.0",
+    "react-router-dom": "https://esm.sh/react-router-dom@^7.11.0",
     "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "recharts": "https://esm.sh/recharts@^3.6.0",
-    "zustand": "https://esm.sh/zustand@^5.0.10",
-    "vite": "https://esm.sh/vite@^7.3.1",
     "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
-    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2",
-    "@mui/material": "https://esm.sh/@mui/material@^7.3.7",
+    "recharts": "https://esm.sh/recharts@^3.6.0",
+    "zustand": "https://esm.sh/zustand@^5.0.3",
+    "@mui/material": "https://esm.sh/@mui/material@^6.4.4",
+    "@mui/x-date-pickers": "https://esm.sh/@mui/x-date-pickers@^7.26.0",
+    "@emotion/react": "https://esm.sh/@emotion/react@^11.14.0",
+    "@emotion/styled": "https://esm.sh/@emotion/styled@^11.14.0",
+    "dayjs": "https://esm.sh/dayjs@^1.11.13",
     "dayjs/": "https://esm.sh/dayjs@^1.11.19/",
-    "dayjs": "https://esm.sh/dayjs@^1.11.19",
-    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@^2.90.1",
-    "@mui/x-date-pickers/": "https://esm.sh/@mui/x-date-pickers@^8.24.0/"
+    "@mui/x-date-pickers/": "https://esm.sh/@mui/x-date-pickers@^8.22.1/",
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@^2.48.1"
   }
 }
 </script>
 </head>
   <body>
     <div id="root"></div>
-    <!-- No ambiente local o Vite gerencia os módulos automaticamente -->
-    <script type="module" src="/index.tsx"></script>
   </body>
 </html>

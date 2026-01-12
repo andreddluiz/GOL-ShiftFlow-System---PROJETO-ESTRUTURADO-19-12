@@ -28,6 +28,7 @@ const MonthlyCollectionPage: React.FC<{baseId?: string}> = ({ baseId }) => {
 
   const currentBase = useMemo(() => bases.find(b => b.id === baseId), [bases, baseId]);
   
+  // Seleção de Período
   const [mes, setMes] = useState<number>(new Date().getMonth() + 1);
   const [ano, setAno] = useState<number>(new Date().getFullYear());
   const [coletaAtiva, setColetaAtiva] = useState<MonthlyCollection | null>(null);
@@ -36,6 +37,7 @@ const MonthlyCollectionPage: React.FC<{baseId?: string}> = ({ baseId }) => {
   const categories = useMemo(() => getMonthlyCategoriesCombinadas(baseId), [getMonthlyCategoriesCombinadas, baseId, initialized]);
   const tasks = useMemo(() => getMonthlyTasksCombinadas(baseId), [getMonthlyTasksCombinadas, baseId, initialized]);
 
+  // Avançar campos com Enter
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       const target = e.target as HTMLElement;
@@ -52,6 +54,7 @@ const MonthlyCollectionPage: React.FC<{baseId?: string}> = ({ baseId }) => {
     }
   };
 
+  // Cálculo de Horas em Tempo Real
   const totalHorasCalculadas = useMemo(() => {
     let totalMins = 0;
     tasks.forEach(task => {
@@ -72,6 +75,7 @@ const MonthlyCollectionPage: React.FC<{baseId?: string}> = ({ baseId }) => {
     if (!initialized) refreshData();
   }, [initialized, refreshData]);
 
+  // Carrega coleta ao entrar ou via EditId
   useEffect(() => {
     if (!initialized || !baseId) return;
 
@@ -86,6 +90,7 @@ const MonthlyCollectionPage: React.FC<{baseId?: string}> = ({ baseId }) => {
       }
     }
 
+    // Tenta carregar coleta baseada na seleção manual
     const existing = monthlyCollections.find(c => c.baseId === baseId && c.mes === mes && c.ano === ano);
     if (existing) {
       setColetaAtiva(existing);
@@ -147,6 +152,8 @@ const MonthlyCollectionPage: React.FC<{baseId?: string}> = ({ baseId }) => {
     }
   };
 
+  // Ajuste na visibilidade (Solicitação 3): 
+  // Permitimos selecionar qualquer mês, mas isViewOnly é true APENAS para o registro carregado que está finalizado.
   const isViewOnly = coletaAtiva?.status === 'FINALIZADO' && !editId;
   const isEditMode = !!editId;
 
@@ -168,6 +175,7 @@ const MonthlyCollectionPage: React.FC<{baseId?: string}> = ({ baseId }) => {
 
   return (
     <Box ref={pageRef} onKeyDown={handleKeyDown} sx={{ maxWidth: '1000px', mx: 'auto', spaceY: 4, animateIn: 'fade-in' }}>
+      {/* Header Período */}
       <Card sx={{ borderRadius: 8, mb: 4, boxShadow: '0 4px 20px rgba(0,0,0,0.05)' }}>
         <CardContent sx={{ p: 4 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
@@ -195,7 +203,7 @@ const MonthlyCollectionPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                <FormControl fullWidth size="small">
                   <InputLabel children="Mês" />
                   <Select 
-                    disabled={isEditMode} 
+                    disabled={isEditMode} // Só desabilita o seletor se estiver EDITANDO um histórico fixo vindo do relatório
                     value={mes} 
                     onChange={e => setMes(Number(e.target.value))} 
                     label="Mês"
@@ -237,6 +245,7 @@ const MonthlyCollectionPage: React.FC<{baseId?: string}> = ({ baseId }) => {
 
       {coletaAtiva ? (
         <Box sx={{ spaceY: 6 }}>
+          {/* Resumo de Produção Acumulado em Tempo Real */}
           <Card 
             sx={{ 
               borderRadius: 6, 
@@ -343,8 +352,8 @@ const MonthlyCollectionPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                                     value={valores[task.id] || ''}
                                     onChange={e => handleValueChange(task.id, e.target.value === '' ? '' : String(Math.max(0, Number(e.target.value))))}
                                     slotProps={{
-                                      htmlInput: { min: 0 },
                                       input: {
+                                        min: 0,
                                         sx: { borderRadius: 3, bgcolor: '#f9fafb', fontWeight: 900, textAlign: 'center' }
                                       }
                                     }}
@@ -366,6 +375,7 @@ const MonthlyCollectionPage: React.FC<{baseId?: string}> = ({ baseId }) => {
              </Box>
           )}
 
+          {/* Ações Inferiores */}
           <Divider sx={{ my: 4 }} />
           <Box sx={{ display: 'flex', justifyContent: 'space-between', pb: 10 }}>
              <Button 

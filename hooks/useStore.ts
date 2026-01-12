@@ -3,7 +3,7 @@ import { create } from 'zustand';
 import { 
   Base, User, Category, Task, Control, ControlType,
   DefaultLocationItem, DefaultTransitItem, DefaultCriticalItem,
-  ShelfLifeItem, CustomControlType, CustomControlItem,
+  ShelfLifeItem, CustomControlType, CustomControlItem, ConditionConfig, PopupConfig,
   MonthlyCollection
 } from '../types';
 import { 
@@ -69,8 +69,7 @@ export const useStore = create<AppState>((set, get) => ({
   refreshData: async (showFullLoading = false) => {
     if (showFullLoading) set({ loading: true });
     try {
-      // Tipagem explícita para evitar inferência de tipo never nas desestruturações
-      const results = await Promise.all([
+      const [bases, users, tasks, cats, controls, defLocs, defTrans, defCrit, defShelf, custTypes, custItems, monthly] = await Promise.all([
         baseService.getAll(),
         userService.getAll(),
         taskService.getAll(),
@@ -84,15 +83,12 @@ export const useStore = create<AppState>((set, get) => ({
         defaultItemsService.getCustomItems(),
         monthlyService.getAll()
       ]);
-
-      const [bases, users, tasks, cats, controls, defLocs, defTrans, defCrit, defShelf, custTypes, custItems, monthly] = results as [Base[], User[], Task[], Category[], Control[], DefaultLocationItem[], DefaultTransitItem[], DefaultCriticalItem[], ShelfLifeItem[], CustomControlType[], CustomControlItem[], MonthlyCollection[]];
-
       set({ 
         bases: bases.filter(b => !b.deletada), 
         users: users.filter(u => !u.deletada), 
         tasks: tasks.filter(t => !t.deletada), 
         categories: cats.filter(c => !c.deletada), 
-        controls: controls, 
+        controls, 
         defaultLocations: defLocs.filter(i => !i.deletada), 
         defaultTransits: defTrans.filter(i => !i.deletada), 
         defaultCriticals: defCrit.filter(i => !i.deletada),
@@ -188,6 +184,7 @@ export const useStore = create<AppState>((set, get) => ({
     const tipos: ControlType[] = ['locations', 'transito', 'shelf_life', 'itens_criticos'];
 
     return tipos.map(tipo => {
+      // Prioridade: Local da Base > Global > Mock Default
       const control = locais.find(l => l.tipo === tipo) || globais.find(g => g.tipo === tipo);
       
       const mappedControl = control ? { ...control } : {
@@ -201,6 +198,7 @@ export const useStore = create<AppState>((set, get) => ({
         alertaConfig: { verde: 30, amarelo: 15, vermelho: 0, permitirPopupVerde: false, permitirPopupAmarelo: true, permitirPopupVermelho: true, mensagemVerde: '', mensagemAmarelo: '', mensagemVermelho: '' }
       } as Control;
 
+      // Garantir que a estrutura moderna de cores/popups exista para o motor de alertas
       if (!mappedControl.cores) {
         mappedControl.cores = {
           verde: { condicao: 'Valor', operador: '>', valor: mappedControl.alertaConfig.verde || 30, habilitado: true },

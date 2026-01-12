@@ -69,7 +69,8 @@ export const useStore = create<AppState>((set, get) => ({
   refreshData: async (showFullLoading = false) => {
     if (showFullLoading) set({ loading: true });
     try {
-      const [bases, users, tasks, cats, controls, defLocs, defTrans, defCrit, defShelf, custTypes, custItems, monthly] = await Promise.all([
+      // Tipagem explícita para evitar inferência de tipo never nas desestruturações
+      const results = await Promise.all([
         baseService.getAll(),
         userService.getAll(),
         taskService.getAll(),
@@ -84,19 +85,21 @@ export const useStore = create<AppState>((set, get) => ({
         monthlyService.getAll()
       ]);
 
+      const [bases, users, tasks, cats, controls, defLocs, defTrans, defCrit, defShelf, custTypes, custItems, monthly] = results as [Base[], User[], Task[], Category[], Control[], DefaultLocationItem[], DefaultTransitItem[], DefaultCriticalItem[], ShelfLifeItem[], CustomControlType[], CustomControlItem[], MonthlyCollection[]];
+
       set({ 
-        bases: (bases as Base[]).filter(b => !b.deletada), 
-        users: (users as User[]).filter(u => !u.deletada), 
-        tasks: (tasks as Task[]).filter(t => !t.deletada), 
-        categories: (cats as Category[]).filter(c => !c.deletada), 
-        controls: controls as Control[], 
-        defaultLocations: (defLocs as DefaultLocationItem[]).filter(i => !i.deletada), 
-        defaultTransits: (defTrans as DefaultTransitItem[]).filter(i => !i.deletada), 
-        defaultCriticals: (defCrit as DefaultCriticalItem[]).filter(i => !i.deletada),
-        defaultShelfLifes: (defShelf as ShelfLifeItem[]).filter(i => !i.deletada),
-        customControlTypes: (custTypes as CustomControlType[]).filter(t => !t.deletada),
-        customControlItems: (custItems as CustomControlItem[]).filter(i => !i.deletada),
-        monthlyCollections: monthly as MonthlyCollection[],
+        bases: bases.filter(b => !b.deletada), 
+        users: users.filter(u => !u.deletada), 
+        tasks: tasks.filter(t => !t.deletada), 
+        categories: cats.filter(c => !c.deletada), 
+        controls: controls, 
+        defaultLocations: defLocs.filter(i => !i.deletada), 
+        defaultTransits: defTrans.filter(i => !i.deletada), 
+        defaultCriticals: defCrit.filter(i => !i.deletada),
+        defaultShelfLifes: defShelf.filter(i => !i.deletada),
+        customControlTypes: custTypes.filter(t => !t.deletada),
+        customControlItems: custItems.filter(i => !i.deletada),
+        monthlyCollections: monthly,
         initialized: true 
       });
     } finally {

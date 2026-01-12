@@ -1,5 +1,4 @@
 
-
 export enum PermissionLevel {
   ADMIN = 'ADMINISTRADOR',
   LIDER = 'LÍDER',
@@ -25,7 +24,6 @@ export interface Base {
   id: string;
   nome: string;
   sigla: string;
-  // Fix: Expand jornada type to include '07:12h' which is used in constants.ts for GRU base
   jornada: '6h' | '8h' | '12h' | '07:12h';
   numeroTurnos: number;
   turnos: Shift[];
@@ -39,23 +37,45 @@ export interface Base {
 
 export interface UsuarioBase {
   baseId: string;
-  nivelAcesso: 'OPERACIONAL' | 'ANALISTA' | 'LÍDER' | 'ADMINISTRADOR';
+  nivelAcesso: 'OPERACIONAL' | 'ANALISTA' | 'LÍDER' | 'ADMINISTRADOR' | string;
   dataCriacao: string;
   dataAtualizacao: string;
   ativo: boolean;
 }
 
+// Added missing PermissaoItem interface
+export interface PermissaoItem {
+  id: string;
+  nome: string;
+  descricao: string;
+  categoria: string;
+}
+
+// Added missing NivelAcessoCustomizado interface
+export interface NivelAcessoCustomizado {
+  id: string;
+  nome: string;
+  descricao: string;
+  tipo: 'PADRÃO' | 'CUSTOMIZADO';
+  ativo: boolean;
+  dataCriacao: string;
+  dataAtualizacao: string;
+  permissoes: Record<string, boolean>;
+}
+
+// Added missing Usuario interface
 export interface Usuario {
   id: string;
-  email: string;
-  senha: string;
   nome: string;
-  basesAssociadas: UsuarioBase[];
+  email: string;
+  senha?: string;
   ativo: boolean;
   dataCriacao: string;
   dataAtualizacao: string;
+  basesAssociadas: UsuarioBase[];
 }
 
+// Added missing UsuarioAutenticado interface
 export interface UsuarioAutenticado {
   id: string;
   email: string;
@@ -65,24 +85,6 @@ export interface UsuarioAutenticado {
   baseAtual: string;
 }
 
-export interface PermissaoItem {
-  id: string;
-  nome: string;
-  descricao: string;
-  categoria: string;
-}
-
-export interface NivelAcessoCustomizado {
-  id: string;
-  nome: string;
-  descricao: string;
-  tipo: 'PADRÃO' | 'CUSTOMIZADO';
-  permissoes: { [key: string]: boolean };
-  dataCriacao: string;
-  dataAtualizacao: string;
-  ativo: boolean;
-}
-
 export interface User {
   id: string;
   nome: string;
@@ -90,7 +92,8 @@ export interface User {
   loginRE?: string;
   bases: string[]; 
   permissao: PermissionLevel;
-  status: 'Ativo' | 'Inativo';
+  // Fixed typo: Inativa -> Inativo
+  status: 'Ativo' | 'Inativo'; 
   jornadaPadrao: number; 
   deletada?: boolean;
 }
@@ -241,6 +244,7 @@ export interface LocationRow {
   dataMaisAntigo: string;    
   isPadrao?: boolean;
   config?: any;
+  corBackground?: 'verde' | 'amarelo' | 'vermelho';
 }
 
 export interface TransitRow {
@@ -251,6 +255,7 @@ export interface TransitRow {
   dataSaida: string;         
   isPadrao?: boolean;
   config?: any;
+  corBackground?: 'verde' | 'amarelo' | 'vermelho';
 }
 
 export interface ShelfLifeRow {
@@ -260,6 +265,7 @@ export interface ShelfLifeRow {
   dataVencimento: string; 
   isPadrao?: boolean;
   config?: any;
+  corBackground?: 'verde' | 'amarelo' | 'vermelho';
 }
 
 export interface CriticalRow {
@@ -270,6 +276,7 @@ export interface CriticalRow {
   saldoFisico: number | null;  
   isPadrao?: boolean;
   config?: any;
+  corBackground?: 'verde' | 'amarelo' | 'vermelho';
 }
 
 export interface OutraAtividade {
@@ -298,54 +305,4 @@ export interface ShiftHandover {
   performance: number;
   CriadoEm: string;
   updatedAt: string;
-}
-
-export interface Indicator {
-  id: string;
-  baseId: string;
-  turno: string;
-  data: string;
-  totalHoras: number;
-  totalMinutos: number;
-  horasPorCategoria: {
-    categoryId: string;
-    categoryNome: string;
-    horas: number;
-    minutos: number;
-    percentual: number;
-  }[];
-  horasDisponivel: number;
-  horasProduzida: number;
-  percentualProdutividade: number;
-  distribuicaoTempo: {
-    categoryId: string;
-    categoryNome: string;
-    valor: number;
-  }[];
-  dataCriacao: string;
-}
-
-export interface Report {
-  id: string;
-  baseId: string;
-  turno: string;
-  data: string;
-  statusPreenchimento: 'completo' | 'incompleto' | 'pendente';
-  responsavel?: string;
-  resumoGeral: {
-    categoryId: string;
-    categoryNome: string;
-    totalHoras: number;
-    totalMinutos: number;
-  }[];
-  detalhamento: {
-    data: string;
-    turno: string;
-    colaborador: string;
-    categoryId: string;
-    categoryNome: string;
-    horas: number;
-    minutos: number;
-  }[];
-  dataCriacao: string;
 }

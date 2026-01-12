@@ -163,7 +163,10 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
   const [critical, setCritical] = useState<CriticalRow[]>([]);
   
   const [activeAlert, setActiveAlert] = useState<{titulo: string, mensagem: string, color: string} | null>(null);
-  const [confirmModal, setConfirmModal] = useState<{ open: boolean, title: string, message: string, onConfirm: () => void, onCancel?: () => void, type?: 'danger' | 'warning' | 'info' | 'success', confirmLabel?: string, cancelLabel?: string }>({ open: false, title: '', message: '', onConfirm: () => {} });
+  const [confirmModal, setConfirmModal] = useState<{ 
+    open: boolean, title: string, message: string, onConfirm: () => void, onCancel?: () => void, 
+    type?: 'danger' | 'warning' | 'info' | 'success', confirmLabel?: string, cancelLabel?: string 
+  }>({ open: false, title: '', message: '', onConfirm: () => {} });
   
   const [lastLocalUpdate, setLastLocalUpdate] = useState<number>(0);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
@@ -379,32 +382,32 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
       const activeStoreItems = getDefaultLocations(baseId);
       const filtered = prev.filter(p => !p.isPadrao || activeStoreItems.some(i => i.id === p.id));
       const toAdd = activeStoreItems.filter(i => !prev.some(p => p.id === i.id));
-      return [...filtered, ...toAdd.map(i => ({ id: i.id, nomeLocation: i.nomeLocation, quantidade: null, dataMaisAntigo: '', isPadrao: true, config: i, corBackground: 'verde' }))];
+      return [...filtered, ...toAdd.map(i => ({ id: i.id, nomeLocation: i.nomeLocation, quantidade: null, dataMaisAntigo: '', isPadrao: true, config: i, corBackground: 'verde' as const }))];
     });
 
     setTransit(prev => {
       const activeStoreItems = getDefaultTransits(baseId);
       const filtered = prev.filter(p => !p.isPadrao || activeStoreItems.some(i => i.id === p.id));
       const toAdd = activeStoreItems.filter(i => !prev.some(p => p.id === i.id));
-      return [...filtered, ...toAdd.map(i => ({ id: i.id, nomeTransito: i.nomeTransito, diasPadrao: i.diasPadrao, quantidade: null, dataSaida: '', isPadrao: true, config: i, corBackground: 'verde' }))];
+      return [...filtered, ...toAdd.map(i => ({ id: i.id, nomeTransito: i.nomeTransito, diasPadrao: i.diasPadrao, quantidade: null, dataSaida: '', isPadrao: true, config: i, corBackground: 'verde' as const }))];
     });
 
     setCritical(prev => {
       const activeStoreItems = getDefaultCriticals(baseId);
       const filtered = prev.filter(p => !p.isPadrao || activeStoreItems.some(i => i.id === p.id));
       const toAdd = activeStoreItems.filter(i => !prev.some(p => p.id === i.id));
-      return [...filtered, ...toAdd.map(i => ({ id: i.id, partNumber: i.partNumber, lote: '', saldoSistema: null, saldoFisico: null, isPadrao: true, config: i, corBackground: 'verde' }))];
+      return [...filtered, ...toAdd.map(i => ({ id: i.id, partNumber: i.partNumber, lote: '', saldoSistema: null, saldoFisico: null, isPadrao: true, config: i, corBackground: 'verde' as const }))];
     });
 
     setShelfLife(prev => {
       const activeStoreItems = getDefaultShelfLifes(baseId);
       const filtered = prev.filter(p => !p.isPadrao || activeStoreItems.some(i => i.id === p.id));
       const toAdd = activeStoreItems.filter(i => !prev.some(p => p.id === i.id));
-      const result = [...filtered, ...toAdd.map(i => ({ id: i.id, partNumber: i.partNumber, lote: '', dataVencimento: '', isPadrao: true, config: i, corBackground: 'verde' }))];
+      const result = [...filtered, ...toAdd.map(i => ({ id: i.id, partNumber: i.partNumber, lote: '', dataVencimento: '', isPadrao: true, config: i, corBackground: 'verde' as const }))];
       const manualRows = result.filter(r => !r.isPadrao);
       if (manualRows.length < 2) {
         const needed = 2 - manualRows.length;
-        for (let j = 0; j < needed; j++) result.push({ id: `manual-init-${Date.now()}-${j}`, partNumber: '', lote: '', dataVencimento: '', isPadrao: false, corBackground: 'verde' });
+        for (let j = 0; j < needed; j++) result.push({ id: `manual-init-${Date.now()}-${j}`, partNumber: '', lote: '', dataVencimento: '', isPadrao: false, corBackground: 'verde' as const });
       }
       return result;
     });
@@ -576,7 +579,24 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
       } 
     });
 
-    const handoverData: ShiftHandover = { id: editId || `sh_${Date.now()}`, baseId: baseId || '', data: dataOperacional, turnoId: turnoAtivo, colaboradores: colaboradoresIds, tarefasExecutadas: tarefasValores, nonRoutineTasks: nonRoutineTasks, locationsData: locations, transitData: transit, shelfLifeData: shelfLife, criticalData: critical, informacoesImportantes: obs, status: 'Finalizado', performance: performance, CriadoEm: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    const handoverData: ShiftHandover = { 
+      id: editId || `sh_${Date.now()}`, 
+      baseId: baseId || '', 
+      data: dataOperacional, 
+      turnoId: turnoAtivo, 
+      colaboradores: colaboradoresIds, 
+      tarefasExecutadas: tarefasValores, 
+      nonRoutineTasks: nonRoutineTasks, 
+      locationsData: locations, 
+      transitData: transit, 
+      shelfLifeData: shelfLife, 
+      criticalData: critical, 
+      informacoesImportantes: obs, 
+      status: 'Finalizado', 
+      performance: performance, 
+      CriadoEm: new Date().toISOString(), 
+      updatedAt: new Date().toISOString() 
+    };
     
     const validacao = validationService.validarPassagem(handoverData, opTasks, opCategories);
     const todosErros = [...validacao.camposPendentes, ...errosOutras];
@@ -601,18 +621,58 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
     }
     const { colaboradoresDuplicados } = await validationService.verificarColaboradoresEmOutrosTurnos(dataOperacional, turnoAtivo, baseId || '', colaboradoresIds, baseUsers);
     if (colaboradoresDuplicados.length > 0) {
-      setConfirmModal({ open: true, title: 'ATENÇÃO - COLABORADOR DUPLICADO', message: `Os colaboradores '${colaboradoresDuplicados.join(', ')}' já estão registrados em outro turno do dia ${dataOperacional}. Tem certeza que quer considerar o mesmo colaborador em 2 turnos diferentes no mesmo dia?`, type: 'warning', onConfirm: () => proceedToMigrate(handoverData), confirmLabel: 'Sim, Continuar', cancelLabel: 'Não, Cancelar' });
+      setConfirmModal({ 
+        open: true, 
+        title: 'ATENÇÃO - COLABORADOR DUPLICADO', 
+        message: `Os colaboradores '${colaboradoresDuplicados.join(', ')}' já estão registrados em outro turno do dia ${dataOperacional}. Tem certeza que quer considerar o mesmo colaborador em 2 turnos diferentes no mesmo dia?`, 
+        type: 'warning', 
+        onConfirm: () => proceedToMigrate(handoverData), 
+        confirmLabel: 'Sim, Continuar', 
+        cancelLabel: 'Não, Cancelar' 
+      });
       return;
     }
-    if (editId) { setConfirmModal({ open: true, title: 'CONFIRMAR ALTERAÇÃO', message: 'Tem certeza que quer alterar os dados desta passagem de serviço no histórico de relatórios?', type: 'warning', onConfirm: () => proceedToMigrate(handoverData), confirmLabel: 'Sim, Salvar Alterações', cancelLabel: 'Não, Cancelar' }); return; }
+    if (editId) { 
+      setConfirmModal({ 
+        open: true, 
+        title: 'CONFIRMAR ALTERAÇÃO', 
+        message: 'Tem certeza que quer alterar os dados desta passagem de serviço no histórico de relatórios?', 
+        type: 'warning', 
+        onConfirm: () => proceedToMigrate(handoverData), 
+        confirmLabel: 'Sim, Salvar Alterações', 
+        cancelLabel: 'Não, Cancelar' 
+      }); 
+      return; 
+    }
     proceedToMigrate(handoverData);
   };
 
   const proceedToMigrate = async (data: ShiftHandover) => {
     try {
       await migrationService.processarMigracao(data, store, editId || undefined);
-      setConfirmModal({ open: true, title: editId ? 'Alteração Salva com Sucesso!' : 'Passagem Finalizada com Sucesso!', message: editId ? 'As informações originais foram substituídas pelas novas no histórico.' : 'Seus dados foram migrados para Relatórios com sucesso. Notas e Controles foram preservados para o próximo turno.', type: 'success', confirmLabel: 'OK', cancelLabel: undefined, onConfirm: () => { if (editId) navigate('/reports'); else { resetCamposProducao(); setConfirmModal(prev => ({ ...prev, open: false })); window.scrollTo({ top: 0, behavior: 'smooth' }); } } });
-    } catch (error) { setActiveAlert({ titulo: "Erro ao Finalizar", mensagem: "Ocorreu um erro ao finalizar a passagem. Tente novamente.", color: "bg-red-700 dark:bg-red-800" }); }
+      setConfirmModal({ 
+        open: true, 
+        title: editId ? 'Alteração Salva com Sucesso!' : 'Passagem Finalizada com Sucesso!', 
+        message: editId ? 'As informações originais foram substituídas pelas novas no histórico.' : 'Seus dados foram migrados para Relatórios com sucesso. Notas e Controles foram preservados para o próximo turno.', 
+        type: 'success', 
+        confirmLabel: 'OK', 
+        cancelLabel: undefined, 
+        onConfirm: () => { 
+          if (editId) navigate('/reports'); 
+          else { 
+            resetCamposProducao(); 
+            setConfirmModal(prev => ({ ...prev, open: false })); 
+            window.scrollTo({ top: 0, behavior: 'smooth' }); 
+          } 
+        } 
+      });
+    } catch (error) { 
+      setActiveAlert({ 
+        titulo: "Erro ao Finalizar", 
+        mensagem: "Ocorreu um erro ao finalizar a passagem. Tente novamente.", 
+        color: "bg-red-700 dark:bg-red-800" 
+      }); 
+    }
   };
 
   const handleDynamicRowTaskChange = (rowId: string, taskName: string, catId: string) => {
@@ -671,8 +731,16 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
         </div>
       )}
 
-      {/* Fix: confirmLabel and cancelLabel must be accessed from confirmModal state object */}
-      <ConfirmModal isOpen={confirmModal.open} onClose={() => { if(confirmModal.onCancel) confirmModal.onCancel(); setConfirmModal({ ...confirmModal, open: false }); }} onConfirm={confirmModal.onConfirm} title={confirmModal.title} message={confirmModal.message} type={confirmModal.type} confirmLabel={confirmModal.confirmLabel} cancelLabel={confirmModal.cancelLabel} />
+      <ConfirmModal 
+        isOpen={confirmModal.open} 
+        onClose={() => { if(confirmModal.onCancel) confirmModal.onCancel(); setConfirmModal({ ...confirmModal, open: false }); }} 
+        onConfirm={confirmModal.onConfirm} 
+        title={confirmModal.title} 
+        message={confirmModal.message} 
+        type={confirmModal.type} 
+        confirmLabel={confirmModal.confirmLabel} 
+        cancelLabel={confirmModal.cancelLabel} 
+      />
 
       <header className="bg-white dark:bg-slate-800 p-8 rounded-[2.5rem] shadow-sm border border-gray-100 dark:border-slate-700 flex flex-col md:flex-row md:items-center justify-between gap-6">
          <div className="flex items-center space-x-6">
@@ -847,7 +915,7 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                                </Box>
                                {row.dataSaida && (row.quantidade !== 0 && row.quantidade !== null) && (
                                  <Typography sx={{ fontWeight: 800, fontSize: '14px', color: obterCorDoBackgroundEnvio(row), letterSpacing: '0.5px', whiteSpace: 'nowrap' }}>
-                                   <span className="opacity-40"> - </span> {getEnvioDisplayText(row.dataMaisAntigo)}
+                                   <span className="opacity-40"> - </span> {getEnvioDisplayText(row.dataSaida)}
                                  </Typography>
                                )}
                              </Box>

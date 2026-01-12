@@ -4,7 +4,7 @@ import {
   Base, User, Category, Task, Control, 
   DefaultLocationItem, DefaultTransitItem, DefaultCriticalItem,
   ShelfLifeItem, CustomControlType, CustomControlItem,
-  ShiftHandover, Indicator, Report, OutraAtividade, MonthlyCollection, MeasureType
+  ShiftHandover, MonthlyCollection, MeasureType
 } from './types';
 
 export const timeUtils = {
@@ -29,7 +29,7 @@ export const timeUtils = {
 
 export const baseService = {
   async getAll(): Promise<Base[]> {
-    const { data, error } = await supabase.from('bases').select('*').eq('status', 'Ativa');
+    const { data, error } = await supabase.from('bases').select('*');
     if (error) return [];
     return (data || []).map(b => ({
         id: b.id,
@@ -42,7 +42,8 @@ export const baseService = {
         metaVerde: b.meta_verde,
         metaAmarelo: b.meta_amarelo,
         metaVermelho: b.meta_vermelho,
-        metaHorasDisponiveisAno: b.meta_horas_ano
+        metaHorasDisponiveisAno: b.meta_horas_ano,
+        deletada: b.deletada
     }));
   },
   async obterMetaHoras(baseId: string, mes: number): Promise<number> {
@@ -87,11 +88,12 @@ export const baseService = {
         meta_verde: data.metaVerde,
         meta_amarelo: data.metaAmarelo,
         meta_vermelho: data.metaVermelho,
-        meta_horas_ano: data.metaHorasDisponiveisAno
+        meta_horas_ano: data.metaHorasDisponiveisAno,
+        deletada: data.deletada
     }).eq('id', id);
   },
   async delete(id: string): Promise<void> {
-    await supabase.from('bases').update({ status: 'Inativa' }).eq('id', id);
+    await supabase.from('bases').update({ deletada: true }).eq('id', id);
   }
 };
 
@@ -105,9 +107,10 @@ export const categoryService = {
         tipo: c.tipo,
         exibicao: c.exibicao,
         ordem: c.ordem,
-        status: 'Ativa',
+        status: c.status || 'Ativa',
         visivel: c.visivel,
-        baseId: c.base_id
+        baseId: c.base_id,
+        deletada: c.deletada
     }));
   },
   async create(data: Omit<Category, 'id'>): Promise<Category> {
@@ -128,11 +131,12 @@ export const categoryService = {
         nome: data.nome,
         exibicao: data.exibicao,
         ordem: data.ordem,
-        visivel: data.visivel
+        visivel: data.visivel,
+        deletada: data.deletada
     }).eq('id', id);
   },
   async delete(id: string): Promise<void> {
-    await supabase.from('categories').update({ visivel: false }).eq('id', id);
+    await supabase.from('categories').update({ deletada: true }).eq('id', id);
   }
 };
 
@@ -146,11 +150,12 @@ export const taskService = {
         nome: t.nome,
         tipoMedida: t.tipo_medida as MeasureType,
         fatorMultiplicador: t.fator_multiplicador,
-        obrigatoriedade: false,
-        status: 'Ativa',
+        obrigatoriedade: t.obrigatoriedade,
+        status: t.status || 'Ativa',
         visivel: t.visivel,
         ordem: t.ordem,
-        baseId: t.base_id
+        baseId: t.base_id,
+        deletada: t.deletada
     }));
   },
   async create(data: Omit<Task, 'id'>): Promise<Task> {
@@ -159,8 +164,8 @@ export const taskService = {
         id,
         categoria_id: data.categoriaId,
         nome: data.nome,
-        tipo_medida: data.tipo_medida,
-        fator_multiplicador: data.fator_multiplicador,
+        tipo_medida: data.tipoMedida,
+        fator_multiplicador: data.fatorMultiplicador,
         base_id: data.baseId,
         ordem: data.ordem,
         visivel: true
@@ -171,14 +176,15 @@ export const taskService = {
     await supabase.from('tasks').update({
         nome: data.nome,
         categoria_id: data.categoriaId,
-        tipo_medida: data.tipo_medida,
-        fator_multiplicador: data.fator_multiplicador,
+        tipo_medida: data.tipoMedida,
+        fator_multiplicador: data.fatorMultiplicador,
         ordem: data.ordem,
-        visivel: data.visivel
+        visivel: data.visivel,
+        deletada: data.deletada
     }).eq('id', id);
   },
   async delete(id: string): Promise<void> {
-    await supabase.from('tasks').update({ visivel: false }).eq('id', id);
+    await supabase.from('tasks').update({ deletada: true }).eq('id', id);
   }
 };
 
@@ -191,7 +197,6 @@ export const migrationService = {
         turno_id: handover.turnoId,
         colaboradores_ids: handover.colaboradores,
         tarefas_executadas: handover.tarefasExecutadas,
-        // Fix: nonRoutineTasks exists in ShiftHandover interface, replacing non_routine_tasks reference
         non_routine_tasks: handover.nonRoutineTasks,
         locations_data: handover.locationsData,
         transit_data: handover.transitData,

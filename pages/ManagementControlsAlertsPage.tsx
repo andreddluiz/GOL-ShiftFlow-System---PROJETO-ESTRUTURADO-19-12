@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Box, Truck, AlertOctagon, FlaskConical, Plus, Trash2, Edit2, Globe, MapPin, 
@@ -54,7 +53,6 @@ const ManagementControlsAlertsPage: React.FC = () => {
     refreshData();
   }, []);
 
-  // Mapeamento de abas para ControlTypes
   const tabToControlType: Record<string, string> = {
     'shelf': 'shelf_life',
     'loc': 'locations',
@@ -96,11 +94,9 @@ const ManagementControlsAlertsPage: React.FC = () => {
 
   const handleOpenGlobalConfig = () => {
     const controlType = tabToControlType[activeTab] || activeTab;
-    // Tenta encontrar o controle atual para o contexto (base ou global)
     const baseId = contextFilter === 'global' ? null : contextFilter;
     let config = allControls.find(c => c.tipo === controlType && c.baseId === baseId);
     
-    // Se não existir um controle específico para a base, criamos um mock baseado no global ou default
     if (!config) {
       config = {
         id: `global-${controlType}-${baseId || 'root'}`,
@@ -121,11 +117,7 @@ const ManagementControlsAlertsPage: React.FC = () => {
 
   const handleSaveGlobalConfig = async (updatedConfig: any) => {
     try {
-      // Aqui usamos o store para salvar o objeto Control
-      const { saveControl } = useStore.getState() as any; // Fallback se não estiver no types, mas podemos usar o controlService diretamente se necessário
-      // Como o useStore não tem saveControl explícito no hook, vamos usar o service
       const { controlService } = await import('../services');
-      
       const existing = allControls.find(c => c.id === updatedConfig.id);
       if (existing) {
         await controlService.update(updatedConfig.id, updatedConfig);

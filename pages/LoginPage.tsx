@@ -35,18 +35,15 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
     setErro('');
 
     try {
-      // Pequeno delay para UX
-      await new Promise(r => setTimeout(r, 800));
-      
-      const usuario = authService.fazerLogin({ email, senha });
+      const usuario = await authService.fazerLogin({ email, senha });
 
       if (usuario) {
         onLoginSuccess(usuario);
       } else {
-        setErro('Credenciais inválidas ou conta inativa.');
+        setErro('Credenciais inválidas ou conta inativa no Supabase.');
       }
     } catch (err) {
-      setErro('Ocorreu um erro ao tentar fazer login.');
+      setErro('Ocorreu um erro ao tentar conectar com o servidor.');
     } finally {
       setCarregando(false);
     }
@@ -70,7 +67,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
           <CardContent sx={{ p: 5 }}>
             <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 4 }}>
               <Box sx={{ 
-                w: 64, h: 64, 
                 bgcolor: '#FF5A00', 
                 borderRadius: 4, 
                 display: 'flex', 
@@ -170,10 +166,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
 
             <Box sx={{ mt: 5, p: 2, bgcolor: '#f9fafb', borderRadius: 4, textAlign: 'center' }}>
                <Typography variant="caption" sx={{ fontWeight: 800, color: '#9ca3af', textTransform: 'uppercase', display: 'block', mb: 1 }}>
-                 Credenciais de Demonstração
+                 Integração Supabase Cloud Ativa
                </Typography>
                <Typography variant="caption" sx={{ fontWeight: 700, color: '#4b5563', display: 'block' }}>
-                 Admin: <strong>admin@gol.com</strong> | senha: <strong>admin123</strong>
+                 Utilize credenciais cadastradas no seu projeto Supabase.
                </Typography>
             </Box>
           </CardContent>

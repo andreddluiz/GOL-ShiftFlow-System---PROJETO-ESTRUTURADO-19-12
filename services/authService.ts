@@ -1,4 +1,5 @@
 
+import { supabase } from '../supabaseClient';
 import { Usuario, UsuarioAutenticado, UsuarioBase } from '../types';
 
 export interface CredenciaisLogin {
@@ -7,168 +8,122 @@ export interface CredenciaisLogin {
 }
 
 class AuthService {
-  private chaveUsuariosUnificada = 'gol_shiftflow_users_v2';
   private chaveUsuarioAutenticado = 'gol_usuario_autenticado';
-  private chaveToken = 'gol_token_autenticacao';
 
-  constructor() {
-    this.inicializarUsuariosTeste();
-  }
-
-  private inicializarUsuariosTeste() {
-    const agora = new Date().toISOString();
-    const usuariosExistentes = this.obterTodosUsuariosBrutos();
+  async fazerLogin(credenciais: CredenciaisLogin): Promise<UsuarioAutenticado | null> {
+    console.log(`[Auth] Tentativa de login para: ${credenciais.email}`);
     
-    // Removido SDU do administrador padrão conforme solicitado
-    const usuariosTeste: any[] = [
-      {
-        id: 'u-admin', email: 'admin@gol.com', senha: 'admin123', nome: 'Administrador Geral',
-        status: 'Ativo', ativo: true, dataCriacao: agora, dataAtualizacao: agora, permissao: 'ADMINISTRADOR',
-        bases: ['poa', 'gru'],
-        basesAssociadas: [
-          { baseId: 'poa', nivelAcesso: 'ADMINISTRADOR', ativo: true, dataCriacao: agora, dataAtualizacao: agora },
-          { baseId: 'gru', nivelAcesso: 'ADMINISTRADOR', ativo: true, dataCriacao: agora, dataAtualizacao: agora }
-        ]
-      },
-      {
-        id: 'u-lider', email: 'lider.poa@gol.com', senha: 'lider123', nome: 'Líder POA',
-        status: 'Ativo', ativo: true, dataCriacao: agora, dataAtualizacao: agora, permissao: 'LÍDER',
-        bases: ['poa', 'gru'],
-        basesAssociadas: [
-          { baseId: 'poa', nivelAcesso: 'LÍDER', ativo: true, dataCriacao: agora, dataAtualizacao: agora },
-          { baseId: 'gru', nivelAcesso: 'OPERACIONAL', ativo: true, dataCriacao: agora, dataAtualizacao: agora }
-        ]
-      }
-    ];
-
-    let novosUsuarios = [...usuariosExistentes];
-    let alterou = false;
-
-    usuariosTeste.forEach(uTeste => {
-      const idx = usuariosExistentes.findIndex((u: any) => u.email === uTeste.email);
-      if (idx === -1) {
-        novosUsuarios.push(uTeste);
-        alterou = true;
-      } else if (uTeste.id === 'u-admin') {
-        // Forçar atualização do admin para remover SDU se já existir
-        const adminExistente = novosUsuarios[idx];
-        if (adminExistente.bases && adminExistente.bases.includes('sdu')) {
-            novosUsuarios[idx] = uTeste;
-            alterou = true;
-        }
-      }
-    });
-
-    if (alterou) {
-      localStorage.setItem(this.chaveUsuariosUnificada, JSON.stringify(novosUsuarios));
-    }
-  }
-
-  private obterTodosUsuariosBrutos(): any[] {
     try {
-      const data = localStorage.getItem(this.chaveUsuariosUnificada);
-      return data ? JSON.parse(data) : [];
-    } catch { return []; }
-  }
+      localStorage.removeItem(this.chaveUsuarioAutenticado);
 
-  fazerLogin(credenciais: CredenciaisLogin): UsuarioAutenticado | null {
-    try {
-      const usuarios = this.obterTodosUsuariosBrutos();
-      const usuario = usuarios.find(u => u.email === credenciais.email);
-      
-      if (!usuario || (usuario.senha !== credenciais.senha && usuario.password !== credenciais.senha)) return null;
-      if (usuario.status === 'Inativo') return null;
-
-      const usuarioProcessado = this.mapearParaUsuario(usuario);
-
-      let perfilMaior = 'OPERACIONAL';
-      const hierarquia = { OPERACIONAL: 0, ANALISTA: 1, LÍDER: 2, ADMINISTRADOR: 3 };
-
-      usuarioProcessado.basesAssociadas.forEach(base => {
-        const nivel = base.nivelAcesso as keyof typeof hierarquia;
-        if (hierarquia[nivel] > hierarquia[perfilMaior as keyof typeof hierarquia]) {
-          perfilMaior = base.nivelAcesso;
-        }
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email: credenciais.email,
+        password: credenciais.senha,
       });
 
+      if (authError || !authData.user) {
+        console.error('[Auth] Erro no login Supabase Auth:', authError?.message);
+        return null;
+      }
+
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', authData.user.id)
+        .single();
+
+      if (profileError || !profile) {
+        if (credenciais.email.toLowerCase() === 'admin@gol.com') {
+           return this.gerarSessaoMockAdmin(authData.user);
+        }
+        return null;
+      }
+
+      if (!profile.ativo) return null;
+
+      const perfilNormalizado = String(profile.perfil || 'OPERACIONAL').toUpperCase();
+
       const usuarioAutenticado: UsuarioAutenticado = {
-        id: usuarioProcessado.id,
-        email: usuarioProcessado.email,
-        nome: usuarioProcessado.nome,
-        perfil: perfilMaior,
-        basesAssociadas: usuarioProcessado.basesAssociadas,
-        baseAtual: usuarioProcessado.basesAssociadas[0]?.baseId || '',
+        id: profile.id,
+        email: profile.email,
+        nome: profile.nome,
+        perfil: perfilNormalizado,
+        basesAssociadas: profile.bases_associadas || [],
+        baseAtual: profile.bases_associadas?.[0]?.baseId || '',
       };
 
       localStorage.setItem(this.chaveUsuarioAutenticado, JSON.stringify(usuarioAutenticado));
-      localStorage.setItem(this.chaveToken, `token_${Date.now()}`);
-
       return usuarioAutenticado;
     } catch (error) {
       return null;
     }
   }
 
-  private mapearParaUsuario(u: any): Usuario {
-    if (u.basesAssociadas && u.basesAssociadas.length > 0) {
-      return u as Usuario;
+  /**
+   * Atualiza a senha do usuário atualmente autenticado (usado no fluxo de reset)
+   */
+  async redefinirSenha(novaSenha: string): Promise<{ success: boolean; message: string }> {
+    console.log('[Auth] Solicitando atualização de senha ao Supabase...');
+    try {
+      const { error } = await supabase.auth.updateUser({
+        password: novaSenha
+      });
+
+      if (error) {
+        console.error('[Auth] Erro ao atualizar senha:', error.message);
+        return { success: false, message: error.message };
+      }
+
+      console.log('[Auth] Senha atualizada com sucesso!');
+      // Desloga após reset para forçar novo login com a senha definitiva
+      await supabase.auth.signOut();
+      localStorage.removeItem(this.chaveUsuarioAutenticado);
+      
+      return { success: true, message: 'Senha redefinida com sucesso!' };
+    } catch (error: any) {
+      return { success: false, message: error.message || 'Erro inesperado.' };
     }
+  }
 
-    const agora = new Date().toISOString();
-    const basesIniciais: UsuarioBase[] = (u.bases || []).map((bId: string) => ({
-      baseId: bId,
-      nivelAcesso: (u.permissao || 'OPERACIONAL') as any,
-      ativo: true,
-      dataCriacao: agora,
-      dataAtualizacao: agora
-    }));
-
-    return {
-      id: u.id,
-      nome: u.nome,
-      email: u.email,
-      senha: u.senha || u.password || 'gol123',
-      ativo: u.status !== 'Inativo',
-      dataCriacao: u.dataCriacao || agora,
-      dataAtualizacao: agora,
-      basesAssociadas: basesIniciais.length > 0 ? basesIniciais : []
+  private gerarSessaoMockAdmin(user: any): UsuarioAutenticado {
+    const adminSessao: UsuarioAutenticado = {
+      id: user.id, email: user.email, nome: 'Administrador Mestre', perfil: 'ADMINISTRADOR',
+      basesAssociadas: [{ baseId: 'poa', nivelAcesso: 'ADMINISTRADOR', ativo: true, dataCriacao: '', dataAtualizacao: '' }],
+      baseAtual: 'poa'
     };
+    localStorage.setItem(this.chaveUsuarioAutenticado, JSON.stringify(adminSessao));
+    return adminSessao;
   }
 
   fazerLogout(): void {
+    supabase.auth.signOut();
     localStorage.removeItem(this.chaveUsuarioAutenticado);
-    localStorage.removeItem(this.chaveToken);
   }
 
   obterUsuarioAutenticado(): UsuarioAutenticado | null {
     try {
       const u = localStorage.getItem(this.chaveUsuarioAutenticado);
-      return u ? JSON.parse(u) : null;
+      if (!u) return null;
+      return JSON.parse(u);
     } catch { return null; }
   }
 
-  listarUsuarios(perfilCriador: string): Usuario[] {
-    const usuarios = this.obterTodosUsuariosBrutos();
-    return usuarios.map(u => this.mapearParaUsuario(u));
+  async listarUsuarios(perfilCriador: string): Promise<Usuario[]> {
+    const { data, error } = await supabase.from('profiles').select('*').order('nome');
+    if (error) return [];
+    return data.map(p => ({
+      id: p.id, nome: p.nome, email: p.email, senha: '***', ativo: p.ativo,
+      dataCriacao: p.created_at || p.dataCriacao, dataAtualizacao: p.updated_at || p.dataAtualizacao,
+      basesAssociadas: p.bases_associadas || []
+    }));
   }
 
-  atualizarUsuario(u: Usuario, perfilExecutor: string): boolean {
-    const usuarios = this.obterTodosUsuariosBrutos();
-    const index = usuarios.findIndex(usr => usr.id === u.id);
-    
-    if (index !== -1) {
-      const original = usuarios[index];
-      usuarios[index] = {
-        ...original,
-        ...u,
-        status: u.ativo ? 'Ativo' : 'Inativo',
-        bases: u.basesAssociadas.map(ba => ba.baseId),
-        dataAtualizacao: new Date().toISOString()
-      };
-      localStorage.setItem(this.chaveUsuariosUnificada, JSON.stringify(usuarios));
-      return true;
-    }
-    return false;
+  async atualizarUsuario(u: Usuario, perfilExecutor: string): Promise<boolean> {
+    const { error } = await supabase.from('profiles').update({
+        nome: u.nome, perfil: u.basesAssociadas[0]?.nivelAcesso || 'OPERACIONAL',
+        bases_associadas: u.basesAssociadas, ativo: u.ativo, updated_at: new Date().toISOString()
+      }).eq('id', u.id);
+    return !error;
   }
 }
 

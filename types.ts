@@ -1,4 +1,5 @@
 
+
 export enum PermissionLevel {
   ADMIN = 'ADMINISTRADOR',
   LIDER = 'LÍDER',
@@ -24,7 +25,8 @@ export interface Base {
   id: string;
   nome: string;
   sigla: string;
-  jornada: '6h' | '8h' | '12h';
+  // Fix: Expand jornada type to include '07:12h' which is used in constants.ts for GRU base
+  jornada: '6h' | '8h' | '12h' | '07:12h';
   numeroTurnos: number;
   turnos: Shift[];
   status: 'Ativa' | 'Inativa';

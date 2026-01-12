@@ -20,12 +20,16 @@ export const GerenciamentoUsuariosPage: React.FC<{ usuarioAutenticado: any }> = 
   const [dialogAberto, setDialogAberto] = useState(false);
   const [niveisDisponiveis, setNiveisDisponiveis] = useState<NivelAcesso[]>([]);
 
+  // Fix: Handle async Promise from listarUsuarios
   useEffect(() => {
-    const usuariosCarregados = authService.listarUsuarios(usuarioAutenticado.perfil);
-    setUsuarios(usuariosCarregados);
-    const basesCarregadas = dataIsolationService.obterDadosIsolados('ADMIN', 'bases') || [];
-    setBases(basesCarregadas);
-    if (basesCarregadas.length > 0) setBaseAtual(basesCarregadas[0].id);
+    const carregar = async () => {
+      const usuariosCarregados = await authService.listarUsuarios(usuarioAutenticado.perfil);
+      setUsuarios(usuariosCarregados);
+      const basesCarregadas = dataIsolationService.obterDadosIsolados('ADMIN', 'bases') || [];
+      setBases(basesCarregadas);
+      if (basesCarregadas.length > 0) setBaseAtual(basesCarregadas[0].id);
+    };
+    carregar();
   }, [usuarioAutenticado.perfil]);
 
   useEffect(() => {

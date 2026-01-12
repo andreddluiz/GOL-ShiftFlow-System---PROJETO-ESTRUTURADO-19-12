@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Plus, Trash2, Clock, MapPin, Shield, Info, AlertCircle, TrendingUp, Box as LucideBox, Truck, AlertOctagon, Calendar, Layers, Palette, Settings, AlertTriangle, CheckCircle2, Target, Lock, Globe } from 'lucide-react';
 import { 
@@ -30,7 +29,6 @@ import dayjs from 'dayjs';
 import customParseFormat from 'dayjs/plugin/customParseFormat';
 import 'dayjs/locale/pt-br';
 
-// Fix: Extend dayjs with customParseFormat plugin for string parsing
 dayjs.extend(customParseFormat);
 dayjs.locale('pt-br');
 
@@ -42,9 +40,6 @@ interface ModalProps {
   initialData?: any;
 }
 
-/**
- * CustomLabel para Recharts
- */
 export const CustomLabel: React.FC<{
   x?: number;
   y?: number;
@@ -93,9 +88,6 @@ export const CustomLabel: React.FC<{
   );
 };
 
-/**
- * Componente de Confirmação Customizado
- */
 export const ConfirmModal: React.FC<{
   isOpen: boolean;
   onClose: () => void;
@@ -165,9 +157,6 @@ export const ConfirmModal: React.FC<{
   );
 };
 
-/**
- * Utilitários de Tempo
- */
 export const hhmmssToMinutes = (hms: string): number => {
   if (!hms || hms === '00:00:00' || hms === '__:__:__') return 0;
   const cleanHms = hms.replace(/_/g, '0');
@@ -178,7 +167,7 @@ export const hhmmssToMinutes = (hms: string): number => {
   } else if (partes.length === 2) {
     return (partes[0] * 60) + partes[1];
   }
-  return partes[0] * 60;
+  return (partes[0] || 0) * 60;
 };
 
 export const minutesToHhmmss = (totalMinutes: number): string => {
@@ -192,9 +181,6 @@ export const minutesToHhmmss = (totalMinutes: number): string => {
   return `${hStr}:${pad(m)}:${pad(s)}`;
 };
 
-/**
- * TimeInput
- */
 export const TimeInput: React.FC<{
   value: string;
   onChange: (val: string) => void;
@@ -322,9 +308,6 @@ export const DatePickerField: React.FC<{
   );
 };
 
-/**
- * Modal para Itens de Controle
- */
 export const ControlItemModal: React.FC<ModalProps & { activeTab: string, customControlTypes: CustomControlType[] }> = ({ isOpen, onClose, onSave, title, initialData, activeTab, customControlTypes }) => {
   const [formData, setFormData] = useState<any>({});
   
@@ -895,7 +878,7 @@ export const ControlItemSettingsModal: React.FC<{ isOpen: boolean; onClose: () =
 
   const renderConfigSection = (level: 'verde' | 'amarelo' | 'vermelho', BirdColorClass: string) => (
     <div className={`space-y-5 animate-in fade-in slide-in-from-right-2 duration-200`}>
-       <div className={`p-4 rounded-2xl border-l-4 ${BirdColorClass} BirdColorClass bg-gray-50 flex justify-between items-center shadow-sm`}>
+       <div className={`p-4 rounded-2xl border-l-4 ${BirdColorClass} bg-gray-50 flex justify-between items-center shadow-sm`}>
           <div className="flex items-center space-x-3">
              <Palette className="w-5 h-5 text-gray-400" /> 
              <span className="font-black text-[10px] uppercase tracking-widest text-gray-600">Status do Nível {level.toUpperCase()}</span>
@@ -973,9 +956,9 @@ export const ControlItemSettingsModal: React.FC<{ isOpen: boolean; onClose: () =
           <button onClick={onClose} className="p-2 text-gray-300 hover:text-red-500 transition-colors bg-gray-50 rounded-xl"><X className="w-6 h-6" /></button>
         </div>
         <div className="px-8 pt-4 flex space-x-2 bg-white">
-           <TabSelector label="Verde" active={activeLevel === 'verde'} onClick={() => setActiveLevel('verde'} BirdColorClass="bg-green-500" activeText="text-green-600" activeBg="bg-green-50" />
-           <TabSelector label="Amarelo" active={activeLevel === 'amarelo'} onClick={() => setActiveLevel('amarelo'} BirdColorClass="bg-yellow-500" activeText="text-yellow-600" activeBg="bg-yellow-50" />
-           <TabSelector label="Vermelho" active={activeLevel === 'vermelho'} onClick={() => setActiveLevel('vermelho'} BirdColorClass="bg-red-500" activeText="text-red-600" activeBg="bg-red-50" />
+           <TabSelector label="Verde" active={activeLevel === 'verde'} onClick={() => setActiveLevel('verde')} BirdColorClass="bg-green-500" activeText="text-green-600" activeBg="bg-green-50" />
+           <TabSelector label="Amarelo" active={activeLevel === 'amarelo'} onClick={() => setActiveLevel('amarelo')} BirdColorClass="bg-yellow-500" activeText="text-yellow-600" activeBg="bg-yellow-50" />
+           <TabSelector label="Vermelho" active={activeLevel === 'vermelho'} onClick={() => setActiveLevel('vermelho')} BirdColorClass="bg-red-500" activeText="text-red-600" activeBg="bg-red-50" />
         </div>
         <div className="flex-1 overflow-y-auto p-8 pt-6 space-y-6 scrollbar-hide">
            {activeLevel === 'verde' && renderConfigSection('verde', 'border-green-500')}

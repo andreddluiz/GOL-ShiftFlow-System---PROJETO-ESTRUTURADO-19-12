@@ -13,8 +13,10 @@ class DataAccessControlService {
       return true;
     }
 
-    // Outros perfis dependem da associação ativa
-    return usuario.basesAssociadas.some(b => b.baseId === baseId && b.ativo);
+    // Outros perfis dependem da associação ativa (comparação insensível a case)
+    return usuario.basesAssociadas.some(
+      b => b.baseId.toLowerCase() === baseId.toLowerCase() && b.ativo
+    );
   }
 
   /**
@@ -24,12 +26,16 @@ class DataAccessControlService {
     if (!usuario) return [];
 
     if (usuario.perfil === 'ADMINISTRADOR') {
+      console.debug('[DataAccess] Admin detectado: liberando todas as bases.', todasAsBases.length);
       return todasAsBases;
     }
 
-    return todasAsBases.filter(base =>
-      usuario.basesAssociadas.some(b => b.baseId === base.id && b.ativo)
+    const acessiveis = todasAsBases.filter(base =>
+      usuario.basesAssociadas.some(b => b.baseId.toLowerCase() === base.id.toLowerCase() && b.ativo)
     );
+    
+    console.debug(`[DataAccess] Usuário ${usuario.perfil} filtrado: ${acessiveis.length} de ${todasAsBases.length} bases.`);
+    return acessiveis;
   }
 
   /**
@@ -38,12 +44,15 @@ class DataAccessControlService {
   validarBaseAtual(usuario: UsuarioAutenticado | null, baseIdDesejada: string): string {
     if (!usuario) return '';
 
-    if (this.podeAcessarBase(usuario, baseIdDesejada)) {
+    if (baseIdDesejada !== 'all' && this.podeAcessarBase(usuario, baseIdDesejada)) {
       return baseIdDesejada;
     }
 
-    const acessiveis = usuario.basesAssociadas.filter(b => b.ativo);
-    return acessiveis.length > 0 ? acessiveis[0].baseId : '';
+    const acessiveis = this.obterBasesAcessiveis(usuario, []); // Apenas para checar perfil
+    if (usuario.perfil === 'ADMINISTRADOR') return baseIdDesejada;
+
+    const disponiveis = usuario.basesAssociadas.filter(b => b.ativo);
+    return disponiveis.length > 0 ? disponiveis[0].baseId : '';
   }
 
   /**
@@ -53,8 +62,10 @@ class DataAccessControlService {
     if (!usuario) return [];
     if (usuario.perfil === 'ADMINISTRADOR') return dados;
 
-    const basesPermitidas = new Set(usuario.basesAssociadas.filter(b => b.ativo).map(b => b.baseId));
-    return dados.filter(item => basesPermitidas.has(item.baseId));
+    const basesPermitidas = new Set(
+      usuario.basesAssociadas.filter(b => b.ativo).map(b => b.baseId.toLowerCase())
+    );
+    return dados.filter(item => basesPermitidas.has(item.baseId?.toLowerCase()));
   }
 }
 

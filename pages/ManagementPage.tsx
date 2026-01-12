@@ -11,11 +11,12 @@ import {
   Grid, Card, CardContent, Button, Dialog, DialogTitle, DialogContent, DialogActions,
   Switch, Alert, FormControl, InputLabel, Select, MenuItem
 } from '@mui/material';
-import { Base, User, Category, Task, Usuario, NivelAcessoCustomizado, PermissaoItem } from '../types';
+import { Base, User, Category, Task, Usuario, NivelAcessoCustomizado, PermissaoItem, UsuarioBase } from '../types';
 import { 
   baseService, taskService, categoryService 
 } from '../services';
 import { authService } from '../services/authService';
+import { userManagementService } from '../services/userManagementService';
 import { permissaoCustomizavelService } from '../services/permissaoCustomizavelService';
 import { 
   BaseModal, UserModal, TaskModal, CategoryModal, ConfirmModal, minutesToHhmmss
@@ -37,8 +38,6 @@ const ManagementPage: React.FC = () => {
   } = useStore();
 
   const [usuariosUnificados, setUsuariosUnificados] = useState<Usuario[]>([]);
-
-  // Estados para Gestão de Permissões
   const [niveis, setNiveis] = useState<NivelAcessoCustomizado[]>([]);
   const [nivelSelecionado, setNivelSelecionado] = useState<NivelAcessoCustomizado | null>(null);
   const [dialogNovoPerfilAberto, setDialogNovoPerfilAberto] = useState(false);
@@ -61,7 +60,7 @@ const ManagementPage: React.FC = () => {
     title: string,
     message: string,
     onConfirm: () => void,
-    type?: 'danger' | 'warning' | 'info'
+    type?: 'danger' | 'warning' | 'info' | 'success'
   }>({
     open: false,
     title: '',
@@ -78,9 +77,9 @@ const ManagementPage: React.FC = () => {
     setTimeout(() => setSnackbar(prev => ({ ...prev, open: false })), 4000);
   };
 
-  const carregarUsuarios = () => {
+  const carregarUsuarios = async () => {
     const userLogado = authService.obterUsuarioAutenticado();
-    const data = authService.listarUsuarios(userLogado?.perfil || 'ADMINISTRADOR');
+    const data = await authService.listarUsuarios(userLogado?.perfil || 'ADMINISTRADOR');
     setUsuariosUnificados(data);
   };
 
@@ -99,53 +98,60 @@ const ManagementPage: React.FC = () => {
   const handleSave = async (formData: any) => {
     try {
       const { type, editingItem } = modalState;
-      // Define se o item é global ou de uma base específica baseado no seletor de contexto
       const baseId = managementContext === 'global' ? null : managementContext;
       const dataWithContext = { ...formData, baseId };
 
       if (type === 'bases') {
         if (editingItem) await baseService.update(editingItem.id, formData);
         else await baseService.create(formData);
-      } else if (type === 'users') {
+      } 
+      else if (type === 'users') {
         const userLogado = authService.obterUsuarioAutenticado();
+        
+        // Mapear bases do formulário para o formato UsuarioBase
+        const basesAssociadas: UsuarioBase[] = formData.bases.map((bId: string) => ({
+          baseId: bId,
+          nivelAcesso: formData.permissao,
+          ativo: formData.status === 'Ativo',
+          dataCriacao: new Date().toISOString(),
+          dataAtualizacao: new Date().toISOString()
+        }));
+
         if (editingItem) {
+          // Edição de usuário existente
           const userUnificado: Usuario = {
             ...editingItem,
-            ...formData,
-            basesAssociadas: formData.bases.map((bId: string) => ({
-              baseId: bId,
-              nivelAcesso: formData.permissao,
-              ativo: formData.status === 'Ativo',
-              dataCriacao: editingItem.dataCriacao || new Date().toISOString(),
-              dataAtualizacao: new Date().toISOString()
-            })),
-            ativo: formData.status === 'Ativo'
-          };
-          authService.atualizarUsuario(userUnificado, userLogado?.perfil || 'ADMINISTRADOR');
-        } else {
-          const novoUser: any = {
-            ...formData,
-            id: `u-${Date.now()}`,
-            basesAssociadas: formData.bases.map((bId: string) => ({
-              baseId: bId,
-              nivelAcesso: formData.permissao,
-              ativo: formData.status === 'Ativo',
-              dataCriacao: new Date().toISOString(),
-              dataAtualizacao: new Date().toISOString()
-            })),
+            nome: formData.nome,
+            email: formData.email,
+            basesAssociadas: basesAssociadas,
             ativo: formData.status === 'Ativo',
-            dataCriacao: new Date().toISOString()
+            dataAtualizacao: new Date().toISOString()
           };
-          const raw = localStorage.getItem('gol_shiftflow_users_v2');
-          const list = raw ? JSON.parse(raw) : [];
-          list.push(novoUser);
-          localStorage.setItem('gol_shiftflow_users_v2', JSON.stringify(list));
+          const ok = await authService.atualizarUsuario(userUnificado, userLogado?.perfil || 'ADMINISTRADOR');
+          if (!ok) throw new Error("Falha ao atualizar perfil no banco.");
+        } else {
+          // CRIAÇÃO DE NOVO USUÁRIO (SUPABASE AUTH + DB)
+          showSnackbar("Processando criação no Supabase...", "success");
+          
+          const result = await userManagementService.criarUsuarioSupabase(
+            formData.email,
+            formData.nome,
+            formData.permissao,
+            basesAssociadas
+          );
+
+          if (!result.sucess) {
+            showSnackbar(result.message, "error");
+            return;
+          }
         }
-        carregarUsuarios();
-      } else if (type === 'category_op' || type === 'category_month') {
+        await carregarUsuarios();
+      } 
+      else if (type === 'category_op' || type === 'category_month') {
         if (editingItem) await categoryService.update(editingItem.id, { ...dataWithContext, visivel: editingItem.visivel ?? true });
         else await categoryService.create({ ...dataWithContext, tipo: type === 'category_op' ? 'operacional' : 'mensal', visivel: true });
-      } else if (type === 'task_modal') {
+      } 
+      else if (type === 'task_modal') {
         if (editingItem?.id) {
            await taskService.update(editingItem.id, { ...dataWithContext, visivel: editingItem.visivel ?? true });
         } else {
@@ -156,9 +162,9 @@ const ManagementPage: React.FC = () => {
       showSnackbar('Dados salvos com sucesso!');
       setModalState({ ...modalState, open: false });
       await refreshData();
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      showSnackbar('Falha ao salvar os dados', 'error');
+      showSnackbar(e.message || 'Falha ao salvar os dados', 'error');
     }
   };
 
@@ -166,22 +172,25 @@ const ManagementPage: React.FC = () => {
     setConfirmModal({
       open: true,
       title: 'Remover Permanentemente',
-      message: `Deseja excluir "${currentItem?.nome || 'este item'}"?`,
+      message: `Deseja excluir "${currentItem?.nome || 'este item'}"? Esta ação não pode ser desfeita no banco de dados.`,
       type: 'danger',
       onConfirm: async () => {
         try {
           if (type === 'bases') await baseService.delete(id);
           else if (type === 'users') {
-             const raw = localStorage.getItem('gol_shiftflow_users_v2');
-             const list = raw ? JSON.parse(raw) : [];
-             const filtered = list.filter((u: any) => u.id !== id);
-             localStorage.setItem('gol_shiftflow_users_v2', JSON.stringify(filtered));
+             // O Supabase não permite deletar do Auth via Client SDK por segurança.
+             // Desativaremos o usuário no perfil.
+             const userLogado = authService.obterUsuarioAutenticado();
+             const uAlvo = usuariosUnificados.find(u => u.id === id);
+             if (uAlvo) {
+               await authService.atualizarUsuario({ ...uAlvo, ativo: false }, userLogado?.perfil || 'ADMINISTRADOR');
+             }
              carregarUsuarios();
           }
           else if (type.includes('category')) await categoryService.delete(id);
           else if (type === 'task_modal') await taskService.delete(id);
           
-          showSnackbar(`Item removido com sucesso`);
+          showSnackbar(`Item processado com sucesso`);
           await refreshData();
         } catch (e) {
           showSnackbar('Erro ao excluir item', 'error');
@@ -634,8 +643,6 @@ interface UsuariosTableProps {
   onEdit: (user: any) => void;
   onDelete: (userId: string) => void;
 }
-
-const formatJornada = (val: number) => minutesToHhmmss((val || 6) * 60);
 
 const UsersTable: React.FC<UsuariosTableProps> = ({ users, bases, onEdit, onDelete }) => {
   const [page, setPage] = useState(0);

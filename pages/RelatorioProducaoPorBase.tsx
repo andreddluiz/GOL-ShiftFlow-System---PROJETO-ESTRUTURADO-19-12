@@ -57,7 +57,6 @@ export const RelatorioProducaoPorBase: React.FC = () => {
   const [dadosMensais, setDadosMensais] = useState<any[]>([]);
   const [metasBase, setMetasBase] = useState<Record<string, number>>({});
 
-  // Filtragem de bases permitidas para o seletor
   const basesAcessiveis = useMemo(() => dataAccessControlService.obterBasesAcessiveis(usuario, bases), [usuario, bases]);
 
   useEffect(() => { if (!initialized) refreshData(); }, [initialized, refreshData]);
@@ -87,7 +86,6 @@ export const RelatorioProducaoPorBase: React.FC = () => {
       dadosDiarios.filter(d => {
         const parts = d.data.split('/');
         const dDate = dayjs(`${parts[2]}-${parts[1]}-01`);
-        // O dado já vem filtrado por permissão do useEffect anterior, aqui filtramos por seletor
         return basesFiltro.includes(d.baseId) && (dDate.isSame(startLimit) || dDate.isAfter(startLimit)) && (dDate.isSame(endLimit) || dDate.isBefore(endLimit));
       }).forEach(d => {
         const b = bases.find(base => base.id === d.baseId); if (!b) return;
@@ -229,7 +227,8 @@ export const RelatorioProducaoPorBase: React.FC = () => {
           <Card sx={{ borderRadius: 4, border: '1px solid #f3f4f6', boxShadow: 'none' }}>
             <CardContent>
               <Typography variant="subtitle2" sx={{ fontWeight: 900, mb: 4 }}>Composição da Produção (HH:MM:SS)</Typography>
-              <Box sx={{ height: 400 }}>
+              {/* FIXED: Wrapper div with inline style to prevent width(-1) and height(-1) */}
+              <div style={{ width: '100%', height: 400, minHeight: 400, minWidth: 0 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={dadosAtivos.map(d => ({ 
                     name: d.sigla, 
@@ -255,7 +254,7 @@ export const RelatorioProducaoPorBase: React.FC = () => {
                     <ReferenceLine x={metaMediaGeral} stroke="#ef4444" strokeDasharray="5 5" label={{ position: 'top', value: 'Meta Méd.', fill: '#ef4444', fontSize: 10, fontWeight: 900 }} />
                   </BarChart>
                 </ResponsiveContainer>
-              </Box>
+              </div>
             </CardContent>
           </Card>
         </Grid>
@@ -263,11 +262,12 @@ export const RelatorioProducaoPorBase: React.FC = () => {
           <Card sx={{ borderRadius: 4, border: '1px solid #f3f4f6', boxShadow: 'none' }}>
             <CardContent>
               <Typography variant="subtitle2" sx={{ fontWeight: 900, mb: 4 }}>Performance Real (%)</Typography>
-              <Box sx={{ height: 400 }}>
+              {/* FIXED: Wrapper div with inline style to prevent width(-1) and height(-1) */}
+              <div style={{ width: '100%', height: 400, minHeight: 400, minWidth: 0 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={dadosAtivos.map(d => ({ name: d.sigla, value: d.performance }))} margin={{ top: 30, right: 30, left: 0, bottom: 10 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                    <XAxis dataKey="name" axisLine={false} tickLine={false} style={{ fontSize: '10px', fontWeight: 900 }} />
+                    <XAxis dataKey="name" axisLine={false} tickLine={false} style={{ fontSize: '10px', fontWeight: 900, fill: '#64748b' }} />
                     <YAxis hide domain={[0, 120]} />
                     <Tooltip />
                     <Bar dataKey="value" radius={[4, 4, 0, 0]}>
@@ -277,7 +277,7 @@ export const RelatorioProducaoPorBase: React.FC = () => {
                     <ReferenceLine y={100} stroke="#10b981" strokeDasharray="3 3" />
                   </BarChart>
                 </ResponsiveContainer>
-              </Box>
+              </div>
             </CardContent>
           </Card>
         </Grid>
@@ -288,7 +288,7 @@ export const RelatorioProducaoPorBase: React.FC = () => {
 
 const ResumoCard: React.FC<{ title: string; value: string; sub?: string; icon: React.ReactNode }> = ({ title, value, sub, icon }) => (
   <Grid item xs={12} sm={4}>
-    <Card sx={{ borderRadius: 4, border: '1px solid #f3f4f6', boxShadow: 'none' }}>
+    <Card sx={{ borderRadius: 4, border: '1px solid #f3f4f6', boxShadow: 'none', height: '100%' }}>
       <CardContent sx={{ p: 3 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}><Typography variant="caption" sx={{ fontWeight: 950, textTransform: 'uppercase', color: '#9ca3af' }}>{title}</Typography><Box sx={{ p: 1, bgcolor: '#f9fafb', borderRadius: 2 }}>{icon}</Box></Box>
         <Typography variant="h5" sx={{ fontWeight: 950 }}>{value}</Typography>

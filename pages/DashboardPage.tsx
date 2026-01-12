@@ -69,7 +69,6 @@ const DashboardPage: React.FC<{baseId?: string}> = ({ baseId }) => {
   const [visaoGeralFiltro, setVisaoGeralFiltro] = useState<'todos' | 'categoria' | 'mes'>('todos');
   const [categoriasEvolucaoSelecionadas, setCategoriasEvolucaoSelecionadas] = useState<string[]>([]);
 
-  // Bases que o usuário pode visualizar de fato
   const basesAcessiveis = useMemo(() => dataAccessControlService.obterBasesAcessiveis(usuario, bases), [usuario, bases]);
 
   useEffect(() => {
@@ -99,11 +98,9 @@ const DashboardPage: React.FC<{baseId?: string}> = ({ baseId }) => {
     let dailyRecords = dailyRaw ? JSON.parse(dailyRaw) : [];
     let monthlyRecords = monthlyRaw ? JSON.parse(monthlyRaw) : [];
 
-    // Restrição de Acesso aos Dados: Filtra tudo que não é acessível ao usuário
     dailyRecords = dataAccessControlService.filtrarDadosPorPermissao(dailyRecords, usuario);
     monthlyRecords = dataAccessControlService.filtrarDadosPorPermissao(monthlyRecords, usuario);
 
-    // Filtro adicional por base selecionada no dropdown da página
     const baseParaFiltrar = baseSelecionadaFiltro;
     if (baseParaFiltrar && baseParaFiltrar !== 'all') { 
       dailyRecords = dailyRecords.filter((item: any) => item.baseId === baseParaFiltrar); 
@@ -298,7 +295,6 @@ const DashboardPage: React.FC<{baseId?: string}> = ({ baseId }) => {
         </div>
         
         <Box sx={{ display: 'flex', gap: 3, alignItems: 'center' }}>
-          {/* Seletor de Base Restrito */}
           <FormControl size="small" sx={{ minWidth: 200 }}>
             <InputLabel children="Selecionar Base" sx={{ fontWeight: 800, fontSize: '0.7rem' }} />
             <Select
@@ -394,7 +390,8 @@ const DashboardPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                 {(visaoGeralFiltro === 'todos' || visaoGeralFiltro === 'categoria') && (
                   <div className="bg-white p-8 rounded-[3rem] shadow-sm border border-gray-100 w-full animate-in fade-in slide-in-from-bottom-2">
                     <h3 className="text-xs font-black text-gray-400 mb-8 uppercase tracking-[0.2em] flex items-center gap-2"><Layers size={16} className="text-orange-500" /> Produção por Categoria (HH:MM:SS)</h3>
-                    <div className="h-[500px]">
+                    {/* FIXED: Wrapper div with inline style to prevent width(-1) and height(-1) */}
+                    <div style={{ width: '100%', height: 500, minHeight: 500, minWidth: 0 }}>
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={categoryChartData} layout="vertical" margin={{ top: 10, right: 100, left: 100, bottom: 10 }}>
                           <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
@@ -434,7 +431,8 @@ const DashboardPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                 {(visaoGeralFiltro === 'todos' || visaoGeralFiltro === 'mes') && (
                   <div className="bg-white p-8 rounded-[3rem] shadow-sm border border-gray-100 w-full animate-in fade-in slide-in-from-bottom-2">
                     <h3 className="text-xs font-black text-gray-400 mb-8 uppercase tracking-[0.2em] flex items-center gap-2"><Target size={16} className="text-blue-500" /> Detalhamento por Mês (HH:MM:SS)</h3>
-                    <div className="h-[500px]">
+                    {/* FIXED: Wrapper div with inline style to prevent width(-1) and height(-1) */}
+                    <div style={{ width: '100%', height: 500, minHeight: 500, minWidth: 0 }}>
                       <ResponsiveContainer width="100%" height="100%">
                         <AreaChart data={comparisonTrendData} margin={{ top: 20, right: 40, left: 0, bottom: 0 }}>
                           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
@@ -469,9 +467,6 @@ const DashboardPage: React.FC<{baseId?: string}> = ({ baseId }) => {
                       ))}
                     </Select>
                 </FormControl>
-                <Typography sx={{ fontSize: '0.65rem', fontWeight: 800, color: '#9ca3af', textTransform: 'uppercase', ml: 'auto' }}>
-                    Use o campo acima para selecionar um gráfico específico ou visualizar a estrutura completa.
-                </Typography>
               </Box>
 
               {dataFilter !== 'mensal' && taskDetailCharts.daily.length > 0 && (
@@ -522,7 +517,8 @@ const DashboardPage: React.FC<{baseId?: string}> = ({ baseId }) => {
             <div className="space-y-12">
               <div className="bg-white p-10 rounded-[3.5rem] shadow-sm border border-gray-100">
                 <h3 className="text-sm font-black text-gray-400 mb-10 uppercase tracking-[0.2em] flex items-center gap-3"><TrendingUp size={20} className="text-orange-500" /> Histórico Evolutivo Global (HH:MM:SS)</h3>
-                <div className="h-96">
+                {/* FIXED: Wrapper div with inline style to prevent width(-1) and height(-1) */}
+                <div style={{ width: '100%', height: 400, minHeight: 400, minWidth: 0 }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={comparisonTrendData} margin={{ top: 30, right: 30, left: 20, bottom: 10 }}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
@@ -625,7 +621,8 @@ const CategoryEvolutionChart: React.FC<{
           </div>
         </div>
       </div>
-      <div className="h-80">
+      {/* FIXED: Wrapper div with inline style to prevent width(-1) and height(-1) */}
+      <div style={{ width: '100%', height: 320, minHeight: 320, minWidth: 0 }}>
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={data} margin={{ top: 30, right: 30, left: 10, bottom: 10 }}>
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
@@ -662,11 +659,9 @@ const CategoryTaskChart: React.FC<{
             <p className="text-xl font-black text-gray-800 uppercase tracking-tight">{title}</p>
           </div>
         </div>
-        <div className="flex items-center gap-2 px-4 py-2 bg-orange-50 rounded-xl text-orange-600 font-black text-[10px] uppercase tracking-widest">
-           Análise por Tarefa
-        </div>
       </div>
-      <div style={{ height: `${chartHeight}px`, width: '100%' }}>
+      {/* FIXED: Wrapper div with inline style to prevent width(-1) and height(-1) */}
+      <div style={{ height: `${chartHeight}px`, width: '100%', minWidth: 0 }}>
         <ResponsiveContainer width="100%" height="100%">
           <BarChart 
             data={[...data].sort((a,b) => b.value - a.value)} 

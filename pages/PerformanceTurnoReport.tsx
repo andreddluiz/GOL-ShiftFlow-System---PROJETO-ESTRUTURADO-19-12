@@ -18,8 +18,6 @@ export const PerformanceTurnoReport: React.FC<{ baseId?: string }> = ({ baseId }
   const [exibirRotulos, setExibirRotulos] = useState(false);
   const [metaBase, setMetaBase] = useState<number>(160);
 
-  // Validação de acesso à base informada
-  // Fix: Corrected typo from dataAccessControlControlService to dataAccessControlService
   const isBasePermitida = useMemo(() => baseId ? dataAccessControlService.podeAcessarBase(usuario, baseId) : false, [usuario, baseId]);
 
   useEffect(() => { 
@@ -32,7 +30,6 @@ export const PerformanceTurnoReport: React.FC<{ baseId?: string }> = ({ baseId }
   const dadosBrutos = useMemo(() => { 
     const raw = localStorage.getItem('gol_rep_detalhamento'); 
     let parsed = raw ? JSON.parse(raw) : []; 
-    // Filtro de segurança baseado em permissão
     return dataAccessControlService.filtrarDadosPorPermissao(parsed, usuario);
   }, [usuario]);
 
@@ -96,19 +93,20 @@ export const PerformanceTurnoReport: React.FC<{ baseId?: string }> = ({ baseId }
           <Card sx={{ borderRadius: 4, border: '1px solid #f3f4f6', boxShadow: 'none' }}>
             <CardContent>
               <Typography variant="subtitle2" sx={{ fontWeight: 900, mb: 3 }}>Produção Real (HH:MM:SS)</Typography>
-              <Box sx={{ height: 350 }}>
+              {/* FIXED: Wrapper div with inline style to prevent width(-1) and height(-1) */}
+              <div style={{ width: '100%', height: 400, minHeight: 400, minWidth: 0 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={dadosProcessados.map(d => ({ name: d.label, prod: d.totalHoras/60 }))} margin={{ top: 30, right: 30, left: 0, bottom: 10 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                     <XAxis dataKey="name" axisLine={false} tickLine={false} style={{ fontSize: '10px', fontWeight: 800 }} />
-                    <YAxis axisLine={false} tickLine={false} style={{ fontSize: '10px' }} />
+                    <YAxis axisLine={false} tickLine={false} style={{ fontSize: '10px' }} hide />
                     <Tooltip formatter={(v: number) => minutesToHhmmss(v * 60)} />
                     <Bar name="Produção" dataKey="prod" fill="#FF5A00" radius={[4, 4, 0, 0]}>
                       <LabelList dataKey="prod" position="insideTop" content={<CustomLabel exibir={exibirRotulos} formato="horas" />} />
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
-              </Box>
+              </div>
             </CardContent>
           </Card>
         </Grid>

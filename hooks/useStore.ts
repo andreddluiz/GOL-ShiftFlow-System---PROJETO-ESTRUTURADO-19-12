@@ -3,7 +3,7 @@ import { create } from 'zustand';
 import { 
   Base, User, Category, Task, Control, ControlType,
   DefaultLocationItem, DefaultTransitItem, DefaultCriticalItem,
-  ShelfLifeItem, CustomControlType, CustomControlItem, ConditionConfig, PopupConfig,
+  ShelfLifeItem, CustomControlType, CustomControlItem,
   MonthlyCollection
 } from '../types';
 import { 
@@ -83,19 +83,20 @@ export const useStore = create<AppState>((set, get) => ({
         defaultItemsService.getCustomItems(),
         monthlyService.getAll()
       ]);
+
       set({ 
-        bases: bases.filter(b => !b.deletada), 
-        users: users.filter(u => !u.deletada), 
-        tasks: tasks.filter(t => !t.deletada), 
-        categories: cats.filter(c => !c.deletada), 
-        controls, 
-        defaultLocations: defLocs.filter(i => !i.deletada), 
-        defaultTransits: defTrans.filter(i => !i.deletada), 
-        defaultCriticals: defCrit.filter(i => !i.deletada),
-        defaultShelfLifes: defShelf.filter(i => !i.deletada),
-        customControlTypes: custTypes.filter(t => !t.deletada),
-        customControlItems: custItems.filter(i => !i.deletada),
-        monthlyCollections: monthly,
+        bases: (bases as Base[]).filter(b => !b.deletada), 
+        users: (users as User[]).filter(u => !u.deletada), 
+        tasks: (tasks as Task[]).filter(t => !t.deletada), 
+        categories: (cats as Category[]).filter(c => !c.deletada), 
+        controls: controls as Control[], 
+        defaultLocations: (defLocs as DefaultLocationItem[]).filter(i => !i.deletada), 
+        defaultTransits: (defTrans as DefaultTransitItem[]).filter(i => !i.deletada), 
+        defaultCriticals: (defCrit as DefaultCriticalItem[]).filter(i => !i.deletada),
+        defaultShelfLifes: (defShelf as ShelfLifeItem[]).filter(i => !i.deletada),
+        customControlTypes: (custTypes as CustomControlType[]).filter(t => !t.deletada),
+        customControlItems: (custItems as CustomControlItem[]).filter(i => !i.deletada),
+        monthlyCollections: monthly as MonthlyCollection[],
         initialized: true 
       });
     } finally {
@@ -184,7 +185,6 @@ export const useStore = create<AppState>((set, get) => ({
     const tipos: ControlType[] = ['locations', 'transito', 'shelf_life', 'itens_criticos'];
 
     return tipos.map(tipo => {
-      // Prioridade: Local da Base > Global > Mock Default
       const control = locais.find(l => l.tipo === tipo) || globais.find(g => g.tipo === tipo);
       
       const mappedControl = control ? { ...control } : {
@@ -198,7 +198,6 @@ export const useStore = create<AppState>((set, get) => ({
         alertaConfig: { verde: 30, amarelo: 15, vermelho: 0, permitirPopupVerde: false, permitirPopupAmarelo: true, permitirPopupVermelho: true, mensagemVerde: '', mensagemAmarelo: '', mensagemVermelho: '' }
       } as Control;
 
-      // Garantir que a estrutura moderna de cores/popups exista para o motor de alertas
       if (!mappedControl.cores) {
         mappedControl.cores = {
           verde: { condicao: 'Valor', operador: '>', valor: mappedControl.alertaConfig.verde || 30, habilitado: true },

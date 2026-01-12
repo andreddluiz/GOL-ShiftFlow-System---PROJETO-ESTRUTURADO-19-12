@@ -29,16 +29,8 @@ export const timeUtils = {
 
 export const baseService = {
   async getAll(): Promise<Base[]> {
-    console.debug('[Supabase] Buscando todas as bases...');
     const { data, error } = await supabase.from('bases').select('*').eq('status', 'Ativa');
-    
-    if (error) {
-      console.error('[Supabase] Erro ao buscar bases:', error.message);
-      return [];
-    }
-    
-    console.debug(`[Supabase] ${data?.length || 0} bases encontradas no banco.`);
-    
+    if (error) return [];
     return (data || []).map(b => ({
         id: b.id,
         nome: b.nome,
@@ -59,7 +51,6 @@ export const baseService = {
     const mesKey = String(mes).padStart(2, '0');
     return data.meta_horas_ano?.[mesKey] || 160;
   },
-  // Fix: Added missing obterMetasTodasAsBases method
   async obterMetasTodasAsBases(mes: number): Promise<Record<string, number>> {
     const { data, error } = await supabase.from('bases').select('id, meta_horas_ano');
     if (error || !data) return {};
@@ -72,7 +63,7 @@ export const baseService = {
   },
   async create(data: Omit<Base, 'id'>): Promise<Base> {
     const id = data.sigla.toLowerCase();
-    const payload = {
+    await supabase.from('bases').insert({
         id,
         nome: data.nome,
         sigla: data.sigla,
@@ -83,8 +74,7 @@ export const baseService = {
         meta_amarelo: data.metaAmarelo,
         meta_vermelho: data.metaVermelho,
         meta_horas_ano: data.metaHorasDisponiveisAno
-    };
-    await supabase.from('bases').insert(payload);
+    });
     return { ...data, id } as Base;
   },
   async update(id: string, data: Partial<Base>): Promise<void> {
@@ -141,7 +131,6 @@ export const categoryService = {
         visivel: data.visivel
     }).eq('id', id);
   },
-  // Fix: Added missing delete method
   async delete(id: string): Promise<void> {
     await supabase.from('categories').update({ visivel: false }).eq('id', id);
   }
@@ -170,21 +159,20 @@ export const taskService = {
         id,
         categoria_id: data.categoriaId,
         nome: data.nome,
-        tipo_medida: data.tipoMedida,
-        fator_multiplicador: data.fatorMultiplicador,
+        tipo_medida: data.tipo_medida,
+        fator_multiplicador: data.fator_multiplicador,
         base_id: data.baseId,
         ordem: data.ordem,
         visivel: true
     });
     return { ...data, id } as Task;
   },
-  // Fix: Added missing update method
   async update(id: string, data: Partial<Task>): Promise<void> {
     await supabase.from('tasks').update({
         nome: data.nome,
         categoria_id: data.categoriaId,
-        tipo_medida: data.tipoMedida,
-        fator_multiplicador: data.fatorMultiplicador,
+        tipo_medida: data.tipo_medida,
+        fator_multiplicador: data.fator_multiplicador,
         ordem: data.ordem,
         visivel: data.visivel
     }).eq('id', id);
@@ -203,6 +191,7 @@ export const migrationService = {
         turno_id: handover.turnoId,
         colaboradores_ids: handover.colaboradores,
         tarefas_executadas: handover.tarefasExecutadas,
+        // Fix: nonRoutineTasks exists in ShiftHandover interface, replacing non_routine_tasks reference
         non_routine_tasks: handover.nonRoutineTasks,
         locations_data: handover.locationsData,
         transit_data: handover.transitData,
@@ -212,19 +201,11 @@ export const migrationService = {
         status: handover.status,
         performance: handover.performance
     };
-
-    if (replaceId) {
-        await supabase.from('shift_handovers').update(payload).eq('id', replaceId);
-    } else {
-        await supabase.from('shift_handovers').insert(payload);
-    }
-    
-    // Atualizar dados de acompanhamento (Simulado via tabelas se necessário, ou recalculado dinamicamente nos reports)
-    console.debug('[Supabase] Migração de passagem de serviço concluída.');
+    if (replaceId) await supabase.from('shift_handovers').update(payload).eq('id', replaceId);
+    else await supabase.from('shift_handovers').insert(payload);
   }
 };
 
-// Fallbacks e outros serviços mantidos por simplicidade ou para implementação futura
 export const controlService = { async getAll(): Promise<Control[]> { return []; }, async create(d: any) { return d; }, async update(id: string, d: any) { }, async delete(id: string) { } };
 export const defaultItemsService = { 
     getLocations: async () => [], 
@@ -251,8 +232,7 @@ export const monthlyService = { async getAll(): Promise<MonthlyCollection[]> { r
 export const baseStatusService = { async saveBaseStatus(b: string, s: any) { }, async getBaseStatus(b: string) { return null; } };
 export const sharedDraftService = { async saveDraft(b: string, d: string, t: string, c: any) { }, async getDraft(b: string, d: string, t: string) { return null; }, async clearDraft(b: string, d: string, t: string) { } };
 export const validationService = {
-  validarPassagem: (h: any, t: any, c: any) => ({ valido: true, camposPendentes: [] }),
-  // Fix: Explicitly define return type to include optional message
+  validarPassagem: (h: any, t: any, c: any) => ({ valido: true, camposPendentes: [] as string[] }),
   validarPassagemDuplicada: async (d: string, t: string, b: string): Promise<{ valido: boolean; message?: string }> => ({ valido: true }),
-  verificarColaboradoresEmOutrosTurnos: async (d: string, t: string, b: string, c: any, u: any) => ({ colaboradoresDuplicados: [] })
+  verificarColaboradoresEmOutrosTurnos: async (d: string, t: string, b: string, c: any, u: any) => ({ colaboradoresDuplicados: [] as string[] })
 };

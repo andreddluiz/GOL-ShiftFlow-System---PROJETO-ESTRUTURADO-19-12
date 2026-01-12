@@ -4,7 +4,7 @@ import {
   CheckCircle, Trash2, Info, Users, Clock, AlertTriangle, ClipboardList,
   X, TrendingUp, Timer, MapPin, Box as BoxIcon, Truck, FlaskConical, AlertOctagon, Plane, Settings,
   Calendar, UserCheck, Activity, BarChart3, MessageSquare, PlusCircle,
-  Edit2, Hash, ChevronDown, CloudCheck, RefreshCw, Save, Lock
+  Edit2, Hash, ChevronDown, Cloud, RefreshCw, Save, Lock
 } from 'lucide-react';
 import { Box, Typography, Chip, CircularProgress } from '@mui/material';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -146,7 +146,7 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
 
   const activeControls = useMemo(() => getControlesCombinados(baseId || ''), [getControlesCombinados, baseId, allControls]);
 
-  // Estados da Passagem de Serviço
+  // Estados da Passagem de Serviço - Adicionado Tipagem Genérica para evitar 'never[]'
   const [status, setStatus] = useState<'Rascunho' | 'Finalizado'>('Rascunho');
   const [dataOperacional, setDataOperacional] = useState(new Date().toISOString().split('T')[0]);
   const [turnoAtivo, setTurnoAtivo] = useState('');
@@ -157,31 +157,27 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
   
   const [nonRoutineTasks, setNonRoutineTasks] = useState<OutraAtividade[]>([]);
   
-  const [locations, setLocations] = useState<any[]>([]);
-  const [transit, setTransit] = useState<any[]>([]);
-  const [shelfLife, setShelfLife] = useState<any[]>([]);
-  const [critical, setCritical] = useState<any[]>([]);
+  const [locations, setLocations] = useState<LocationRow[]>([]);
+  const [transit, setTransit] = useState<TransitRow[]>([]);
+  const [shelfLife, setShelfLife] = useState<ShelfLifeRow[]>([]);
+  const [critical, setCritical] = useState<CriticalRow[]>([]);
   
   const [activeAlert, setActiveAlert] = useState<{titulo: string, mensagem: string, color: string} | null>(null);
   const [confirmModal, setConfirmModal] = useState<{ open: boolean, title: string, message: string, onConfirm: () => void, onCancel?: () => void, type?: 'danger' | 'warning' | 'info' | 'success', confirmLabel?: string, cancelLabel?: string }>({ open: false, title: '', message: '', onConfirm: () => {} });
   
-  // Controle de Sincronia Multi-usuário e Auto-save
   const [lastLocalUpdate, setLastLocalUpdate] = useState<number>(0);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [statusSalvamento, setStatusSalvamento] = useState<'idle' | 'salvando' | 'salvo'>('idle');
 
   const isViewOnly = status === 'Finalizado' && !editId;
 
-  // Categorias e Tarefas Operacionais
   const opCategories = useMemo(() => allCats.filter(c => c.tipo === 'operacional' && c.status === 'Ativa' && c.visivel !== false && (!c.baseId || c.baseId === baseId)).sort((a,b) => a.ordem - b.ordem), [allCats, baseId]);
   const opTasks = useMemo(() => allTasks.filter(t => t.status === 'Ativa' && t.visivel !== false && (!t.baseId || t.baseId === baseId)), [allTasks, baseId]);
 
-  // Bloqueio de campos
   const isFormLocked = useMemo(() => {
     return !dataOperacional || !turnoAtivo || !colaboradoresIds.some(id => id !== null);
   }, [dataOperacional, turnoAtivo, colaboradoresIds]);
 
-  // Listener de teclado para fechar popups
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (activeAlert && (e.key === 'Enter' || e.key === 'Tab' || e.key === 'Escape')) {
@@ -193,7 +189,6 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
     return () => window.removeEventListener('keydown', handleKey);
   }, [activeAlert]);
 
-  // Avançar campos com Enter/Tab
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       const target = e.target as HTMLElement;
@@ -211,14 +206,10 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
     }
   };
 
-  // Carregar dados quando Data ou Turno mudam ou Base muda
   useEffect(() => {
     if (!baseId || editId) return;
 
     const loadSharedDraft = async () => {
-      console.debug(`[ShiftHandover] Carregando dados: Base=${baseId}`);
-      
-      // PERSISTÊNCIA DE SESSÃO: Tentar recuperar data/turno salvos localmente para esta base
       const sessionKey = `gol_active_session_${baseId}`;
       const savedSession = localStorage.getItem(sessionKey);
       let targetData = dataOperacional;
@@ -239,7 +230,6 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
       prevBaseIdRef.current = baseId;
 
       if (remote) {
-        console.debug(`[ShiftHandover] Rascunho de turno encontrado.`);
         setColaboradoresIds(remote.colaboradoresIds);
         setTarefasValores(remote.tarefasValores);
         setObs(remote.obs);
@@ -250,23 +240,19 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
         setCritical(remote.critical);
         setLastLocalUpdate(remote.updatedAt);
       } else {
-        console.debug(`[ShiftHandover] Turno limpo. Buscando dados persistentes da base.`);
         const bStatus = await baseStatusService.getBaseStatus(baseId);
         
-        // MANUTENÇÃO DE DADOS PERSISTENTES (Notas e Controles)
         if (bStatus) {
            setObs(bStatus.obs || '');
            setLocations(bStatus.locations || []);
            setTransit(bStatus.transit || []);
            setShelfLife(bStatus.shelfLife || []);
            setCritical(bStatus.critical || []);
-           console.debug(`[ShiftHandover] Observações mantidas: ${bStatus.obs?.length > 0}`);
         }
 
         if (isBaseChange) {
            resetCamposProducaoExceptTeam();
         } else {
-           // Apenas limpa a produção se for o mesmo dia/base mas turno novo
            setTarefasValores({});
            setNonRoutineTasks([]);
            setColaboradoresIds([null, null, null, null, null, null]);
@@ -276,14 +262,12 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
     loadSharedDraft();
   }, [baseId, dataOperacional, turnoAtivo, editId]);
 
-  // Salvar sessão ativa localmente para retorno rápido
   useEffect(() => {
     if (baseId && dataOperacional && turnoAtivo && !editId) {
       localStorage.setItem(`gol_active_session_${baseId}`, JSON.stringify({ data: dataOperacional, turno: turnoAtivo }));
     }
   }, [baseId, dataOperacional, turnoAtivo, editId]);
 
-  // Carregamento específico para Edição vindo do relatório
   useEffect(() => {
     if (editId) {
        const raw = localStorage.getItem('gol_rep_detalhamento');
@@ -291,7 +275,6 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
        const registro = registros.find((r: any) => r.id === editId);
        if (registro) {
           let dataFormatada = registro.data;
-          // Se a data do registro estiver no formato DD/MM/AAAA, converter para AAAA-MM-DD para o input HTML
           if (dataFormatada.includes('/')) {
              const [d, m, y] = dataFormatada.split('/');
              dataFormatada = `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
@@ -302,16 +285,15 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
           setTarefasValores(registro.tarefasExecutadas || {});
           setObs(registro.informacoesImportantes || registro.observacoes || '');
           setNonRoutineTasks(registro.nonRoutineTasks || registro.outrasTarefas || []);
-          setShelfLife(registro.shelfLifeData || registro.shelfLifeItems || []);
-          setLocations(registro.locationsData || registro.locationItems || []);
-          setTransit(registro.transitData || registro.transitItems || []);
-          setCritical(registro.criticalData || registro.criticosItems || []);
+          setShelfLife(registro.shelfLifeData || []);
+          setLocations(registro.locationsData || []);
+          setTransit(registro.transitData || []);
+          setCritical(registro.criticalData || []);
           setStatus('Rascunho');
        }
     }
   }, [editId]);
 
-  // Função para salvar dados manualmente ou via auto-save
   const salvarDadosInternal = useCallback(async () => {
     if (!baseId || !dataOperacional || !turnoAtivo || editId || status === 'Finalizado') return;
     
@@ -321,7 +303,6 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
     
     try {
       await sharedDraftService.saveDraft(baseId, dataOperacional, turnoAtivo, content);
-      // Salva o snapshot da base para persistência entre turnos e usuários
       await baseStatusService.saveBaseStatus(baseId, { obs, locations, transit, shelfLife, critical });
       setLastLocalUpdate(now);
       setStatusSalvamento('salvo');
@@ -337,7 +318,6 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
     if (initialized) autoSalvarComDebounce();
   }, [colaboradoresIds, tarefasValores, obs, nonRoutineTasks, locations, transit, shelfLife, critical, initialized]);
 
-  // Polling de sincronização
   useEffect(() => {
     if (!baseId || !dataOperacional || !turnoAtivo || editId || status === 'Finalizado') return;
 
@@ -362,7 +342,6 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
     return () => clearInterval(interval);
   }, [baseId, dataOperacional, turnoAtivo, lastLocalUpdate, editId, status]);
 
-  // Inicialização de tarefas dinâmicas - Ajustado conforme solicitação 3 para persistência em edição
   useEffect(() => {
     if (!initialized || !opCategories.length || isViewOnly) return;
     
@@ -372,10 +351,7 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
       
       opCategories.forEach(cat => {
         if (cat.exibicao === 'suspensa') {
-          // Conta quantas linhas já existem para esta categoria (carregadas por editId ou já presentes)
           const currentRowsForCat = newState.filter(t => t.categoriaId === cat.id);
-          
-          // Se tiver menos de 3 linhas, adiciona linhas vazias até completar o mínimo, garantindo persistência das existentes
           if (currentRowsForCat.length < 3) {
             changed = true;
             const needed = 3 - currentRowsForCat.length;
@@ -396,7 +372,6 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
     });
   }, [initialized, opCategories, isViewOnly]);
 
-  // GARANTIA DE ITENS PRÉ-CADASTRADOS SEMPRE VISÍVEIS
   useEffect(() => {
     if (!initialized || !baseId) return;
     
@@ -579,7 +554,6 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
   };
 
   const resetCamposProducaoExceptTeam = () => {
-    console.debug(`[ShiftHandover] Resetando campos de produção.`);
     setTarefasValores({});
     setNonRoutineTasks([]);
     setStatus('Rascunho');
@@ -587,20 +561,14 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
   };
 
   const resetCamposProducao = () => {
-    console.debug(`[ShiftHandover] Finalização concluída. Limpando apenas campos de produção.`);
     setTurnoAtivo('');
     setColaboradoresIds([null, null, null, null, null, null]);
     resetCamposProducaoExceptTeam();
-    // ✅ GARANTIA ABSOLUTA: Observações (obs) e Controles Diários (locations, etc) NÃO SÃO LIMPOS
-    console.debug(`[ShiftHandover] Observações mantidas: ${obs.length > 0}`);
-    console.debug(`[ShiftHandover] Controles mantidos para o próximo turno.`);
   };
 
   const handleFinalize = async () => {
-    console.debug(`[ShiftHandover] Finalizando passagem.`);
     const errosOutras: string[] = [];
     
-    // Validação estrita para categorias em formato SUSPENSO (Ajustado para permitir 0)
     nonRoutineTasks.forEach(t => { 
       if (t.nome.trim() !== '' && (t.tempo === undefined || t.tempo === null || t.tempo === '')) {
          const catName = opCategories.find(c => c.id === t.categoriaId)?.nome || 'Tarefas Adicionais';
@@ -643,7 +611,6 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
   const proceedToMigrate = async (data: ShiftHandover) => {
     try {
       await migrationService.processarMigracao(data, store, editId || undefined);
-      console.debug(`[ShiftHandover] Migração executada. Notas e Controles preservados na base.`);
       setConfirmModal({ open: true, title: editId ? 'Alteração Salva com Sucesso!' : 'Passagem Finalizada com Sucesso!', message: editId ? 'As informações originais foram substituídas pelas novas no histórico.' : 'Seus dados foram migrados para Relatórios com sucesso. Notas e Controles foram preservados para o próximo turno.', type: 'success', confirmLabel: 'OK', cancelLabel: undefined, onConfirm: () => { if (editId) navigate('/reports'); else { resetCamposProducao(); setConfirmModal(prev => ({ ...prev, open: false })); window.scrollTo({ top: 0, behavior: 'smooth' }); } } });
     } catch (error) { setActiveAlert({ titulo: "Erro ao Finalizar", mensagem: "Ocorreu um erro ao finalizar a passagem. Tente novamente.", color: "bg-red-700 dark:bg-red-800" }); }
   };
@@ -704,6 +671,7 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
         </div>
       )}
 
+      {/* Fix: confirmLabel and cancelLabel must be accessed from confirmModal state object */}
       <ConfirmModal isOpen={confirmModal.open} onClose={() => { if(confirmModal.onCancel) confirmModal.onCancel(); setConfirmModal({ ...confirmModal, open: false }); }} onConfirm={confirmModal.onConfirm} title={confirmModal.title} message={confirmModal.message} type={confirmModal.type} confirmLabel={confirmModal.confirmLabel} cancelLabel={confirmModal.cancelLabel} />
 
       <header className="bg-white dark:bg-slate-800 p-8 rounded-[2.5rem] shadow-sm border border-gray-100 dark:border-slate-700 flex flex-col md:flex-row md:items-center justify-between gap-6">
@@ -718,8 +686,8 @@ const ShiftHandoverPage: React.FC<{baseId?: string}> = ({ baseId }) => {
             <div className="flex flex-col items-end">
                <div className="flex items-center space-x-2 text-[10px] font-black uppercase tracking-widest text-gray-400 dark:text-slate-500">
                   {statusSalvamento === 'salvando' && <><RefreshCw className="w-3 h-3 animate-spin text-orange-500" /> <span>Salvando...</span></>}
-                  {statusSalvamento === 'salvo' && <><CloudCheck className="w-3 h-3 text-green-500" /> <span>Salvo</span></>}
-                  {statusSalvamento === 'idle' && <><CloudCheck className="w-3 h-3 text-gray-300" /> <span>Auto-save Isolado</span></>}
+                  {statusSalvamento === 'salvo' && <><Cloud className="w-3 h-3 text-green-500" /> <CheckCircle className="w-2.5 h-2.5 text-green-500" /> <span>Salvo</span></>}
+                  {statusSalvamento === 'idle' && <><Cloud className="w-3 h-3 text-gray-300" /> <span>Auto-save Isolado</span></>}
                </div>
                {lastLocalUpdate > 0 && <span className="text-[8px] font-bold text-gray-300 uppercase mt-0.5">Sincronizado: {new Date(lastLocalUpdate).toLocaleTimeString()}</span>}
             </div>
